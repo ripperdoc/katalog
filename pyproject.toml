@@ -1,0 +1,16 @@
+[project]
+name = "katalog"
+version = "0.1.0"
+description = "A pluggable digital asset catalog and management tool."
+authors = [
+    { name = "Martin", email = "ripperdoc@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0"
+]
+
+[tool.uv]
+# Optional: configuration for uv if needed
