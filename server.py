@@ -1,9 +1,10 @@
+
 from fastapi import FastAPI
-from client_localfs import LocalFSClient
+from utils import timestamp_to_utc
 from sqlmodel import SQLModel, Session, create_engine, select
 from models import FileRecord
-import datetime
-from sqlalchemy import delete
+import tomllib
+import importlib
 
 app = FastAPI()
 
@@ -13,31 +14,35 @@ engine = create_engine(DATABASE_URL, echo=False)
 # Create tables if they don't exist
 SQLModel.metadata.create_all(engine)
 
-@app.post("/scan/local")
-def scan_local_source(path: str):
-    # Overwrite all records in the table
+
+# Read sources from katalog.toml and scan all sources
+@app.post("/initialize")
+def initialize_sources():
+    with open("katalog.toml", "rb") as f:
+        config = tomllib.load(f)
+    sources = config.get("sources", [])
+    # Drop and recreate only the FileRecord table
+    from sqlmodel import SQLModel
+    table = SQLModel.metadata.tables.get("filerecord")
+    if table is not None:
+        table.drop(engine, checkfirst=True)
+        table.create(engine, checkfirst=True)
     with Session(engine) as session:
-        session.execute(delete(FileRecord))
-        session.commit()
-        client = LocalFSClient(path)
-        now = datetime.datetime.utcnow()
-        for file_info in client.scan():
-            if not file_info.get("path"):
-                continue
-            record = FileRecord(
-                path=str(file_info.get("path")),
-                size=file_info.get("size"),
-                mtime=file_info.get("mtime"),
-                ctime=file_info.get("ctime"),
-                is_file=file_info.get("is_file", True),
-                error=file_info.get("error"),
-                scanned_at=now
-            )
-            session.add(record)
+        for source in sources:
+            source_type = source.get("type")
+            if source_type == "localfs":
+                # Import the client dynamically (for plugin architecture)
+                module = importlib.import_module("client_localfs")
+                ClientClass = getattr(module, "FilesystemClient")
+                client = ClientClass(source["root_path"])
+                for record in client.scan(source_name="localfs", timestamp_to_utc=timestamp_to_utc):
+                    if not getattr(record, "path", None):
+                        continue
+                    session.add(record)
         session.commit()
     return {"status": "scan complete"}
 
-@app.get("/scan/local/list")
+@app.get("/list")
 def list_local_files():
     with Session(engine) as session:
         results = session.exec(select(FileRecord)).all()

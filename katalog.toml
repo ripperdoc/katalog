@@ -1,0 +1,6 @@
+# katalog.toml
+
+[[sources]]
+type = "localfs"
+root_path = "/Users/martin/Downloads"
+# In the future, more parameters can be added here, e.g. include/exclude rules, credentials, etc.
