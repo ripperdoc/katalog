@@ -1,4 +1,2 @@
 ### List files in /Users/martin/Downloads using FastAPI endpoint
-GET http://127.0.0.1:8000/scan/local/list?path=/Users/martin/Downloads HTTP/1.1
-Host: 127.0.0.1:8000
-Accept: application/json
+POST http://127.0.0.1:8000/scan/local?path=/Users/martin/Downloads HTTP/1.1

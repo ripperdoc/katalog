@@ -1,39 +1,47 @@
-from fastapi import FastAPI, BackgroundTasks
-from typing import List, Dict, Any, Optional
-from client_localfs import LocalFSClient  # changed to absolute import
-import uuid
+from fastapi import FastAPI
+from client_localfs import LocalFSClient
+from sqlmodel import SQLModel, Session, create_engine, select
+from models import FileRecord
+import datetime
+from sqlalchemy import delete
 
 app = FastAPI()
 
-# In-memory job store for demonstration
-jobs: Dict[str, Dict[str, Any]] = {}
+DATABASE_URL = "sqlite:///katalog.db"
+engine = create_engine(DATABASE_URL, echo=False)
 
-@app.get("/jobs/{job_id}")
-def get_job_status(job_id: str):
-    return jobs.get(job_id, {"status": "not found"})
+# Create tables if they don't exist
+SQLModel.metadata.create_all(engine)
 
 @app.post("/scan/local")
-def scan_local_source(
-    path: str,
-    background_tasks: BackgroundTasks
-):
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {"status": "pending", "results": []}
-    client = LocalFSClient(path)
-    def scan_job():
-        jobs[job_id]["status"] = "running"
-        results = []
+def scan_local_source(path: str):
+    # Overwrite all records in the table
+    with Session(engine) as session:
+        session.execute(delete(FileRecord))
+        session.commit()
+        client = LocalFSClient(path)
+        now = datetime.datetime.utcnow()
         for file_info in client.scan():
-            results.append(file_info)
-        jobs[job_id]["status"] = "done"
-        jobs[job_id]["results"] = results
-    background_tasks.add_task(scan_job)
-    return {"job_id": job_id}
+            if not file_info.get("path"):
+                continue
+            record = FileRecord(
+                path=str(file_info.get("path")),
+                size=file_info.get("size"),
+                mtime=file_info.get("mtime"),
+                ctime=file_info.get("ctime"),
+                is_file=file_info.get("is_file", True),
+                error=file_info.get("error"),
+                scanned_at=now
+            )
+            session.add(record)
+        session.commit()
+    return {"status": "scan complete"}
 
 @app.get("/scan/local/list")
-def list_local_files(path: str):
-    client = LocalFSClient(path)
-    return list(client.scan())
+def list_local_files():
+    with Session(engine) as session:
+        results = session.exec(select(FileRecord)).all()
+        return [r.model_dump() for r in results]
 
 if __name__ == "__main__":
     import uvicorn

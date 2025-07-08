@@ -41,9 +41,6 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# VS Code
-.vscode/
-
 # Environments
 .env
 .venv
@@ -64,6 +61,7 @@ pyrightconfig.json
 # Local files
 *.log
 *.sqlite3
+*.db
 
 
 # macOS
