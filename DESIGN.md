@@ -84,22 +84,25 @@ Source data model (for all clients):
 
 API (for all clients):
 - `init` - creates the connector from configuration
-- `getInfo` - statically returns information about the plugin, e.g. description, author, version
-- `canConnect` - checks if a given connector can connect to a URI identifier (e.g. file path)
-- `scan` - accesses the source to retrieve a stream of file information objects (async or generator)
-- `canConnect` - checks if a given connector can connect to a URI identifier, e.g. a file path, a hostname, etc and additional optional hints (e.g. device name). Called when the user provides a source that it wants to connect.
-- `connect` - 
+- `get_info` - statically returns information about the plugin, e.g. description, author, version
+- `can_connect` - checks if a given connector can connect to a URI identifier (e.g. file path)
 - `scan` - accesses the source to retrieve a stream of file information objects. May have internal state, e.g. the file database, that allows resumes or quick-rescans. The scan method should operate asynchronously, and return a stream of results as they come in (an async generator?).
 
 ### Processor
 
-A processor is a plugin which operators on a type of file found. There are multiple types of processors. A `Metadataprocessor` analyzes the file and provides additional metadata. A `VariantGenerator` creates variant files of an existing file, e.g. thumbnails.
+A processor is a plugin which operates on a FileRecord emitted by a SourceClient. There are multiple types of processors.
 
-Processors are associated with rules that look at file metadata, that tells when the processor should run, e.g. only on certain image formats.
+The basic approach is that for each FileRecord emitted, we go through the list of all processors that have been configured. First, we check if the processor SHOULD be run on this FileRecord. The implemented processor should define this through a function `should_run` that takes a FileRecord and returns a boolean. It may return false for two general reasons: that this processor is not applied to this file (e.g. wrong format) or because it has already run and the inputs haven't changed. The latter implies that there is a function to generate a cache key, built in the required inputs from FileRecord and the current version of the processor. If the cache key has changed, it would run, otherwise not.
 
-Processors can be arranged into a DAG, Direct Acyclic Graph, where processors can have dependencies to other processors before running. 
+If the processor should be run, we should post the job to a job manager (or just async tasks) that will run it. Once it is done, it should emit the result to the main server, which can commit the result to the database.
 
-Each processor has its own namespace and typically have its own table in the database, to store specific metadata.
+Note that we probably need a basic system for reactive variables here (e.g. like a spreadsheet or Redux reducers). It can also be described as a Directed Acyclic Graph. If one processor updates or creates a new metadata field, other processors should maybe now run because their `should_run` would now return true. Not sure how it should be implemented efficiently under the hood.
 
-To save time, we want to cache any output from a processor. That ensures that we only re-run processors when really needed, which is important for more expensive processors such as AI.
+An example could be like this:
+1. A SourceClient emits a set of FileRecords including content hashes
+2. If a content hash has updated, we should now run the MimeTypeProcessor
+3. If the MimeType was updated, and found to be an image, we should now run e.g. the ThumbnailGenerator and several other image processors
+
+If later, we rescan the source and just find updates to other metadata, the content hashes hasn't changed and there is no need to run the MimeTypeProcessor.
+
 

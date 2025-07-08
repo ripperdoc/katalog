@@ -1,10 +1,10 @@
-
-from fastapi import FastAPI
-from utils import timestamp_to_utc
+from fastapi import FastAPI, HTTPException
+from utils import timestamp_to_utc, sort_processors
 from sqlmodel import SQLModel, Session, create_engine, select
-from models import FileRecord
+from models import FileRecord, ProcessorResult
 import tomllib
 import importlib
+import datetime
 
 app = FastAPI()
 
@@ -39,6 +39,52 @@ def initialize_sources():
                     if not getattr(record, "path", None):
                         continue
                     session.add(record)
+        session.commit()
+        # Processing phase: import processors listed in TOML and order by dependencies
+        proc_cfgs = config.get("processors", [])
+        proc_map: dict[str, type] = {}
+        for proc in proc_cfgs:
+            mod_name = proc.get("module")
+            cls_name = proc.get("class")
+            try:
+                module = importlib.import_module(mod_name)
+                ProcCls = getattr(module, cls_name)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Cannot load processor {mod_name}.{cls_name}: {e}")
+            proc_map[ProcCls.name] = ProcCls
+        ordered = sort_processors(proc_map)
+        # fetch all files
+        files = session.exec(select(FileRecord)).all()
+        for record in files:
+            # load prior results for this file
+            prevs = {pr.processor: pr for pr in session.exec(
+                select(ProcessorResult).where(ProcessorResult.file_id == record.id)
+            ).all()}
+            for ProcCls in ordered:
+                proc = ProcCls()
+                prev = prevs.get(proc.name)
+                prev_cache = prev.cache_key if prev else None
+                if proc.should_run(record, prev_cache):
+                    out = proc.run(record)
+                    # update fields on FileRecord
+                    for k, v in out.items():
+                        setattr(record, k, v)
+                    session.add(record)
+                    # upsert ProcessorResult
+                    new_key = proc.cache_key(record)
+                    if prev:
+                        prev.cache_key = new_key
+                        prev.result = out
+                        prev.ran_at = datetime.datetime.utcnow()
+                        session.add(prev)
+                    else:
+                        pr = ProcessorResult(
+                            file_id=record.id,  # type: ignore
+                            processor=proc.name,
+                            cache_key=new_key,
+                            result=out
+                        )
+                        session.add(pr)
         session.commit()
     return {"status": "scan complete"}
 

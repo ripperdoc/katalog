@@ -1,17 +1,26 @@
 from sqlmodel import SQLModel, Field
-from typing import Optional
-import datetime
+from typing import Optional, Union
+import datetime as _dt
+from sqlalchemy import Column, JSON
 
 class FileRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     path: str
     source: str  # Named source, foreign key to a source table if needed
     size: Optional[int] = None
-    mtime: Optional[datetime.datetime] = None  # Unix timestamp
-    ctime: Optional[datetime.datetime] = None  # Unix timestamp
+    mtime: Optional[_dt.datetime] = None  # Unix timestamp
+    ctime: Optional[_dt.datetime] = None  # Unix timestamp
     error_message: Optional[str] = None
-    scanned_at: Optional[datetime.datetime] = None
+    scanned_at: Optional[_dt.datetime] = None
     mime_type: str | None = None
+ 
+class ProcessorResult(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    file_id: int = Field(foreign_key="filerecord.id", index=True)
+    processor: str
+    cache_key: str
+    result: Union[dict, list, None] = Field(sa_column=Column(JSON), default=None)
+    ran_at: _dt.datetime = Field(default_factory=_dt.datetime.utcnow)
 
     # asset_id: foreign key to an asset table. Many files record can point to the same asset.
     # version_of

@@ -3,4 +3,8 @@
 [[sources]]
 type = "localfs"
 root_path = "/Users/martin/Downloads"
+# List of processors to run (module path + class name)
+[[processors]]
+module = "processors.mime_type"
+class = "MimeTypeProcessor"
 # In the future, more parameters can be added here, e.g. include/exclude rules, credentials, etc.

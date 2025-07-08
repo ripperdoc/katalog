@@ -9,6 +9,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.110.0",
+    "python-magic>=0.4.27",
     "sqlmodel>=0.0.24",
     "uvicorn[standard]>=0.29.0",
 ]
