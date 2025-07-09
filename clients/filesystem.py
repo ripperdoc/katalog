@@ -1,16 +1,17 @@
-import os
-from typing import Dict, Any, Iterator
 import datetime
+import os
+from typing import Any, AsyncIterator, Dict, Iterator
 
 from clients.base import SourceClient
 from models import FileRecord
 from utils import timestamp_to_utc
 
+
 class FilesystemClient(SourceClient):
     """
     Client for accessing and listing files in a local file system source.
     """
-    def __init__(self, id: str, root_path: str):
+    def __init__(self, id: str, root_path: str, **kwargs):
         self.id = id
         self.root_path = root_path
 
@@ -24,7 +25,7 @@ class FilesystemClient(SourceClient):
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
 
-    def scan(self) -> Iterator[FileRecord]:
+    async def scan(self) -> AsyncIterator[FileRecord]:
         """
         Recursively scan the directory and yield FileRecord objects.
         """
@@ -38,8 +39,8 @@ class FilesystemClient(SourceClient):
                         path=full_path,
                         source=self.id,
                         size=stat.st_size,
-                        mtime=timestamp_to_utc(stat.st_mtime),
-                        ctime=timestamp_to_utc(stat.st_ctime),
+                        modified=timestamp_to_utc(stat.st_mtime),
+                        created=timestamp_to_utc(stat.st_ctime),
                         scanned_at=now
                     )
                 except Exception as e:

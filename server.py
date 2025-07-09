@@ -17,42 +17,48 @@ SQLModel.metadata.create_all(engine)
 
 # Read sources from katalog.toml and scan all sources
 @app.post("/initialize")
-def initialize_sources():
+async def initialize_sources():
     with open("katalog.toml", "rb") as f:
         config = tomllib.load(f)
     sources = config.get("sources", [])
+    source_map = {}
+    for source in sources:
+        id = source.get("id", None)
+        if not id:
+            raise ValueError(f"Source must have an 'id' field: {json.dumps(source)}")
+        SourceClass = import_client_class(source.get("class"))
+        client = SourceClass(**source)
+        if id in source_map:
+            raise ValueError(f"Duplicate source ID: {id}")
+        source_map[id] = client
+    
     processors = config.get("processors", [])
+    proc_map: dict[str, type] = {}
+    for proc in processors:
+        package_path = proc.get("class")
+        ProcessorClass = import_processor_class(package_path)
+        if package_path in proc_map:
+            raise ValueError(f"Duplicate processor class: {package_path}")
+        proc_map[package_path] = ProcessorClass
+    sorted_processors = sort_processors(proc_map)
+
     # Drop and recreate only the FileRecord table
-    from sqlmodel import SQLModel
-    table = SQLModel.metadata.tables.get("filerecord")
-    if table is not None:
-        table.drop(engine, checkfirst=True)
-        table.create(engine, checkfirst=True)
+    # table = SQLModel.metadata.tables.get("filerecord")
+    # if table is not None:
+    #     table.drop(engine, checkfirst=True)
+    #     table.create(engine, checkfirst=True)
+    SQLModel.metadata.drop_all(engine)
+    SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
-        source_map = {}
-        for source in sources:
-            id = source.get("id", None)
-            if not id:
-                raise ValueError(f"Source must have an 'id' field: {json.dumps(source)}")
-            SourceClass = import_client_class(source.get("class"))
-            client = SourceClass(**source)
-            if id in source_map:
-                raise ValueError(f"Duplicate source ID: {id}")
-            source_map[id] = client
-            for record in client.scan():
+        for client in source_map.values():
+            print(f"Scanning source: {client.id}")
+            async for record in client.scan():
                 session.add(record)
                 
         session.commit()
         
         # Processing phase: import processors listed in TOML and order by dependencies
-        proc_map: dict[str, type] = {}
-        for proc in processors:
-            package_path = proc.get("class")
-            ProcessorClass = import_processor_class(package_path)
-            if package_path in proc_map:
-                raise ValueError(f"Duplicate processor class: {package_path}")
-            proc_map[package_path] = ProcessorClass
-        ordered = sort_processors(proc_map)
+
         # fetch all files
         files = session.exec(select(FileRecord)).all()
         for record in files:
@@ -60,7 +66,7 @@ def initialize_sources():
             prevs = {pr.processor_id: pr for pr in session.exec(
                 select(ProcessorResult).where(ProcessorResult.file_id == record.id)
             ).all()}
-            for proc_id, ProcessorClass in ordered:
+            for proc_id, ProcessorClass in sorted_processors:
                 processor = ProcessorClass()
                 prev = prevs.get(proc_id)
                 prev_cache = prev.cache_key if prev else None

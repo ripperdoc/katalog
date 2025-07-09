@@ -1,4 +1,4 @@
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator
 
 from models import FileRecord
 
@@ -16,8 +16,9 @@ class SourceClient:
         """Check if the client can connect to the given URI."""
         raise NotImplementedError()
 
-    def scan(self) -> Iterator[FileRecord]:
+    async def scan(self) -> AsyncIterator[FileRecord]:
         """
         Scan the source and yields FileRecord objects.
         """
-        raise NotImplementedError()
+        if False:
+            yield  # This makes it an async generator

@@ -8,7 +8,7 @@ class MD5HashProcessor(Processor):
 
     def cache_key(self, record: FileRecord) -> str:
         size = record.size or 0
-        mtime_str = record.mtime.isoformat() if record.mtime else ""
+        mtime_str = record.modified.isoformat() if record.modified else ""
         return f"{size}-{mtime_str}-v1"
 
     def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:

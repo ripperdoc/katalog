@@ -9,6 +9,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.110.0",
+    "google-api-python-client>=2.176.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.2",
     "python-magic>=0.4.27",
     "sqlmodel>=0.0.24",
     "uvicorn[standard]>=0.29.0",

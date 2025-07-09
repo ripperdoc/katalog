@@ -69,3 +69,7 @@ pyrightconfig.json
 
 # System
 Thumbs.db
+
+# Google credentials
+credentials.json
+token.json

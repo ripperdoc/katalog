@@ -1,11 +1,15 @@
 # katalog.toml
 
-[[sources]]
-class = "clients.filesystem.FilesystemClient"
-id = "downloads"
-root_path = "/Users/martin/Downloads"
 # In the future, more parameters can be added here, e.g. include/exclude rules, credentials, etc.
+# [[sources]]
+# class = "clients.filesystem.FilesystemClient"
+# id = "downloads"
+# root_path = "/Users/martin/Downloads"
+
+[[sources]]
+class = "clients.googledrive.GoogleDriveClient"
+id = "gdrive"
 
 # List of processors to run (module path + class name)
 [[processors]]
-name = "processors.mime_type.MimeTypeProcessor"
+class = "processors.mime_type.MimeTypeProcessor"

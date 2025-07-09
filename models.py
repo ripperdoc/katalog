@@ -1,24 +1,24 @@
-from pydantic import ConfigDict
-from sqlmodel import SQLModel, Field
-from typing import Optional
 import datetime as _dt
+from typing import Optional
+
+from sqlmodel import Field, SQLModel
+
 
 class FileRecord(SQLModel, table=True):
     
     id: Optional[int] = Field(default=None, primary_key=True)
     path: str
     source: str  # Named source, foreign key to a source table if needed
+    filename: Optional[str] = None
     size: Optional[int] = None
-    mtime: Optional[_dt.datetime] = None  # Unix timestamp
-    ctime: Optional[_dt.datetime] = None  # Unix timestamp
+    modified: Optional[_dt.datetime] = None  # Unix timestamp
+    created: Optional[_dt.datetime] = None  # Unix timestamp
     error_message: Optional[str] = None
     scanned_at: Optional[_dt.datetime] = None
     mime_type: str | None = None
     md5: str | None = None
 
-    model_config = ConfigDict(frozen=True) # type: ignore
-
- 
+    # TODO other content hashes can be sha1 and sha256, usefuf if several clodu services prefer that
 
     # asset_id: foreign key to an asset table. Many files record can point to the same asset.
     # version_of
@@ -27,11 +27,7 @@ class FileRecord(SQLModel, table=True):
     # source_status: found, error, missing, new, deleted, moved
     # flag_review, flag_delete, flag_favorite, flag_hide
 
-    # Content Hashes
-    # Only one is required, but for easy comparison across cloud service we should probably calculate all
-    # md5
-    # sha1
-    # sha256
+
 
     # Content fingerprints
     # Used for similarity and deduplication

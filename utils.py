@@ -1,26 +1,27 @@
-import datetime
+from datetime import datetime, timezone
 import importlib
+from typing import Optional
 from processors.base import Processor
 from clients.base import SourceClient
 
 def import_processor_class(package_path: str) -> type[Processor]:
-    module_name, class_name = package_path.rsplit('.')
-    module = importlib.import_module(module_name)
-    ProcessorClass = getattr(module, class_name)
+    parts = package_path.rsplit('.', 1)
+    module = importlib.import_module(parts[0])
+    ProcessorClass = getattr(module, parts[1])
     return ProcessorClass
 
 
 def import_client_class(package_path: str) -> type[SourceClient]:
-    module_name, class_name = package_path.rsplit('.')
-    module = importlib.import_module(module_name)
-    ClientClass = getattr(module, class_name)
+    parts = package_path.rsplit('.', 1)
+    module = importlib.import_module(parts[0])
+    ClientClass = getattr(module, parts[1])
     return ClientClass
 
 
-def timestamp_to_utc(ts: float | None) -> datetime.datetime | None:
+def timestamp_to_utc(ts: float | None) -> datetime | None:
     if ts is None:
         return None
-    return datetime.datetime.utcfromtimestamp(ts)
+    return datetime.utcfromtimestamp(ts)
 
 def sort_processors(proc_map: dict[str, type[Processor]]) -> list[tuple[str, type[Processor]]]:
     """
@@ -51,3 +52,20 @@ def sort_processors(proc_map: dict[str, type[Processor]]) -> list[tuple[str, typ
             for other in deps.values():
                 other.discard(n)
     return sorted_list
+
+def parse_google_drive_datetime(dt_str: Optional[str]) -> Optional[datetime]:
+    """
+    Parse a Google Drive ISO8601 date string (e.g. '2017-10-24T15:01:04.000Z') to a Python datetime (UTC).
+    Returns None if input is None or invalid.
+    """
+    if not dt_str:
+        return None
+    try:
+        # Google returns ISO8601 with 'Z' for UTC
+        return datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        try:
+            # Fallback: sometimes no microseconds
+            return datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
