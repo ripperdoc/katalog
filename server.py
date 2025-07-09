@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException
-from utils import timestamp_to_utc, sort_processors
+import json
+from fastapi import FastAPI
+from utils import sort_processors, import_client_class, import_processor_class
 from sqlmodel import SQLModel, Session, create_engine, select
 from models import FileRecord, ProcessorResult
 import tomllib
-import importlib
 import datetime
 
 app = FastAPI()
@@ -21,6 +21,7 @@ def initialize_sources():
     with open("katalog.toml", "rb") as f:
         config = tomllib.load(f)
     sources = config.get("sources", [])
+    processors = config.get("processors", [])
     # Drop and recreate only the FileRecord table
     from sqlmodel import SQLModel
     table = SQLModel.metadata.tables.get("filerecord")
@@ -28,61 +29,55 @@ def initialize_sources():
         table.drop(engine, checkfirst=True)
         table.create(engine, checkfirst=True)
     with Session(engine) as session:
+        source_map = {}
         for source in sources:
-            source_type = source.get("type")
-            if source_type == "localfs":
-                # Import the client dynamically (for plugin architecture)
-                module = importlib.import_module("client_localfs")
-                ClientClass = getattr(module, "FilesystemClient")
-                client = ClientClass(source["root_path"])
-                for record in client.scan(source_name="localfs", timestamp_to_utc=timestamp_to_utc):
-                    if not getattr(record, "path", None):
-                        continue
-                    session.add(record)
+            id = source.get("id", None)
+            if not id:
+                raise ValueError(f"Source must have an 'id' field: {json.dumps(source)}")
+            SourceClass = import_client_class(source.get("class"))
+            client = SourceClass(**source)
+            if id in source_map:
+                raise ValueError(f"Duplicate source ID: {id}")
+            source_map[id] = client
+            for record in client.scan():
+                session.add(record)
+                
         session.commit()
+        
         # Processing phase: import processors listed in TOML and order by dependencies
-        proc_cfgs = config.get("processors", [])
         proc_map: dict[str, type] = {}
-        for proc in proc_cfgs:
-            mod_name = proc.get("module")
-            cls_name = proc.get("class")
-            try:
-                module = importlib.import_module(mod_name)
-                ProcCls = getattr(module, cls_name)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Cannot load processor {mod_name}.{cls_name}: {e}")
-            proc_map[ProcCls.name] = ProcCls
+        for proc in processors:
+            package_path = proc.get("class")
+            ProcessorClass = import_processor_class(package_path)
+            if package_path in proc_map:
+                raise ValueError(f"Duplicate processor class: {package_path}")
+            proc_map[package_path] = ProcessorClass
         ordered = sort_processors(proc_map)
         # fetch all files
         files = session.exec(select(FileRecord)).all()
         for record in files:
             # load prior results for this file
-            prevs = {pr.processor: pr for pr in session.exec(
+            prevs = {pr.processor_id: pr for pr in session.exec(
                 select(ProcessorResult).where(ProcessorResult.file_id == record.id)
             ).all()}
-            for ProcCls in ordered:
-                proc = ProcCls()
-                prev = prevs.get(proc.name)
+            for proc_id, ProcessorClass in ordered:
+                processor = ProcessorClass()
+                prev = prevs.get(proc_id)
                 prev_cache = prev.cache_key if prev else None
-                if proc.should_run(record, prev_cache):
-                    out = proc.run(record)
-                    # update fields on FileRecord
-                    for k, v in out.items():
-                        setattr(record, k, v)
-                    session.add(record)
+                if processor.should_run(record, prev_cache):
+                    new_record = processor.run(record)
+                    session.add(new_record)
                     # upsert ProcessorResult
-                    new_key = proc.cache_key(record)
+                    new_key = processor.cache_key(record)
                     if prev:
                         prev.cache_key = new_key
-                        prev.result = out
                         prev.ran_at = datetime.datetime.utcnow()
                         session.add(prev)
                     else:
                         pr = ProcessorResult(
                             file_id=record.id,  # type: ignore
-                            processor=proc.name,
+                            processor_id=proc_id,
                             cache_key=new_key,
-                            result=out
                         )
                         session.add(pr)
         session.commit()

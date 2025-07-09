@@ -1,10 +1,11 @@
 # katalog.toml
 
 [[sources]]
-type = "localfs"
+class = "clients.filesystem.FilesystemClient"
+id = "downloads"
 root_path = "/Users/martin/Downloads"
+# In the future, more parameters can be added here, e.g. include/exclude rules, credentials, etc.
+
 # List of processors to run (module path + class name)
 [[processors]]
-module = "processors.mime_type"
-class = "MimeTypeProcessor"
-# In the future, more parameters can be added here, e.g. include/exclude rules, credentials, etc.
+name = "processors.mime_type.MimeTypeProcessor"

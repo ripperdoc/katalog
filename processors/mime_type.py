@@ -2,12 +2,9 @@ import magic
 from processors.base import Processor
 from models import FileRecord
 
-class MimeTypeProcessor:
-    name = "mime_type"
-    # depends on file size and mtime to detect changes
-    dependencies: list[str] = ["size", "mtime"]
-    # produces the mime_type field
-    outputs: list[str] = ["mime_type"]
+class MimeTypeProcessor(Processor):
+    dependencies = frozenset({"size", "mtime"})
+    outputs      = frozenset({"mime_type"})
 
     def cache_key(self, record: FileRecord) -> str:
         # include file size and mtime (if any) so changes trigger a rerun
@@ -18,7 +15,7 @@ class MimeTypeProcessor:
     def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
         return prev_cache != self.cache_key(record)
 
-    def run(self, record: FileRecord) -> dict:
+    def run(self, record: FileRecord) -> FileRecord:
         m = magic.Magic(mime=True)
         mt = m.from_file(record.path)
-        return {"mime_type": mt}
+        return record.model_copy(update={"mime_type": mt})
