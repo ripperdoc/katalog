@@ -50,6 +50,10 @@ class GoogleDriveClient(SourceClient):
             "author": "Katalog Team",
             "version": "0.1"
         }
+    
+    def get_accessor(self, record: FileRecord) -> Any:
+
+        return None
 
     async def scan(self) -> AsyncIterator[FileRecord]:
         """
@@ -76,8 +80,8 @@ class GoogleDriveClient(SourceClient):
                             filename=file.get('originalFilename', file.get('name', '')),
                             source=self.id,
                             size=int(file.get('size', 0)),
-                            modified=parse_google_drive_datetime(file.get('modifiedTime')),
-                            created=parse_google_drive_datetime(file.get('createdTime')),
+                            modified_at=parse_google_drive_datetime(file.get('modifiedTime')),
+                            created_at=parse_google_drive_datetime(file.get('createdTime')),
                             scanned_at=now,
                             mime_type=file.get('mimeType'),
                             md5=file.get('md5Checksum', None)

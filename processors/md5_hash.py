@@ -8,18 +8,29 @@ class MD5HashProcessor(Processor):
 
     def cache_key(self, record: FileRecord) -> str:
         size = record.size or 0
-        mtime_str = record.modified.isoformat() if record.modified else ""
+        mtime_str = record.modified_at.isoformat() if record.modified_at else ""
         return f"{size}-{mtime_str}-v1"
 
     def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
         # Only run if md5 is missing or cache key changed
-        if record.md5 is None:
+        if record.md5 is None and record.data:
             return True
         return prev_cache != self.cache_key(record)
 
-    def run(self, record: FileRecord) -> FileRecord:
+    async def run(self, record: FileRecord) -> FileRecord:
+        d = record.data
+        if d is None:
+            raise ValueError("FileRecord does not have a data accessor")
         hash_md5 = hashlib.md5()
-        with open(record.path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                hash_md5.update(chunk)
-        return record.model_copy(update={"md5": hash_md5.hexdigest()})
+        
+        offset = 0
+        chunk_size = 8192
+
+        while True:
+            chunk = await d.read(offset, chunk_size)
+            if not chunk:
+                break
+            hash_md5.update(chunk)
+            offset += len(chunk)
+        record.md5 = hash_md5.hexdigest()
+        return record

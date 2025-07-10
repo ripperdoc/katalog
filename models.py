@@ -1,24 +1,38 @@
 import datetime as _dt
-from typing import Optional
+from typing import List, Optional
+from abc import ABC, abstractmethod
+from sqlalchemy import JSON
+from sqlmodel import Column, Field, SQLModel
 
-from sqlmodel import Field, SQLModel
-
+class FileAccessor(ABC):
+  
+  @abstractmethod
+  async def read(self, offset: int = 0, length: int | None = None, no_cache: bool = False) -> bytes:
+    """Fetch up to `length` bytes starting at `offset`."""
 
 class FileRecord(SQLModel, table=True):
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    path: str
+    path: str # Must be normalized file path
+    other_paths: list[str] | None = Field(default=None, sa_column=Column(JSON))
     source: str  # Named source, foreign key to a source table if needed
     filename: Optional[str] = None
     size: Optional[int] = None
-    modified: Optional[_dt.datetime] = None  # Unix timestamp
-    created: Optional[_dt.datetime] = None  # Unix timestamp
-    error_message: Optional[str] = None
+    modified_at: Optional[_dt.datetime] = None  # Unix timestamp
+    created_at: Optional[_dt.datetime] = None  # Unix timestamp
     scanned_at: Optional[_dt.datetime] = None
+    found_at: Optional[_dt.datetime] = None  # When the file was found in the source
+    lost_at: Optional[_dt.datetime] = None  # When the file was lost from the source, e.g. deleted
+    error_message: Optional[str] = None
     mime_type: str | None = None
+    # TODO other content hashes can be sha1 and sha256, usefuf if several cloud services prefer that
     md5: str | None = None
+    is_virtual: bool = False  # If True, this record is virtual and does not have a real file on disk
 
-    # TODO other content hashes can be sha1 and sha256, usefuf if several clodu services prefer that
+    @property
+    def data(self) -> FileAccessor | None:
+        return getattr(self, "_data_accessor", None)
+    
 
     # asset_id: foreign key to an asset table. Many files record can point to the same asset.
     # version_of

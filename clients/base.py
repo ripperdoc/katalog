@@ -11,6 +11,13 @@ class SourceClient:
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the client."""
         raise NotImplementedError()
+    
+    def get_accessor(self, record: FileRecord) -> Any:
+        """
+        Returns an accessor for the file represented by the FileRecord.
+        This is used to read file data.
+        """
+        raise NotImplementedError()
 
     def can_connect(self, uri: str) -> bool:
         """Check if the client can connect to the given URI."""

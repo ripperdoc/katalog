@@ -39,8 +39,7 @@ class Processor(Protocol):
         """Return a reproducible key of the inputs to decide if re-run is needed."""
         raise NotImplementedError()
 
-
-    def run(self, record: FileRecord) -> FileRecord:
+    async def run(self, record: FileRecord) -> FileRecord:
         """
         Run the processor logic and return a dict of fields to update on FileRecord or additional output.
         """

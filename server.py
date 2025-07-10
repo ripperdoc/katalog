@@ -1,10 +1,9 @@
 import json
 from fastapi import FastAPI
-from utils import sort_processors, import_client_class, import_processor_class
+from utils import populate_accessor, sort_processors, import_client_class, import_processor_class
 from sqlmodel import SQLModel, Session, create_engine, select
 from models import FileRecord, ProcessorResult
 import tomllib
-import datetime
 
 app = FastAPI()
 
@@ -62,6 +61,9 @@ async def initialize_sources():
         # fetch all files
         files = session.exec(select(FileRecord)).all()
         for record in files:
+            # Populate the data accessor
+            populate_accessor(record, source_map)
+
             # load prior results for this file
             prevs = {pr.processor_id: pr for pr in session.exec(
                 select(ProcessorResult).where(ProcessorResult.file_id == record.id)
@@ -71,21 +73,21 @@ async def initialize_sources():
                 prev = prevs.get(proc_id)
                 prev_cache = prev.cache_key if prev else None
                 if processor.should_run(record, prev_cache):
-                    new_record = processor.run(record)
+                    new_record = await processor.run(record)
                     session.add(new_record)
                     # upsert ProcessorResult
-                    new_key = processor.cache_key(record)
-                    if prev:
-                        prev.cache_key = new_key
-                        prev.ran_at = datetime.datetime.utcnow()
-                        session.add(prev)
-                    else:
-                        pr = ProcessorResult(
-                            file_id=record.id,  # type: ignore
-                            processor_id=proc_id,
-                            cache_key=new_key,
-                        )
-                        session.add(pr)
+                    # new_key = processor.cache_key(record)
+                    # if prev:
+                    #     prev.cache_key = new_key
+                    #     prev.ran_at = datetime.datetime.utcnow()
+                    #     session.add(prev)
+                    # else:
+                    #     pr = ProcessorResult(
+                    #         file_id=record.id,  # type: ignore
+                    #         processor_id=proc_id,
+                    #         cache_key=new_key,
+                    #     )
+                    #     session.add(pr)
         session.commit()
     return {"status": "scan complete"}
 

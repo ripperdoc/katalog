@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import importlib
 from typing import Optional
+from models import FileRecord
 from processors.base import Processor
 from clients.base import SourceClient
 
@@ -17,6 +18,13 @@ def import_client_class(package_path: str) -> type[SourceClient]:
     ClientClass = getattr(module, parts[1])
     return ClientClass
 
+def populate_accessor(record: FileRecord, source_map: dict[str, SourceClient]) -> None:
+    if not record or not source_map:
+        return None
+    client = source_map.get(record.source)
+    if not client:
+        return None
+    record._data_accessor = client.get_accessor(record)
 
 def timestamp_to_utc(ts: float | None) -> datetime | None:
     if ts is None:

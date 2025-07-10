@@ -106,3 +106,10 @@ An example could be like this:
 If later, we rescan the source and just find updates to other metadata, the content hashes hasn't changed and there is no need to run the MimeTypeProcessor.
 
 
+# TODO
+
+- Handle file data access with caching
+- Ensure we get mimeType and md5 for filesystem client
+- Ensure processors work with their cache keys
+- Figure out how to rescan sources without doing full scan (e.g. what about moved, deleted, added)
+- Default ignore lists to reduce number of files
