@@ -1,14 +1,16 @@
 from typing import ClassVar, FrozenSet, Protocol, runtime_checkable
-from models import FileRecord
+from katalog.models import FileRecord
+
 
 @runtime_checkable
 class Processor(Protocol):
     """
     Defines the interface for a metadata processor.
     """
+
     # List of FileRecord field names this processor consumes
     dependencies: ClassVar[FrozenSet[str]] = frozenset()
-    outputs:      ClassVar[FrozenSet[str]] = frozenset()
+    outputs: ClassVar[FrozenSet[str]] = frozenset()
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -44,4 +46,3 @@ class Processor(Protocol):
         Run the processor logic and return a dict of fields to update on FileRecord or additional output.
         """
         raise NotImplementedError()
-

@@ -1,10 +1,15 @@
 import magic
-from processors.base import Processor
-from models import FileRecord
+from katalog.processors.base import Processor
+from katalog.models import FileRecord
+
+# NOTE, useful info about magic detection and licensing:
+# https://github.com/withzombies/tika-magic
+# Run Tika Client https://pypi.org/project/tika-client/
+
 
 class MimeTypeProcessor(Processor):
     dependencies = frozenset({"md5"})
-    outputs      = frozenset({"mime_type"})
+    outputs = frozenset({"mime_type"})
 
     def cache_key(self, record: FileRecord) -> str:
         md5 = record.md5 or ""

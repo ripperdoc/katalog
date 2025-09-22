@@ -1,0 +1,11 @@
+{
+  "ruff.nativeServer": "on",
+  "debug.terminal.clearBeforeReusing": true,
+  "chatgpt.commentCodeLensEnabled": false,
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "prettier.proseWrap": "always",
+  "prettier.printWidth": 100,
+  "editor.formatOnSave": true
+}

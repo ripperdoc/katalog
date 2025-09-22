@@ -1,9 +1,16 @@
 import json
-from fastapi import FastAPI
-from utils import populate_accessor, sort_processors, import_client_class, import_processor_class
-from sqlmodel import SQLModel, Session, create_engine, select
-from models import FileRecord, ProcessorResult
 import tomllib
+
+from fastapi import FastAPI
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from katalog.models import FileRecord, ProcessorResult
+from katalog.utils.utils import (
+    import_client_class,
+    import_processor_class,
+    populate_accessor,
+    sort_processors,
+)
 
 app = FastAPI()
 
@@ -30,7 +37,7 @@ async def initialize_sources():
         if id in source_map:
             raise ValueError(f"Duplicate source ID: {id}")
         source_map[id] = client
-    
+
     processors = config.get("processors", [])
     proc_map: dict[str, type] = {}
     for proc in processors:
@@ -53,9 +60,9 @@ async def initialize_sources():
             print(f"Scanning source: {client.id}")
             async for record in client.scan():
                 session.add(record)
-                
+
         session.commit()
-        
+
         # Processing phase: import processors listed in TOML and order by dependencies
 
         # fetch all files
@@ -65,9 +72,12 @@ async def initialize_sources():
             populate_accessor(record, source_map)
 
             # load prior results for this file
-            prevs = {pr.processor_id: pr for pr in session.exec(
-                select(ProcessorResult).where(ProcessorResult.file_id == record.id)
-            ).all()}
+            prevs = {
+                pr.processor_id: pr
+                for pr in session.exec(
+                    select(ProcessorResult).where(ProcessorResult.file_id == record.id)
+                ).all()
+            }
             for proc_id, ProcessorClass in sorted_processors:
                 processor = ProcessorClass()
                 prev = prevs.get(proc_id)
@@ -91,12 +101,15 @@ async def initialize_sources():
         session.commit()
     return {"status": "scan complete"}
 
+
 @app.get("/list")
 def list_local_files():
     with Session(engine) as session:
         results = session.exec(select(FileRecord)).all()
         return [r.model_dump() for r in results]
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)

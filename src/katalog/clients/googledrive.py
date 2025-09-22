@@ -9,16 +9,18 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from clients.base import SourceClient
-from models import FileRecord
-from utils import parse_google_drive_datetime
+from katalog.clients.base import SourceClient
+from katalog.models import FileRecord
+from katalog.utils.utils import parse_google_drive_datetime
 
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
 
 class GoogleDriveClient(SourceClient):
     """
     Client for accessing and listing files in a Google Drive source using a service account.
     """
+
     def __init__(self, id: str, max_files: int = 500, **kwargs):
         self.id = id
         self.max_files = max_files
@@ -42,17 +44,16 @@ class GoogleDriveClient(SourceClient):
             with open("token.json", "w") as token:
                 token.write(creds.to_json())
 
-        self.service = build('drive', 'v3', credentials=creds)
+        self.service = build("drive", "v3", credentials=creds)
 
     def get_info(self) -> Dict[str, Any]:
         return {
             "description": "Google Drive client",
             "author": "Katalog Team",
-            "version": "0.1"
+            "version": "0.1",
         }
-    
-    def get_accessor(self, record: FileRecord) -> Any:
 
+    def get_accessor(self, record: FileRecord) -> Any:
         return None
 
     async def scan(self) -> AsyncIterator[FileRecord]:
@@ -64,53 +65,64 @@ class GoogleDriveClient(SourceClient):
         count = 0
         while True:
             try:
-                response = self.service.files().list(
-                    corpora='user',
-                    pageSize=500,
-                    fields="nextPageToken, files(id, kind, starred, trashed, description, originalFilename, fileExtension, name, mimeType, size, modifiedTime, createdTime)",
-                    pageToken=page_token
-                ).execute()
-                files = response.get('files', [])
+                response = (
+                    self.service.files()
+                    .list(
+                        corpora="user",
+                        pageSize=500,
+                        fields="nextPageToken, files(id, kind, starred, trashed, description, originalFilename, fileExtension, name, mimeType, size, modifiedTime, createdTime)",
+                        pageToken=page_token,
+                    )
+                    .execute()
+                )
+                files = response.get("files", [])
                 count += len(files)
                 print(f"Scanning Google Drive source, found {count} files...")
                 for file in files:
                     try:
                         record = FileRecord(
-                            path=file['id'], # Discover path within Google Drive, can be complicated?
-                            filename=file.get('originalFilename', file.get('name', '')),
+                            path=file[
+                                "id"
+                            ],  # Discover path within Google Drive, can be complicated?
+                            filename=file.get("originalFilename", file.get("name", "")),
                             source=self.id,
-                            size=int(file.get('size', 0)),
-                            modified_at=parse_google_drive_datetime(file.get('modifiedTime')),
-                            created_at=parse_google_drive_datetime(file.get('createdTime')),
+                            size=int(file.get("size", 0)),
+                            modified_at=parse_google_drive_datetime(
+                                file.get("modifiedTime")
+                            ),
+                            created_at=parse_google_drive_datetime(
+                                file.get("createdTime")
+                            ),
                             scanned_at=now,
-                            mime_type=file.get('mimeType'),
-                            md5=file.get('md5Checksum', None)
+                            mime_type=file.get("mimeType"),
+                            md5=file.get("md5Checksum", None),
                             # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
-                            # Other fields: kind, description, name 
+                            # Other fields: kind, description, name
                             # thumbnailLink if download thumbnail instead of generating it?
                             # GDrive also has free text labels, although not often used?
-
                         )
                     except Exception as e:
                         record = FileRecord(
-                            path=file.get('id', ''),
+                            path=file.get("id", ""),
                             source=self.id,
                             error_message=str(e),
-                            scanned_at=now
+                            scanned_at=now,
                         )
                     yield record
-                page_token = response.get('nextPageToken', None)
+                page_token = response.get("nextPageToken", None)
                 if not page_token:
                     break
                 if count >= self.max_files:
-                    print(f"Reached max files {self.max_files}, stopping scan for source {self.id}.")
+                    print(
+                        f"Reached max files {self.max_files}, stopping scan for source {self.id}."
+                    )
                     break
             except HttpError as error:
                 yield FileRecord(
-                    path='',
+                    path="",
                     source=self.id,
-                    error_message=f'Google Drive API error: {error}',
-                    scanned_at=now
+                    error_message=f"Google Drive API error: {error}",
+                    scanned_at=now,
                 )
                 break
             await asyncio.sleep(0)  # Yield control to event loop

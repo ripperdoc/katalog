@@ -1,6 +1,6 @@
 from typing import Any, AsyncIterator, Iterator
 
-from models import FileRecord
+from katalog.models import FileRecord
 
 
 class SourceClient:
@@ -11,7 +11,7 @@ class SourceClient:
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the client."""
         raise NotImplementedError()
-    
+
     def get_accessor(self, record: FileRecord) -> Any:
         """
         Returns an accessor for the file represented by the FileRecord.

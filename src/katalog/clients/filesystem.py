@@ -2,29 +2,35 @@ import datetime
 import os
 from typing import Any, AsyncIterator, Dict
 
-from clients.base import SourceClient
-from models import FileAccessor, FileRecord
-from utils import timestamp_to_utc
+from katalog.clients.base import SourceClient
+from katalog.models import FileAccessor, FileRecord
+from katalog.utils.utils import timestamp_to_utc
+
 
 class FilesystemAccessor(FileAccessor):
     """
     Accessor for reading files from the local file system.
     """
+
     def __init__(self, path: str):
         self.path = path
 
-    async def read(self, offset: int = 0, length: int | None = None, no_cache = False) -> bytes:
+    async def read(
+        self, offset: int = 0, length: int | None = None, no_cache=False
+    ) -> bytes:
         """
         Read bytes from the file at the specified offset and length.
         """
-        with open(self.path, 'rb') as f:
+        with open(self.path, "rb") as f:
             f.seek(offset)
             return f.read(length) if length is not None else f.read()
+
 
 class FilesystemClient(SourceClient):
     """
     Client for accessing and listing files in a local file system source.
     """
+
     def __init__(self, id: str, root_path: str, **kwargs):
         self.id = id
         self.root_path = root_path
@@ -33,7 +39,7 @@ class FilesystemClient(SourceClient):
         return {
             "description": "Local file system client",
             "author": "Katalog Team",
-            "version": "0.1"
+            "version": "0.1",
         }
 
     def get_accessor(self, record: FileRecord) -> Any:
@@ -71,7 +77,7 @@ class FilesystemClient(SourceClient):
                         path=full_path,
                         source=self.id,
                         error_message=str(e),
-                        scanned_at=now
+                        scanned_at=now,
                     )
                 yield record
                 count += 1

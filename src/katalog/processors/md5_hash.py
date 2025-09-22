@@ -1,10 +1,11 @@
 import hashlib
-from processors.base import Processor
-from models import FileRecord
+from katalog.processors.base import Processor
+from katalog.models import FileRecord
+
 
 class MD5HashProcessor(Processor):
-    dependencies = frozenset() # No dependencies, runs on any record
-    outputs      = frozenset({"md5"})
+    dependencies = frozenset()  # No dependencies, runs on any record
+    outputs = frozenset({"md5"})
 
     def cache_key(self, record: FileRecord) -> str:
         size = record.size or 0
@@ -22,7 +23,7 @@ class MD5HashProcessor(Processor):
         if d is None:
             raise ValueError("FileRecord does not have a data accessor")
         hash_md5 = hashlib.md5()
-        
+
         offset = 0
         chunk_size = 8192
 

@@ -73,3 +73,5 @@ Thumbs.db
 # Google credentials
 credentials.json
 token.json
+
+*_workspace/
