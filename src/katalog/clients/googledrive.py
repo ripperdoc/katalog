@@ -1,6 +1,5 @@
 import asyncio
 import datetime
-import os.path
 from typing import Any, AsyncIterator, Dict
 
 from google.auth.transport.requests import Request
@@ -10,6 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from katalog.clients.base import SourceClient
+from katalog.config import WORKSPACE
 from katalog.models import FileRecord
 from katalog.utils.utils import parse_google_drive_datetime
 
@@ -29,26 +29,28 @@ class GoogleDriveClient(SourceClient):
         # The file token.json stores the user's access and refresh tokens, and is
         # created automatically when the authorization flow completes for the first
         # time.
-        if os.path.exists("token.json"):
-            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+        token_file = WORKSPACE / "token.json"
+        credential_file = WORKSPACE / "credentials.json"
+        if token_file.exists():
+            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
         # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    "credentials.json", SCOPES
+                    credential_file, SCOPES
                 )
                 creds = flow.run_local_server(port=0)
             # Save the credentials for the next run
-            with open("token.json", "w") as token:
+            with open(token_file, "w") as token:
                 token.write(creds.to_json())
 
         self.service = build("drive", "v3", credentials=creds)
 
     def get_info(self) -> Dict[str, Any]:
         return {
-            "description": "Google Drive client",
+            "description": "Katalog Google Drive client",
             "author": "Katalog Team",
             "version": "0.1",
         }

@@ -1,9 +1,11 @@
 import json
 import tomllib
+from loguru import logger
 
 from fastapi import FastAPI
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from katalog.config import WORKSPACE
 from katalog.models import FileRecord, ProcessorResult
 from katalog.utils.utils import (
     import_client_class,
@@ -14,7 +16,16 @@ from katalog.utils.utils import (
 
 app = FastAPI()
 
-DATABASE_URL = "sqlite:///katalog.db"
+
+db_path = WORKSPACE / "katalog.db"
+DATABASE_URL = f"sqlite:///{db_path}"
+
+CONFIG_PATH = WORKSPACE / "katalog.toml"
+
+# Configure basic logging and report which database file is being used
+logger.info(f"Using workspace: {WORKSPACE}")
+logger.info(f"Using database: {DATABASE_URL}")
+
 engine = create_engine(DATABASE_URL, echo=False)
 
 # Create tables if they don't exist
@@ -24,7 +35,7 @@ SQLModel.metadata.create_all(engine)
 # Read sources from katalog.toml and scan all sources
 @app.post("/initialize")
 async def initialize_sources():
-    with open("katalog.toml", "rb") as f:
+    with CONFIG_PATH.open("rb") as f:
         config = tomllib.load(f)
     sources = config.get("sources", [])
     source_map = {}
@@ -107,9 +118,3 @@ def list_local_files():
     with Session(engine) as session:
         results = session.exec(select(FileRecord)).all()
         return [r.model_dump() for r in results]
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
