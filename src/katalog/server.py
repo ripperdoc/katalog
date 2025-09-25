@@ -3,6 +3,7 @@ import tomllib
 from loguru import logger
 
 from fastapi import FastAPI
+from typing import Literal
 
 from katalog.config import WORKSPACE
 from katalog.db import Database
@@ -63,5 +64,10 @@ async def initialize_sources():
 
 
 @app.get("/files/{source_id}")
-def list_files(source_id: str):
-    return database.list_files_with_metadata(source_id)
+def list_files(source_id: str, view: str = "flat"):
+    if view not in {"flat", "complete"}:
+        raise ValueError("view must be 'flat' or 'complete'")
+    selected_view: Literal["flat", "complete"] = (
+        "flat" if view == "flat" else "complete"
+    )
+    return database.list_files_with_metadata(source_id, view=selected_view)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal, Mapping
 
 from katalog.models import FileRecord, MetadataValue
 
@@ -260,67 +260,103 @@ class Database:
                 )
             self.conn.commit()
 
-    def list_files_with_metadata(self, source_id: str) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self.conn.execute(
-                """-- sql
-            SELECT id, asset_id, source_id, canonical_uri, first_seen_at, last_seen_at, deleted_at
-            FROM file_records
-            WHERE source_id = ?
-            ORDER BY last_seen_at DESC
-            """,
-                (source_id,),
-            ).fetchall()
-        if not rows:
-            return []
-        file_ids = [row["id"] for row in rows]
-        metadata_map = self._metadata_for_files(file_ids)
-        result: list[dict[str, Any]] = []
-        for row in rows:
-            record = dict(row)
-            record["metadata"] = metadata_map.get(row["id"], [])
-            result.append(record)
-        return result
-
-    def _metadata_for_files(
-        self, file_ids: list[str]
-    ) -> dict[str, list[dict[str, Any]]]:
-        if not file_ids:
-            return {}
-        placeholders = ",".join("?" for _ in file_ids)
-        query = f"""-- sql
+    def list_files_with_metadata(
+        self, source_id: str, *, view: Literal["flat", "complete"] = "flat"
+    ) -> list[dict[str, Any]]:
+        query = """-- sql
             SELECT
-                id,
-                asset_id,
-                file_record_id,
-                source_id,
-                plugin_id,
-                metadata_id,
-                value_type,
-                value_text,
-                value_int,
-                value_real,
-                value_datetime,
-                value_json,
-                confidence,
-                version,
-                is_superseded,
-                updated_at
-            FROM metadata_entries
-            WHERE file_record_id IN ({placeholders})
-            ORDER BY file_record_id, metadata_id, plugin_id, id
+                f.id AS file_id,
+                f.asset_id AS file_asset_id,
+                f.source_id AS file_source_id,
+                f.canonical_uri,
+                f.first_seen_at,
+                f.last_seen_at,
+                f.deleted_at,
+                m.id AS metadata_entry_id,
+                m.asset_id AS metadata_asset_id,
+                m.file_record_id AS metadata_file_record_id,
+                m.source_id AS metadata_source_id,
+                m.plugin_id AS metadata_plugin_id,
+                m.metadata_id AS metadata_metadata_id,
+                m.value_type AS metadata_value_type,
+                m.value_text AS metadata_value_text,
+                m.value_int AS metadata_value_int,
+                m.value_real AS metadata_value_real,
+                m.value_datetime AS metadata_value_datetime,
+                m.value_json AS metadata_value_json,
+                m.confidence AS metadata_confidence,
+                m.version AS metadata_version,
+                m.is_superseded AS metadata_is_superseded,
+                m.updated_at AS metadata_updated_at
+            FROM file_records AS f
+            LEFT JOIN metadata_entries AS m
+                ON m.file_record_id = f.id
+            WHERE f.source_id = ?
+            ORDER BY f.last_seen_at DESC, f.id, m.metadata_id, m.updated_at DESC, m.id
         """
         with self._lock:
-            rows = self.conn.execute(query, file_ids).fetchall()
-        per_file: dict[str, list[dict[str, Any]]] = {}
+            rows = self.conn.execute(query, (source_id,)).fetchall()
+        if not rows:
+            return []
+        result: list[dict[str, Any]] = []
+        current_id: str | None = None
+        current_record: dict[str, Any] | None = None
         for row in rows:
-            per_file.setdefault(row["file_record_id"], []).append(
-                self._coerce_metadata_row(row)
-            )
-        return per_file
+            file_id = row["file_id"]
+            if file_id != current_id:
+                if current_record:
+                    result.append(current_record)
+                current_record = {
+                    "id": file_id,
+                    "asset_id": row["file_asset_id"],
+                    "source_id": row["file_source_id"],
+                    "canonical_uri": row["canonical_uri"],
+                    "first_seen_at": row["first_seen_at"],
+                    "last_seen_at": row["last_seen_at"],
+                    "deleted_at": row["deleted_at"],
+                    "metadata": {} if view == "flat" else [],
+                }
+                current_id = file_id
+            metadata_entry = self._metadata_from_join_row(row)
+            if metadata_entry and current_record is not None:
+                if view == "complete":
+                    current_record["metadata"].append(metadata_entry)
+                else:
+                    metadata_dict = current_record["metadata"]
+                    metadata_id = metadata_entry["metadata_id"]
+                    if metadata_id not in metadata_dict:
+                        metadata_dict[metadata_id] = metadata_entry["value"]
+        if current_record:
+            result.append(current_record)
+        return result
 
     @staticmethod
-    def _coerce_metadata_row(row: sqlite3.Row) -> dict[str, Any]:
+    def _metadata_from_join_row(row: sqlite3.Row) -> dict[str, Any] | None:
+        entry_id = row["metadata_entry_id"]
+        if entry_id is None:
+            return None
+        payload = {
+            "id": entry_id,
+            "asset_id": row["metadata_asset_id"],
+            "file_record_id": row["metadata_file_record_id"],
+            "source_id": row["metadata_source_id"],
+            "plugin_id": row["metadata_plugin_id"],
+            "metadata_id": row["metadata_metadata_id"],
+            "value_type": row["metadata_value_type"],
+            "value_text": row["metadata_value_text"],
+            "value_int": row["metadata_value_int"],
+            "value_real": row["metadata_value_real"],
+            "value_datetime": row["metadata_value_datetime"],
+            "value_json": row["metadata_value_json"],
+            "confidence": row["metadata_confidence"],
+            "version": row["metadata_version"],
+            "is_superseded": row["metadata_is_superseded"],
+            "updated_at": row["metadata_updated_at"],
+        }
+        return Database._coerce_metadata_row(payload)
+
+    @staticmethod
+    def _coerce_metadata_row(row: Mapping[str, Any]) -> dict[str, Any]:
         value: Any
         if row["value_text"] is not None:
             value = row["value_text"]
