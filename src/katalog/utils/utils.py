@@ -16,8 +16,14 @@ def import_processor_class(package_path: str) -> type[Processor]:
 
 def import_client_class(package_path: str) -> type[SourceClient]:
     parts = package_path.rsplit(".", 1)
-    module = importlib.import_module(parts[0])
-    ClientClass = getattr(module, parts[1])
+    module_name, class_name = parts[0], parts[1]
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        if module_name.startswith("katalog."):
+            raise
+        module = importlib.import_module(f"katalog.{module_name}")
+    ClientClass = getattr(module, class_name)
     return ClientClass
 
 

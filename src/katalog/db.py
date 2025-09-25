@@ -5,6 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any, Iterable
 
 from katalog.models import FileRecord, MetadataValue
@@ -65,7 +66,7 @@ SCHEMA_STATEMENTS = (
         version INTEGER,
         is_superseded INTEGER NOT NULL DEFAULT 0 CHECK (is_superseded IN (0,1)),
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (metadata_id, asset_id, file_record_id, plugin_id, version),
+        UNIQUE (metadata_id, asset_id, file_record_id, plugin_id, value_type),
         CHECK (
             (value_text IS NOT NULL) +
             (value_int IS NOT NULL) +
@@ -74,7 +75,7 @@ SCHEMA_STATEMENTS = (
             (value_json IS NOT NULL)
             = 1
         ),
-        CHECK (asset_id IS NOT NULL OR file_record_id IS NOT NULL).
+        CHECK (asset_id IS NOT NULL OR file_record_id IS NOT NULL)
     );
     """,
     """-- sql
@@ -85,6 +86,10 @@ SCHEMA_STATEMENTS = (
     """,
     """-- sql
     CREATE INDEX IF NOT EXISTS idx_metadata_plugin ON metadata_entries (plugin_id, updated_at DESC);
+    """,
+    """-- sql
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_metadata_dedupe
+    ON metadata_entries (metadata_id, asset_id, file_record_id, plugin_id, value_type);
     """,
 )
 
@@ -98,21 +103,24 @@ class ScanContext:
 class Database:
     def __init__(self, db_path: str | Path):
         self.path = Path(db_path)
-        self._conn = sqlite3.connect(self.path)
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        self._lock = Lock()
 
     @property
     def conn(self) -> sqlite3.Connection:
         return self._conn
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def initialize_schema(self) -> None:
-        for statement in SCHEMA_STATEMENTS:
-            self.conn.execute(statement)
-        self.conn.commit()
+        with self._lock:
+            for statement in SCHEMA_STATEMENTS:
+                self.conn.execute(statement)
+            self.conn.commit()
 
     def ensure_source(
         self,
@@ -124,8 +132,9 @@ class Database:
     ) -> None:
         payload = json.dumps(config or {}, default=str)
         now = datetime.now(timezone.utc).isoformat()
-        self.conn.execute(
-            """-- sql
+        with self._lock:
+            self.conn.execute(
+                """-- sql
             INSERT INTO sources (id, title, plugin_id, config, updated_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
@@ -134,9 +143,9 @@ class Database:
                 config=excluded.config,
                 updated_at=excluded.updated_at
             """,
-            (source_id, title, plugin_id, payload, now),
-        )
-        self.conn.commit()
+                (source_id, title, plugin_id, payload, now),
+            )
+            self.conn.commit()
 
     def begin_scan(self, source_id: str) -> ScanContext:
         started = datetime.now(timezone.utc)
@@ -144,23 +153,24 @@ class Database:
 
     def finalize_scan(self, ctx: ScanContext) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
-        self.conn.execute(
-            """-- sql
+        with self._lock:
+            self.conn.execute(
+                """-- sql
             UPDATE file_records
             SET deleted_at = ?
             WHERE source_id = ? AND deleted_at IS NULL AND last_seen_at < ?
             """,
-            (now_iso, ctx.source_id, ctx.started_at.isoformat()),
-        )
-        self.conn.execute(
-            """-- sql
+                (now_iso, ctx.source_id, ctx.started_at.isoformat()),
+            )
+            self.conn.execute(
+                """-- sql
             UPDATE sources
             SET last_scanned_at = ?, updated_at = ?
             WHERE id = ?
             """,
-            (now_iso, now_iso, ctx.source_id),
-        )
-        self.conn.commit()
+                (now_iso, now_iso, ctx.source_id),
+            )
+            self.conn.commit()
 
     def upsert_file_record(self, record: FileRecord, ctx: ScanContext) -> str:
         if not record.id:
@@ -171,8 +181,9 @@ class Database:
         first_seen = (
             record.first_seen_at.isoformat() if record.first_seen_at else last_seen
         )
-        self.conn.execute(
-            """-- sql
+        with self._lock:
+            self.conn.execute(
+                """-- sql
             INSERT INTO file_records (
                 id, asset_id, source_id, canonical_uri, first_seen_at, last_seen_at, deleted_at
             ) VALUES (?, ?, ?, ?, ?, ?, NULL)
@@ -182,16 +193,16 @@ class Database:
                 last_seen_at=excluded.last_seen_at,
                 deleted_at=NULL
             """,
-            (
-                record.id,
-                record.asset_id,
-                record.source_id,
-                record.canonical_uri,
-                first_seen,
-                last_seen,
-            ),
-        )
-        self.conn.commit()
+                (
+                    record.id,
+                    record.asset_id,
+                    record.source_id,
+                    record.canonical_uri,
+                    first_seen,
+                    last_seen,
+                ),
+            )
+            self.conn.commit()
         if record.metadata:
             self._insert_metadata(record.id, record, record.metadata)
         return record.id
@@ -199,13 +210,14 @@ class Database:
     def _insert_metadata(
         self, file_record_id: str, record: FileRecord, metadata: Iterable[MetadataValue]
     ) -> None:
-        for entry in metadata:
-            columns = entry.as_sql_columns()
-            value_json = columns["value_json"]
-            if isinstance(value_json, (dict, list)):
-                columns["value_json"] = json.dumps(value_json)
-            self.conn.execute(
-                """-- sql
+        with self._lock:
+            for entry in metadata:
+                columns = entry.as_sql_columns()
+                value_json = columns["value_json"]
+                if isinstance(value_json, (dict, list)):
+                    columns["value_json"] = json.dumps(value_json)
+                self.conn.execute(
+                    """-- sql
                 INSERT INTO metadata_entries (
                     asset_id,
                     file_record_id,
@@ -218,7 +230,7 @@ class Database:
                     value_real,
                     value_datetime,
                     value_json,
-                    confidence,
+                    confidence
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(metadata_id, asset_id, file_record_id, plugin_id, value_type)
                 DO UPDATE SET
@@ -231,33 +243,34 @@ class Database:
                     updated_at=CURRENT_TIMESTAMP,
                     is_superseded=0
                 """,
-                (
-                    record.asset_id,
-                    file_record_id,
-                    entry.source_id or record.source_id,
-                    entry.plugin_id,
-                    entry.metadata_id,
-                    entry.value_type,
-                    columns["value_text"],
-                    columns["value_int"],
-                    columns["value_real"],
-                    columns["value_datetime"],
-                    columns["value_json"],
-                    entry.confidence,
-                ),
-            )
-        self.conn.commit()
+                    (
+                        record.asset_id,
+                        file_record_id,
+                        entry.source_id or record.source_id,
+                        entry.plugin_id,
+                        entry.metadata_id,
+                        entry.value_type,
+                        columns["value_text"],
+                        columns["value_int"],
+                        columns["value_real"],
+                        columns["value_datetime"],
+                        columns["value_json"],
+                        entry.confidence,
+                    ),
+                )
+            self.conn.commit()
 
     def list_files_with_metadata(self, source_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """-- sql
+        with self._lock:
+            rows = self.conn.execute(
+                """-- sql
             SELECT id, asset_id, source_id, canonical_uri, first_seen_at, last_seen_at, deleted_at
             FROM file_records
             WHERE source_id = ?
             ORDER BY last_seen_at DESC
             """,
-            (source_id,),
-        ).fetchall()
+                (source_id,),
+            ).fetchall()
         if not rows:
             return []
         file_ids = [row["id"] for row in rows]
@@ -297,7 +310,8 @@ class Database:
             WHERE file_record_id IN ({placeholders})
             ORDER BY file_record_id, metadata_id, plugin_id, id
         """
-        rows = self.conn.execute(query, file_ids).fetchall()
+        with self._lock:
+            rows = self.conn.execute(query, file_ids).fetchall()
         per_file: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
             per_file.setdefault(row["file_record_id"], []).append(
