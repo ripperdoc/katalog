@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 from typing import Any, AsyncIterator, Dict
 
 from google.auth.transport.requests import Request
@@ -7,6 +6,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from loguru import logger
 
 from katalog.clients.base import SourceClient
 from katalog.config import WORKSPACE
@@ -20,6 +20,8 @@ class GoogleDriveClient(SourceClient):
     """
     Client for accessing and listing files in a Google Drive source using a service account.
     """
+
+    PLUGIN_ID = "dev.katalog.client.googledrive"
 
     def __init__(self, id: str, max_files: int = 500, **kwargs):
         self.id = id
@@ -63,7 +65,6 @@ class GoogleDriveClient(SourceClient):
         Asynchronously scan Google Drive and yield FileRecord objects.
         """
         page_token = None
-        now = datetime.datetime.utcnow()
         count = 0
         while True:
             try:
@@ -82,34 +83,83 @@ class GoogleDriveClient(SourceClient):
                 print(f"Scanning Google Drive source, found {count} files...")
                 for file in files:
                     try:
+                        provider_id = file.get("id", "")
+                        canonical_uri = (
+                            f"gdrive://{provider_id}"
+                            if provider_id
+                            else f"gdrive://{self.id}/missing"
+                        )
+                        size = int(file.get("size")) if file.get("size") else None
+                        modified = parse_google_drive_datetime(file.get("modifiedTime"))
+                        created = parse_google_drive_datetime(file.get("createdTime"))
                         record = FileRecord(
-                            path=file[
-                                "id"
-                            ],  # Discover path within Google Drive, can be complicated?
+                            source_id=self.id,
+                            canonical_uri=canonical_uri,
+                            provider_file_id=provider_id or None,
+                            path=file.get("name"),
                             filename=file.get("originalFilename", file.get("name", "")),
-                            source=self.id,
-                            size=int(file.get("size", 0)),
-                            modified_at=parse_google_drive_datetime(
-                                file.get("modifiedTime")
-                            ),
-                            created_at=parse_google_drive_datetime(
-                                file.get("createdTime")
-                            ),
-                            scanned_at=now,
+                            size_bytes=size,
+                            mtime=modified,
+                            ctime=created,
                             mime_type=file.get("mimeType"),
-                            md5=file.get("md5Checksum", None),
+                            checksum_md5=file.get("md5Checksum"),
                             # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
                             # Other fields: kind, description, name
                             # thumbnailLink if download thumbnail instead of generating it?
                             # GDrive also has free text labels, although not often used?
                         )
+                        if record.mime_type:
+                            record.add_metadata(
+                                "core/mime/type",
+                                self.PLUGIN_ID,
+                                record.mime_type,
+                                "string",
+                            )
+                        if record.checksum_md5:
+                            record.add_metadata(
+                                "core/checksum/md5",
+                                self.PLUGIN_ID,
+                                record.checksum_md5,
+                                "string",
+                            )
+                        if size is not None:
+                            record.add_metadata(
+                                "core/file/size",
+                                self.PLUGIN_ID,
+                                size,
+                                "int",
+                            )
+                        if modified:
+                            record.add_metadata(
+                                "core/time/modified",
+                                self.PLUGIN_ID,
+                                modified,
+                                "datetime",
+                            )
+                        if created:
+                            record.add_metadata(
+                                "core/time/created",
+                                self.PLUGIN_ID,
+                                created,
+                                "datetime",
+                            )
+                        starred = file.get("starred")
+                        if starred is not None:
+                            record.add_metadata(
+                                "gdrive/file/starred",
+                                self.PLUGIN_ID,
+                                int(bool(starred)),
+                                "int",
+                            )
                     except Exception as e:
-                        record = FileRecord(
-                            path=file.get("id", ""),
-                            source=self.id,
-                            error_message=str(e),
-                            scanned_at=now,
+                        provider_id = file.get("id", "error")
+                        logger.warning(
+                            "Failed to transform Google Drive file %s (%s): %s",
+                            file.get("name"),
+                            provider_id,
+                            e,
                         )
+                        continue
                     yield record
                 page_token = response.get("nextPageToken", None)
                 if not page_token:
@@ -120,11 +170,10 @@ class GoogleDriveClient(SourceClient):
                     )
                     break
             except HttpError as error:
-                yield FileRecord(
-                    path="",
-                    source=self.id,
-                    error_message=f"Google Drive API error: {error}",
-                    scanned_at=now,
+                logger.error(
+                    "Google Drive API error for source %s: %s",
+                    self.id,
+                    error,
                 )
                 break
             await asyncio.sleep(0)  # Yield control to event loop

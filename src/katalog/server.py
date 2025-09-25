@@ -3,16 +3,10 @@ import tomllib
 from loguru import logger
 
 from fastapi import FastAPI
-from sqlmodel import Session, SQLModel, create_engine, select
 
 from katalog.config import WORKSPACE
-from katalog.models import FileRecord, ProcessorResult
-from katalog.utils.utils import (
-    import_client_class,
-    import_processor_class,
-    populate_accessor,
-    sort_processors,
-)
+from katalog.db import Database
+from katalog.utils.utils import import_client_class
 
 app = FastAPI()
 
@@ -26,10 +20,8 @@ CONFIG_PATH = WORKSPACE / "katalog.toml"
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DATABASE_URL}")
 
-engine = create_engine(DATABASE_URL, echo=False)
-
-# Create tables if they don't exist
-SQLModel.metadata.create_all(engine)
+database = Database(db_path)
+database.initialize_schema()
 
 
 # Read sources from katalog.toml and scan all sources
@@ -47,74 +39,33 @@ async def initialize_sources():
         client = SourceClass(**source)
         if id in source_map:
             raise ValueError(f"Duplicate source ID: {id}")
-        source_map[id] = client
+        source_map[id] = {"client": client, "config": source}
 
-    processors = config.get("processors", [])
-    proc_map: dict[str, type] = {}
-    for proc in processors:
-        package_path = proc.get("class")
-        ProcessorClass = import_processor_class(package_path)
-        if package_path in proc_map:
-            raise ValueError(f"Duplicate processor class: {package_path}")
-        proc_map[package_path] = ProcessorClass
-    sorted_processors = sort_processors(proc_map)
+    for source_id, payload in source_map.items():
+        client = payload["client"]
+        source_cfg = payload["config"]
+        database.ensure_source(
+            source_id,
+            title=source_cfg.get("title"),
+            source_type=source_cfg.get("class"),
+            plugin_id=getattr(client, "PLUGIN_ID", client.__class__.__module__),
+            config=source_cfg,
+        )
 
-    # Drop and recreate only the FileRecord table
-    # table = SQLModel.metadata.tables.get("filerecord")
-    # if table is not None:
-    #     table.drop(engine, checkfirst=True)
-    #     table.create(engine, checkfirst=True)
-    SQLModel.metadata.drop_all(engine)
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
-        for client in source_map.values():
-            print(f"Scanning source: {client.id}")
-            async for record in client.scan():
-                session.add(record)
+    for payload in source_map.values():
+        client = payload["client"]
+        logger.info(f"Scanning source: {client.id}")
+        ctx = database.begin_scan(client.id)
+        async for record in client.scan():
+            database.upsert_file_record(record, ctx)
+        database.finalize_scan(ctx)
 
-        session.commit()
-
-        # Processing phase: import processors listed in TOML and order by dependencies
-
-        # fetch all files
-        files = session.exec(select(FileRecord)).all()
-        for record in files:
-            # Populate the data accessor
-            populate_accessor(record, source_map)
-
-            # load prior results for this file
-            prevs = {
-                pr.processor_id: pr
-                for pr in session.exec(
-                    select(ProcessorResult).where(ProcessorResult.file_id == record.id)
-                ).all()
-            }
-            for proc_id, ProcessorClass in sorted_processors:
-                processor = ProcessorClass()
-                prev = prevs.get(proc_id)
-                prev_cache = prev.cache_key if prev else None
-                if processor.should_run(record, prev_cache):
-                    new_record = await processor.run(record)
-                    session.add(new_record)
-                    # upsert ProcessorResult
-                    # new_key = processor.cache_key(record)
-                    # if prev:
-                    #     prev.cache_key = new_key
-                    #     prev.ran_at = datetime.datetime.utcnow()
-                    #     session.add(prev)
-                    # else:
-                    #     pr = ProcessorResult(
-                    #         file_id=record.id,  # type: ignore
-                    #         processor_id=proc_id,
-                    #         cache_key=new_key,
-                    #     )
-                    #     session.add(pr)
-        session.commit()
-    return {"status": "scan complete"}
+    return {"status": "scan complete", "sources": list(source_map.keys())}
 
 
 @app.get("/list")
 def list_local_files():
-    with Session(engine) as session:
-        results = session.exec(select(FileRecord)).all()
-        return [r.model_dump() for r in results]
+    rows = database.conn.execute(
+        "SELECT id, source_id, canonical_uri, path, filename, size_bytes, checksum_md5, mime_type, last_seen_at FROM file_records"
+    ).fetchall()
+    return [dict(row) for row in rows]

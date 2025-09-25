@@ -1,9 +1,9 @@
+from __future__ import annotations
+
 import datetime as _dt
 from abc import ABC, abstractmethod
-from typing import Optional
-
-from sqlalchemy import JSON
-from sqlmodel import Column, Field, SQLModel
+from dataclasses import dataclass, field
+from typing import Any, Literal, Mapping
 
 
 class FileAccessor(ABC):
@@ -14,66 +14,142 @@ class FileAccessor(ABC):
         """Fetch up to `length` bytes starting at `offset`."""
 
 
-class FileRecord(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    path: str  # Must be normalized file path
-    other_paths: list[str] | None = Field(default=None, sa_column=Column(JSON))
-    source: str  # Named source, foreign key to a source table if needed
-    filename: Optional[str] = None
-    size: Optional[int] = None
-    modified_at: Optional[_dt.datetime] = None  # Unix timestamp
-    created_at: Optional[_dt.datetime] = None  # Unix timestamp
-    scanned_at: Optional[_dt.datetime] = None
-    found_at: Optional[_dt.datetime] = None  # When the file was found in the source
-    lost_at: Optional[_dt.datetime] = (
-        None  # When the file was lost from the source, e.g. deleted
-    )
-    error_message: Optional[str] = None
+MetadataScalar = str | int | float | bool | _dt.datetime | Mapping[str, Any] | list[Any]
+MetadataType = Literal["string", "int", "float", "datetime", "json"]
+
+
+@dataclass(slots=True)
+class MetadataValue:
+    metadata_id: str
+    plugin_id: str
+    value: MetadataScalar
+    value_type: MetadataType
+    confidence: float = 1.0
+    is_candidate: bool = True
+    source_id: str | None = None
+
+    def as_sql_columns(self) -> dict[str, Any]:
+        """Return a dict matching metadata_entries columns for insertion."""
+        column_map = {
+            "value_text": None,
+            "value_int": None,
+            "value_real": None,
+            "value_datetime": None,
+            "value_json": None,
+        }
+        if self.value_type == "string":
+            column_map["value_text"] = str(self.value)  # type: ignore
+        elif self.value_type == "int":
+            column_map["value_int"] = int(self.value)  # type: ignore
+        elif self.value_type == "float":
+            column_map["value_real"] = float(self.value)  # type: ignore
+        elif self.value_type == "datetime":
+            if isinstance(self.value, _dt.datetime):
+                column_map["value_datetime"] = self.value.isoformat()  # type: ignore
+            else:
+                column_map["value_datetime"] = str(self.value)  # type: ignore
+        elif self.value_type == "json":
+            column_map["value_json"] = self.value  # type: ignore
+        else:  # pragma: no cover - safeguarded by MetadataType Literal
+            raise ValueError(f"Unsupported value_type {self.value_type}")
+        return column_map
+
+
+@dataclass(slots=True)
+class FileRecord:
+    source_id: str
+    canonical_uri: str
+    provider_file_id: str | None = None
+    id: str | None = None
+    asset_id: str | None = None
+    asset_version_id: str | None = None
+    path: str | None = None
+    filename: str | None = None
+    size_bytes: int | None = None
+    checksum_md5: str | None = None
+    checksum_sha256: str | None = None
     mime_type: str | None = None
-    # TODO other content hashes can be sha1 and sha256, usefuf if several cloud services prefer that
-    md5: str | None = None
-    is_virtual: bool = (
-        False  # If True, this record is virtual and does not have a real file on disk
-    )
+    mtime: _dt.datetime | None = None
+    ctime: _dt.datetime | None = None
+    first_seen_at: _dt.datetime | None = None
+    last_seen_at: _dt.datetime | None = None
+    deleted_at: _dt.datetime | None = None
+    metadata: list[MetadataValue] = field(default_factory=list)
+    _data_accessor: FileAccessor | None = field(init=False, repr=False, default=None)
+
+    def add_metadata(
+        self,
+        metadata_id: str,
+        plugin_id: str,
+        value: MetadataScalar,
+        value_type: MetadataType,
+        *,
+        confidence: float = 1.0,
+        is_candidate: bool = True,
+        source_id: str | None = None,
+    ) -> None:
+        self.metadata.append(
+            MetadataValue(
+                metadata_id=metadata_id,
+                plugin_id=plugin_id,
+                value=value,
+                value_type=value_type,
+                confidence=confidence,
+                is_candidate=is_candidate,
+                source_id=source_id,
+            )
+        )
 
     @property
     def data(self) -> FileAccessor | None:
-        return getattr(self, "_data_accessor", None)
+        return self._data_accessor
 
-    # asset_id: foreign key to an asset table. Many files record can point to the same asset.
-    # version_of
-    # variant_of
+    def attach_accessor(self, accessor: FileAccessor | None) -> None:
+        self._data_accessor = accessor
 
-    # source_status: found, error, missing, new, deleted, moved
-    # flag_review, flag_delete, flag_favorite, flag_hide
 
-    # Content fingerprints
-    # Used for similarity and deduplication
-    # MinHash (LSH), SimHash for text
-    # pHash, aHash, dHash for images
-    # Chromaprint / AcoustID, dejavu for audio
-    # ssdeep, tlsh, sdhash for general binary content
+@dataclass(slots=True)
+class ProcessorResult:
+    file_id: str
+    processor_id: str
+    cache_key: str
+    ran_at: _dt.datetime = field(default_factory=_dt.datetime.utcnow)
 
-    # Filename (derived?)
-    # Extension (derived?)
-    # Parent folder (derived)
-    # Tags
-    # Access time (st_atime, in most filesystems)
-    # Birth time (st_birthtime, in APFS, NTFS, FAT)
-    # Downloaded time: MacOS extended attributes
 
-    # Document related metadata
-    # original_uri: str | None = None
-    # download_uri: str | None = None # If given, a special URL that can be used to download the document but not used as ID
-    # uri: str
-    # title: str | None = None
-    # summary: str | None = None
-    # description: str | None = None
-    # byline: str | None = None
-    # lang: str | None = None
-    # authors: list[str] = []
-    # keywords: list[str] = []
-    # characters: int = 0 - generated
+# asset_id: foreign key to an asset table. Many files record can point to the same asset.
+# version_of
+# variant_of
+
+# source_status: found, error, missing, new, deleted, moved
+# flag_review, flag_delete, flag_favorite, flag_hide
+
+# Content fingerprints
+# Used for similarity and deduplication
+# MinHash (LSH), SimHash for text
+# pHash, aHash, dHash for images
+# Chromaprint / AcoustID, dejavu for audio
+# ssdeep, tlsh, sdhash for general binary content
+
+# Filename (derived?)
+# Extension (derived?)
+# Parent folder (derived)
+# Tags
+# Access time (st_atime, in most filesystems)
+# Birth time (st_birthtime, in APFS, NTFS, FAT)
+# Downloaded time: MacOS extended attributes
+
+# Document related metadata
+# original_uri: str | None = None
+# download_uri: str | None = None # If given, a special URL that can be used to download the document but not used as ID
+# uri: str
+# title: str | None = None
+# summary: str | None = None
+# description: str | None = None
+# byline: str | None = None
+# lang: str | None = None
+# authors: list[str] = []
+# keywords: list[str] = []
+# characters: int = 0 - generated
 
 
 # Extended attributes
@@ -144,11 +220,3 @@ class FileRecord(SQLModel, table=True):
 # PDF: PyPDF2, pdfminer, exiftool
 # Office: python-docx, python-pptx, openpyxl, olefile
 # General: exiftool (command-line, supports almost everything)
-
-
-class ProcessorResult(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    file_id: int = Field(foreign_key="filerecord.id", index=True)
-    processor_id: str
-    cache_key: str
-    ran_at: _dt.datetime = Field(default_factory=_dt.datetime.utcnow)

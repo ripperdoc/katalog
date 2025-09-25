@@ -1,4 +1,4 @@
-from typing import Any, AsyncIterator, Iterator
+from typing import Any, AsyncIterator
 
 from katalog.models import FileRecord
 

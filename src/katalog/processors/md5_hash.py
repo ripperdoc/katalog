@@ -5,16 +5,16 @@ from katalog.models import FileRecord
 
 class MD5HashProcessor(Processor):
     dependencies = frozenset()  # No dependencies, runs on any record
-    outputs = frozenset({"md5"})
+    outputs = frozenset({"checksum_md5"})
 
     def cache_key(self, record: FileRecord) -> str:
-        size = record.size or 0
-        mtime_str = record.modified_at.isoformat() if record.modified_at else ""
+        size = record.size_bytes or 0
+        mtime_str = record.mtime.isoformat() if record.mtime else ""
         return f"{size}-{mtime_str}-v1"
 
     def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
         # Only run if md5 is missing or cache key changed
-        if record.md5 is None and record.data:
+        if record.checksum_md5 is None and record.data:
             return True
         return prev_cache != self.cache_key(record)
 
@@ -33,5 +33,5 @@ class MD5HashProcessor(Processor):
                 break
             hash_md5.update(chunk)
             offset += len(chunk)
-        record.md5 = hash_md5.hexdigest()
+        record.checksum_md5 = hash_md5.hexdigest()
         return record

@@ -11,7 +11,6 @@ dependencies = [
     "google-auth-httplib2>=0.2.0",
     "google-auth-oauthlib>=1.2.2",
     "python-magic>=0.4.27",
-    "sqlmodel>=0.0.24",
     "uvicorn[standard]>=0.29.0",
     "loguru",
 ]

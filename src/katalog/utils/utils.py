@@ -24,10 +24,10 @@ def import_client_class(package_path: str) -> type[SourceClient]:
 def populate_accessor(record: FileRecord, source_map: dict[str, SourceClient]) -> None:
     if not record or not source_map:
         return None
-    client = source_map.get(record.source)
+    client = source_map.get(record.source_id)
     if not client:
         return None
-    record._data_accessor = client.get_accessor(record)
+    record.attach_accessor(client.get_accessor(record))
 
 
 def timestamp_to_utc(ts: float | None) -> datetime | None:

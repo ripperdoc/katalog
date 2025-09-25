@@ -9,7 +9,7 @@ class ArchiveProcess(Processor):
     outputs = frozenset({"_files_"})
 
     # def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
-    #     return record.source == "downloads" and prev_cache != self.cache_key(record)
+    #     return record.source_id == "downloads" and prev_cache != self.cache_key(record)
 
     # async def run(self, record: FileRecord) -> FileRecord:
     #     return await super().run(record)

@@ -1,6 +1,7 @@
-import datetime
 import os
 from typing import Any, AsyncIterator, Dict
+
+from loguru import logger
 
 from katalog.clients.base import SourceClient
 from katalog.models import FileAccessor, FileRecord
@@ -31,6 +32,8 @@ class FilesystemClient(SourceClient):
     Client for accessing and listing files in a local file system source.
     """
 
+    PLUGIN_ID = "dev.katalog.client.filesystem"
+
     def __init__(self, id: str, root_path: str, **kwargs):
         self.id = id
         self.root_path = root_path
@@ -57,28 +60,52 @@ class FilesystemClient(SourceClient):
         """
         Recursively scan the directory and yield FileRecord objects.
         """
-        now = datetime.datetime.utcnow()
         count = 0
         for dirpath, dirnames, filenames in os.walk(self.root_path):
             for filename in filenames:
                 full_path = os.path.join(dirpath, filename)
                 try:
                     stat = os.stat(full_path)
+                    modified = timestamp_to_utc(stat.st_mtime)
+                    created = timestamp_to_utc(stat.st_ctime)
                     record = FileRecord(
+                        source_id=self.id,
+                        canonical_uri=f"file://{full_path}",
+                        provider_file_id=full_path,
                         path=full_path,
-                        source=self.id,
-                        size=stat.st_size,
-                        modified_at=timestamp_to_utc(stat.st_mtime),
-                        created_at=timestamp_to_utc(stat.st_ctime),
-                        scanned_at=now,
+                        filename=filename,
+                        size_bytes=stat.st_size,
+                        mtime=modified,
+                        ctime=created,
+                    )
+                    if modified:
+                        record.add_metadata(
+                            "core/time/modified",
+                            self.PLUGIN_ID,
+                            modified,
+                            "datetime",
+                        )
+                    if created:
+                        record.add_metadata(
+                            "core/time/created",
+                            self.PLUGIN_ID,
+                            created,
+                            "datetime",
+                        )
+                    record.add_metadata(
+                        "core/file/size",
+                        self.PLUGIN_ID,
+                        int(stat.st_size),
+                        "int",
                     )
                 except Exception as e:
-                    record = FileRecord(
-                        path=full_path,
-                        source=self.id,
-                        error_message=str(e),
-                        scanned_at=now,
+                    logger.warning(
+                        "Failed to stat %s for source %s: %s",
+                        full_path,
+                        self.id,
+                        e,
                     )
+                    continue
                 yield record
                 count += 1
                 if count > 100:
