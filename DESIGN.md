@@ -8,7 +8,9 @@ Here are some overall principles `katalog` should follow:
   what's battle tested, don't attempt to recreate the wheel.
 
 - **Pluggable**. There are so many flavors of data sources and metadata processors, an easily
-  pluggable system makes it easy for anyone to contribute and tweak it for their needs.
+  pluggable system makes it easy for anyone to contribute and tweak it for their needs. Because the
+  community can add new plugins, it means things like database tables need to be flexible to new
+  data types coming from new plugins.
 
 - **Modular**. A direct consequence of both above principles is that it must be easy to link
   together existing functionality but in different languages, formats and executables, and that it
@@ -85,24 +87,140 @@ starts with the user adding a first source, e.g. their "Document" folder.
 ### Metadata
 
 Each file record can have a large amount of metadata, some common among all files, some specific to
-certain types of files. Our system needs to handle the fact that there might be multiple sources for
-a certain piece of metadata that may not be in agreement, such as when the file was last modified,
-which can be given differently by file system and file header metadata. We need to track these
-different "opinions" on the same property. The system needs to heuristically pick one as the current
-"candidate" (in e.g. file listings), and when not easily resolved, a human or smart agent could make
-an informed decision or provide new information using some metadata setting tools.
+certain types of files or sources. Our system needs to handle the fact that there might be multiple
+opinions for a certain piece of metadata that may not be in agreement, such as when the file was
+last modified, which can be given differently by file system and file header metadata. We need to
+track these different opinions of the same property and asset. The system needs to heuristically
+pick one as the current "candidate" (in e.g. file listings), and when not easily resolved, a human
+or smart agent could make an informed decision or provide new information using some metadata
+setting tools.
 
 ## Architecture
 
+### Workspace model
+
+A given user may have multiple workspaces. A workspace represents both a separate database and a
+separate sets of configured sources and settings (`katalog.toml`). Assets are only tracked and
+de-duplicated within a workspace. A workspace can be backed up and moved around, and it contains all
+caches.
+
 ### Data model
 
-- Workspace: A folder that contains a database, credentials, caches and a `katalog.toml` file with
-  settings, including which processors to use and with which settings.
-  - Source: Defined in katalog.toml, describes a location where we pull file data from. Each source
-    has a table.
-    - Files: Each row is a file from the source.
-  - Assets: One shared table. Each row is an identified asset, and refers to file records in source
-    tables.
+We utilize an Entity-Attribute-Value (EAV) model with provenance metadata, stored in a handful of
+SQLite tables that are designed to remain stable over time. The schema below expresses the current
+plan using real SQLite DDL so migrations can be generated directly from the document.
+
+#### Assets
+
+Each asset is the canonical concept we deduplicate around. Hashes, versions, and files hang off an
+asset row.
+
+```sql
+CREATE TABLE assets (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Content hashes are stored separately so we can support multiple algorithms and re-hash when needed.
+
+```sql
+CREATE TABLE asset_hashes (
+    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    algorithm TEXT NOT NULL,
+    hash_value TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (asset_id, algorithm)
+);
+
+CREATE INDEX idx_asset_hashes_value ON asset_hashes (algorithm, hash_value);
+```
+
+#### File records
+
+File records bind the physical file (from a source) to an asset and optionally a specific version.
+We keep both provider-native identifiers and normalized URIs so reconnect logic can work reliably.
+
+```sql
+CREATE TABLE file_records (
+    -- ID is preferrably the unique ID from the provider
+    id TEXT PRIMARY KEY,
+    asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL,
+    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NOT NULL,
+    lost_at DATETIME,
+    UNIQUE (source_id, provider_file_id),
+);
+
+CREATE INDEX idx_file_records_asset ON file_records (asset_id);
+CREATE INDEX idx_file_records_version ON file_records (asset_version_id);
+CREATE INDEX idx_file_records_source ON file_records (source_id, last_seen_at);
+```
+
+#### Metadata (EAV with provenance)
+
+Metadata entries capture competing opinions from different plugins or providers. Instead of forcing
+everything into TEXT, the table exposes dedicated columns for each SQLite affinity. A CHECK
+constraint enforces that exactly one typed column is populated so range queries remain indexable.
+
+```sql
+CREATE TABLE metadata_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+    file_record_id TEXT REFERENCES file_records(id) ON DELETE CASCADE,
+    source_id TEXT REFERENCES sources(id),
+    plugin_id TEXT NOT NULL,
+    metadata_id TEXT NOT NULL,
+    value_type TEXT NOT NULL CHECK (value_type IN ('string','int','float','datetime','json')),
+    value_text TEXT,
+    value_int INTEGER,
+    value_real REAL,
+    value_datetime DATETIME,
+    value_json TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence BETWEEN 0 AND 1),
+    is_candidate INTEGER NOT NULL DEFAULT 1 CHECK (is_candidate IN (0,1)),
+    version INTEGER,
+    is_superseded BOOLEAN DEFAULT 0
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (metadata_id, asset_id, file_record_id, plugin_id, value_type),
+    CHECK (
+        (value_text IS NOT NULL) +
+        (value_int IS NOT NULL) +
+        (value_real IS NOT NULL) +
+        (value_datetime IS NOT NULL) +
+        (value_json IS NOT NULL)
+        = 1
+    )
+);
+
+CREATE INDEX idx_metadata_lookup ON metadata_entries (metadata_id, value_type);
+CREATE INDEX idx_metadata_asset ON metadata_entries (asset_id);
+CREATE INDEX idx_metadata_plugin ON metadata_entries (plugin_id, updated_at DESC);
+```
+
+The `value_json` column is used for structured metadata (arrays, objects). Booleans are stored in
+`value_int` with `0/1` semantics. When processors publish new information they can flag a row as a
+`candidate`; adjudicated human choices can flip `is_candidate` to `0`.
+
+#### Identifiers
+
+`asset_id` is a workspace unique UUID that is assigned once the system, or a human wants to define a
+tracked asset. That asset id is referred to by one or more file records to link them together.
+
+`source_id` is a workspace unique but readable ID for the instance of a source along with it's
+settings. It's not the same as the `source_type`, e.g. one workspace can have multiple Google
+Drive's setup.
+
+`plugin_id` is globally unique reversed DNS identifier for a plugin, e.g the implementation of a
+source, e.g. `se.helmgast.gdrive`. This allows multiple plugins even for the same provider to
+co-exist.
+
+`metadata_id` is a globally unique identifier for a type of metadata. It has the format
+`<category>/<property>`, e.g. `time/created_at`. This allows us to easily filter metadata, e.g. all
+from a specific plugin, all relating to `time` or all relating to a specific concept such as
+`time/created_at`.
 
 ### Main server
 
@@ -145,7 +263,7 @@ Source data model (for all clients):
 
 API (for all clients):
 
-- `init` - creates the connector from configuration
+- `init` - creates the connector from configuration, or errors if already initialized
 - `get_info` - statically returns information about the plugin, e.g. description, author, version
 - `can_connect` - checks if a given connector can connect to a URI identifier (e.g. file path)
 - `scan` - accesses the source to retrieve a stream of file information objects. May have internal
@@ -194,3 +312,67 @@ changed and there is no need to run the MimeTypeProcessor.
 - Default ignore lists to reduce number of files. Start with an include list. Still log all excluded
   files, for easy discovery.
 - Search through some basic archive files e.g. zip files, and create virtual File Records
+
+## FAQ
+
+### If two sources report files with the same MD5 hash, can we detect that via SQL?
+
+Yes. Every processor that emits checksums writes them as metadata rows (e.g.
+`metadata_id = "core/checksum/md5"`, `value_type = 'string'`, value stored in `value_text`). Because
+`metadata_entries` keeps the `file_record_id`, we can join back to `file_records` and spot
+duplicates across sources with a single query:
+
+```sql
+SELECT me.value_text AS md5, GROUP_CONCAT(fr.id) AS file_record_ids
+FROM metadata_entries me
+JOIN file_records fr ON fr.id = me.file_record_id
+WHERE me.metadata_id = 'core/checksum/md5'
+GROUP BY me.value_text
+HAVING COUNT(DISTINCT fr.source_id) > 1;
+```
+
+This produces every MD5 value seen in multiple sources together with the affected file records,
+allowing the deduper to merge them under a single `asset_id` or prompt a review workflow.
+
+### Can we ingest file records before deciding which asset they belong to?
+
+Yes. Both `file_records.asset_id` and `metadata_entries.asset_id` are nullable, so scanners can
+persist discoveries immediately, even when we have not yet created or linked a canonical asset. The
+workflow is typically:
+
+1. Source client inserts a `file_records` row with `asset_id = NULL` plus whatever metadata the
+   provider offers (URIs, hashes, timestamps).
+2. Processors emit metadata rows that still point at the `file_record_id` (and leave
+   `asset_id = NULL`).
+3. When a deduper decides that the file should join (or create) an asset, it issues an `UPDATE` to
+   set `asset_id` on both the `file_records` row and any metadata rows referencing it.
+
+Because of this, scanning is never blocked on asset decisions, and asset creation can be an async or
+human-in-the-loop step performed later.
+
+### What happens when a source stops returning a previously seen file?
+
+`file_records` keeps `last_seen_at` and `lost_at` timestamps, so every scan simply updates
+`last_seen_at` for the rows it touched. After a crawl, any file whose `last_seen_at` predates the
+scan window is implicitly missing from the source. We keep that row (and all related metadata) while
+marking it as a soft delete by setting `lost_at = CURRENT_TIMESTAMP`. Queries that only care about
+live files filter on `lost_at IS NULL`, while history/audit views can still surface the full record.
+Because the row stays around, users can later “forget” it entirely (hard delete) or reconcile it if
+the file reappears in a future scan.
+
+### Can we leverage sources that provide incremental change feeds?
+
+Yes. The schema keeps `first_seen_at`/`last_seen_at` plus provider identifiers (`provider_file_id`,
+`canonical_uri`). When a connector supports “changes since T”, we store the checkpoint timestamp in
+the `sources` table (inside `config` or a dedicated column) and ask the source only for files whose
+modification time is newer than that value. The scanner then:
+
+1. Upserts rows for returned files, bumping `last_seen_at` and updating any metadata that changed.
+2. Leaves untouched rows whose `last_seen_at` already exceeds the incremental window, so they are
+   implicitly up-to-date without re-fetching.
+3. After the incremental pass, any row with `last_seen_at < last_checkpoint` is a candidate for soft
+   deletion, identical to the full-scan logic.
+
+Because the tables already expose the timestamps and uniqueness constraints we need, comparing the
+incremental payload to existing `file_records` becomes an O(changes) operation—no full rescan is
+required.
