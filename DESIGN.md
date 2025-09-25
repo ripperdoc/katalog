@@ -115,49 +115,10 @@ plan using real SQLite DDL so migrations can be generated directly from the docu
 Each asset is the canonical concept we deduplicate around. Hashes, versions, and files hang off an
 asset row.
 
-```sql
-CREATE TABLE assets (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-Content hashes are stored separately so we can support multiple algorithms and re-hash when needed.
-
-```sql
-CREATE TABLE asset_hashes (
-    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-    algorithm TEXT NOT NULL,
-    hash_value TEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (asset_id, algorithm)
-);
-
-CREATE INDEX idx_asset_hashes_value ON asset_hashes (algorithm, hash_value);
-```
-
 #### File records
 
 File records bind the physical file (from a source) to an asset and optionally a specific version.
 We keep both provider-native identifiers and normalized URIs so reconnect logic can work reliably.
-
-```sql
-CREATE TABLE file_records (
-    -- ID is preferrably the unique ID from the provider
-    id TEXT PRIMARY KEY,
-    asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
-    source_id TEXT NOT NULL,
-    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen_at DATETIME NOT NULL,
-    lost_at DATETIME,
-    UNIQUE (source_id, provider_file_id),
-);
-
-CREATE INDEX idx_file_records_asset ON file_records (asset_id);
-CREATE INDEX idx_file_records_version ON file_records (asset_version_id);
-CREATE INDEX idx_file_records_source ON file_records (source_id, last_seen_at);
-```
 
 #### Metadata (EAV with provenance)
 
@@ -165,44 +126,8 @@ Metadata entries capture competing opinions from different plugins or providers.
 everything into TEXT, the table exposes dedicated columns for each SQLite affinity. A CHECK
 constraint enforces that exactly one typed column is populated so range queries remain indexable.
 
-```sql
-CREATE TABLE metadata_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
-    file_record_id TEXT REFERENCES file_records(id) ON DELETE CASCADE,
-    source_id TEXT REFERENCES sources(id),
-    plugin_id TEXT NOT NULL,
-    metadata_id TEXT NOT NULL,
-    value_type TEXT NOT NULL CHECK (value_type IN ('string','int','float','datetime','json')),
-    value_text TEXT,
-    value_int INTEGER,
-    value_real REAL,
-    value_datetime DATETIME,
-    value_json TEXT,
-    confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence BETWEEN 0 AND 1),
-    is_candidate INTEGER NOT NULL DEFAULT 1 CHECK (is_candidate IN (0,1)),
-    version INTEGER,
-    is_superseded BOOLEAN DEFAULT 0
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (metadata_id, asset_id, file_record_id, plugin_id, value_type),
-    CHECK (
-        (value_text IS NOT NULL) +
-        (value_int IS NOT NULL) +
-        (value_real IS NOT NULL) +
-        (value_datetime IS NOT NULL) +
-        (value_json IS NOT NULL)
-        = 1
-    )
-);
-
-CREATE INDEX idx_metadata_lookup ON metadata_entries (metadata_id, value_type);
-CREATE INDEX idx_metadata_asset ON metadata_entries (asset_id);
-CREATE INDEX idx_metadata_plugin ON metadata_entries (plugin_id, updated_at DESC);
-```
-
 The `value_json` column is used for structured metadata (arrays, objects). Booleans are stored in
-`value_int` with `0/1` semantics. When processors publish new information they can flag a row as a
-`candidate`; adjudicated human choices can flip `is_candidate` to `0`.
+`value_int` with `0/1` semantics.
 
 #### Identifiers
 
@@ -210,8 +135,8 @@ The `value_json` column is used for structured metadata (arrays, objects). Boole
 tracked asset. That asset id is referred to by one or more file records to link them together.
 
 `source_id` is a workspace unique but readable ID for the instance of a source along with it's
-settings. It's not the same as the `source_type`, e.g. one workspace can have multiple Google
-Drive's setup.
+settings. It's not the same as the `plugin_id`, e.g. one workspace can have multiple Google Drive's
+setup.
 
 `plugin_id` is globally unique reversed DNS identifier for a plugin, e.g the implementation of a
 source, e.g. `se.helmgast.gdrive`. This allows multiple plugins even for the same provider to

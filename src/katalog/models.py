@@ -25,7 +25,6 @@ class MetadataValue:
     value: MetadataScalar
     value_type: MetadataType
     confidence: float = 1.0
-    is_candidate: bool = True
     source_id: str | None = None
 
     def as_sql_columns(self) -> dict[str, Any]:
@@ -50,27 +49,16 @@ class MetadataValue:
                 column_map["value_datetime"] = str(self.value)  # type: ignore
         elif self.value_type == "json":
             column_map["value_json"] = self.value  # type: ignore
-        else:  # pragma: no cover - safeguarded by MetadataType Literal
+        else:
             raise ValueError(f"Unsupported value_type {self.value_type}")
         return column_map
 
 
 @dataclass(slots=True)
 class FileRecord:
+    id: str
     source_id: str
-    canonical_uri: str
-    provider_file_id: str | None = None
-    id: str | None = None
     asset_id: str | None = None
-    asset_version_id: str | None = None
-    path: str | None = None
-    filename: str | None = None
-    size_bytes: int | None = None
-    checksum_md5: str | None = None
-    checksum_sha256: str | None = None
-    mime_type: str | None = None
-    mtime: _dt.datetime | None = None
-    ctime: _dt.datetime | None = None
     first_seen_at: _dt.datetime | None = None
     last_seen_at: _dt.datetime | None = None
     deleted_at: _dt.datetime | None = None
@@ -85,7 +73,6 @@ class FileRecord:
         value_type: MetadataType,
         *,
         confidence: float = 1.0,
-        is_candidate: bool = True,
         source_id: str | None = None,
     ) -> None:
         self.metadata.append(
@@ -95,7 +82,6 @@ class FileRecord:
                 value=value,
                 value_type=value_type,
                 confidence=confidence,
-                is_candidate=is_candidate,
                 source_id=source_id,
             )
         )

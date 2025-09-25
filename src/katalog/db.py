@@ -11,27 +11,17 @@ from katalog.models import FileRecord, MetadataValue
 
 
 SCHEMA_STATEMENTS = (
-    """
+    """-- sql
     CREATE TABLE IF NOT EXISTS assets (
         id TEXT PRIMARY KEY,
         title TEXT,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """,
-    """
-    CREATE TABLE IF NOT EXISTS asset_hashes (
-        asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-        algorithm TEXT NOT NULL,
-        hash_value TEXT NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (asset_id, algorithm)
-    );
-    """,
-    """
+    """-- sql
     CREATE TABLE IF NOT EXISTS sources (
         id TEXT PRIMARY KEY,
         title TEXT,
-        source_type TEXT,
         plugin_id TEXT,
         config TEXT,
         last_scanned_at DATETIME,
@@ -39,48 +29,23 @@ SCHEMA_STATEMENTS = (
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """,
-    """
-    CREATE TABLE IF NOT EXISTS asset_versions (
-        id TEXT PRIMARY KEY,
-        asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-        label TEXT,
-        kind TEXT NOT NULL CHECK (kind IN ('version','variant')),
-        parent_version_id TEXT REFERENCES asset_versions(id),
-        variant_of_version_id TEXT REFERENCES asset_versions(id),
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (asset_id, label, kind)
-    );
-    """,
-    """
+    """-- sql
     CREATE TABLE IF NOT EXISTS file_records (
         id TEXT PRIMARY KEY,
         asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
-        asset_version_id TEXT REFERENCES asset_versions(id) ON DELETE SET NULL,
         source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-        provider_file_id TEXT,
-        canonical_uri TEXT NOT NULL,
-        path TEXT,
-        filename TEXT,
-        size_bytes INTEGER,
-        checksum_md5 TEXT,
-        checksum_sha256 TEXT,
-        mime_type TEXT,
-        mtime DATETIME,
-        ctime DATETIME,
         first_seen_at DATETIME NOT NULL,
         last_seen_at DATETIME NOT NULL,
         deleted_at DATETIME,
-        UNIQUE (source_id, provider_file_id),
-        UNIQUE (source_id, canonical_uri)
     );
     """,
-    """
+    """-- sql
     CREATE INDEX IF NOT EXISTS idx_file_records_asset ON file_records (asset_id);
     """,
-    """
+    """-- sql
     CREATE INDEX IF NOT EXISTS idx_file_records_source ON file_records (source_id, last_seen_at);
     """,
-    """
+    """-- sql
     CREATE TABLE IF NOT EXISTS metadata_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
@@ -95,11 +60,10 @@ SCHEMA_STATEMENTS = (
         value_datetime DATETIME,
         value_json TEXT,
         confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence BETWEEN 0 AND 1),
-        is_candidate INTEGER NOT NULL DEFAULT 1 CHECK (is_candidate IN (0,1)),
         version INTEGER,
         is_superseded INTEGER NOT NULL DEFAULT 0 CHECK (is_superseded IN (0,1)),
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (metadata_id, asset_id, file_record_id, plugin_id, value_type),
+        UNIQUE (metadata_id, asset_id, file_record_id, plugin_id, version),
         CHECK (
             (value_text IS NOT NULL) +
             (value_int IS NOT NULL) +
@@ -107,16 +71,17 @@ SCHEMA_STATEMENTS = (
             (value_datetime IS NOT NULL) +
             (value_json IS NOT NULL)
             = 1
-        )
+        ),
+        CHECK (asset_id IS NOT NULL OR file_record_id IS NOT NULL).
     );
     """,
-    """
+    """-- sql
     CREATE INDEX IF NOT EXISTS idx_metadata_lookup ON metadata_entries (metadata_id, value_type);
     """,
-    """
+    """-- sql
     CREATE INDEX IF NOT EXISTS idx_metadata_asset ON metadata_entries (asset_id);
     """,
-    """
+    """-- sql
     CREATE INDEX IF NOT EXISTS idx_metadata_plugin ON metadata_entries (plugin_id, updated_at DESC);
     """,
 )
@@ -152,24 +117,22 @@ class Database:
         source_id: str,
         *,
         title: str | None,
-        source_type: str | None,
         plugin_id: str | None,
         config: dict | None,
     ) -> None:
         payload = json.dumps(config or {}, default=str)
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
-            """
-            INSERT INTO sources (id, title, source_type, plugin_id, config, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            """-- sql
+            INSERT INTO sources (id, title, plugin_id, config, updated_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title,
-                source_type=excluded.source_type,
                 plugin_id=excluded.plugin_id,
                 config=excluded.config,
                 updated_at=excluded.updated_at
             """,
-            (source_id, title, source_type, plugin_id, payload, now),
+            (source_id, title, plugin_id, payload, now),
         )
         self.conn.commit()
 
@@ -180,7 +143,7 @@ class Database:
     def finalize_scan(self, ctx: ScanContext) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
-            """
+            """-- sql
             UPDATE file_records
             SET deleted_at = ?
             WHERE source_id = ? AND deleted_at IS NULL AND last_seen_at < ?
@@ -188,7 +151,7 @@ class Database:
             (now_iso, ctx.source_id, ctx.started_at.isoformat()),
         )
         self.conn.execute(
-            """
+            """-- sql
             UPDATE sources
             SET last_scanned_at = ?, updated_at = ?
             WHERE id = ?
@@ -198,62 +161,36 @@ class Database:
         self.conn.commit()
 
     def upsert_file_record(self, record: FileRecord, ctx: ScanContext) -> str:
-        record_id = record.id or record.provider_file_id or record.canonical_uri
-        if not record_id:
+        if not record.id:
             raise ValueError(
                 "file record must have either provider_file_id or canonical_uri"
             )
-        record.id = record_id
         last_seen = ctx.started_at.isoformat()
         first_seen = (
             record.first_seen_at.isoformat() if record.first_seen_at else last_seen
         )
         self.conn.execute(
-            """
+            """-- sql
             INSERT INTO file_records (
-                id, asset_id, asset_version_id, source_id, provider_file_id,
-                canonical_uri, path, filename, size_bytes, checksum_md5, checksum_sha256,
-                mime_type, mtime, ctime, first_seen_at, last_seen_at, deleted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                id, asset_id, source_id, first_seen_at, last_seen_at, deleted_at
+            ) VALUES (?, ?, ?, ?, ?, NULL)
             ON CONFLICT(id) DO UPDATE SET
                 asset_id=excluded.asset_id,
-                asset_version_id=excluded.asset_version_id,
-                provider_file_id=excluded.provider_file_id,
-                canonical_uri=excluded.canonical_uri,
-                path=excluded.path,
-                filename=excluded.filename,
-                size_bytes=excluded.size_bytes,
-                checksum_md5=excluded.checksum_md5,
-                checksum_sha256=excluded.checksum_sha256,
-                mime_type=excluded.mime_type,
-                mtime=excluded.mtime,
-                ctime=excluded.ctime,
                 last_seen_at=excluded.last_seen_at,
                 deleted_at=NULL
             """,
             (
-                record_id,
+                record.id,
                 record.asset_id,
-                record.asset_version_id,
                 record.source_id,
-                record.provider_file_id,
-                record.canonical_uri,
-                record.path,
-                record.filename,
-                record.size_bytes,
-                record.checksum_md5,
-                record.checksum_sha256,
-                record.mime_type,
-                self._maybe_iso(record.mtime),
-                self._maybe_iso(record.ctime),
                 first_seen,
                 last_seen,
             ),
         )
         self.conn.commit()
         if record.metadata:
-            self._insert_metadata(record_id, record, record.metadata)
-        return record_id
+            self._insert_metadata(record.id, record, record.metadata)
+        return record.id
 
     def _insert_metadata(
         self, file_record_id: str, record: FileRecord, metadata: Iterable[MetadataValue]
@@ -264,7 +201,7 @@ class Database:
             if isinstance(value_json, (dict, list)):
                 columns["value_json"] = json.dumps(value_json)
             self.conn.execute(
-                """
+                """-- sql
                 INSERT INTO metadata_entries (
                     asset_id,
                     file_record_id,
@@ -278,8 +215,7 @@ class Database:
                     value_datetime,
                     value_json,
                     confidence,
-                    is_candidate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(metadata_id, asset_id, file_record_id, plugin_id, value_type)
                 DO UPDATE SET
                     value_text=excluded.value_text,
@@ -288,7 +224,6 @@ class Database:
                     value_datetime=excluded.value_datetime,
                     value_json=excluded.value_json,
                     confidence=excluded.confidence,
-                    is_candidate=excluded.is_candidate,
                     updated_at=CURRENT_TIMESTAMP,
                     is_superseded=0
                 """,
@@ -305,7 +240,6 @@ class Database:
                     columns["value_datetime"],
                     columns["value_json"],
                     entry.confidence,
-                    1 if entry.is_candidate else 0,
                 ),
             )
         self.conn.commit()

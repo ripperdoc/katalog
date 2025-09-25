@@ -47,7 +47,6 @@ async def initialize_sources():
         database.ensure_source(
             source_id,
             title=source_cfg.get("title"),
-            source_type=source_cfg.get("class"),
             plugin_id=getattr(client, "PLUGIN_ID", client.__class__.__module__),
             config=source_cfg,
         )
