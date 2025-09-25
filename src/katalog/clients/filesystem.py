@@ -49,9 +49,9 @@ class FilesystemClient(SourceClient):
         """
         Returns a FilesystemAccessor for the file represented by the FileRecord.
         """
-        if not record.path:
+        if not record.id:
             return None
-        return FilesystemAccessor(record.path)
+        return FilesystemAccessor(record.id)
 
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
@@ -69,31 +69,25 @@ class FilesystemClient(SourceClient):
                     modified = timestamp_to_utc(stat.st_mtime)
                     created = timestamp_to_utc(stat.st_ctime)
                     record = FileRecord(
+                        id=full_path,
                         source_id=self.id,
-                        canonical_uri=f"file://{full_path}",
-                        provider_file_id=full_path,
-                        path=full_path,
-                        filename=filename,
-                        size_bytes=stat.st_size,
-                        mtime=modified,
-                        ctime=created,
                     )
                     if modified:
                         record.add_metadata(
-                            "core/time/modified",
+                            "time/modified",
                             self.PLUGIN_ID,
                             modified,
                             "datetime",
                         )
                     if created:
                         record.add_metadata(
-                            "core/time/created",
+                            "time/created",
                             self.PLUGIN_ID,
                             created,
                             "datetime",
                         )
                     record.add_metadata(
-                        "core/file/size",
+                        "file/size",
                         self.PLUGIN_ID,
                         int(stat.st_size),
                         "int",

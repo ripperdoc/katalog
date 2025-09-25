@@ -58,6 +58,7 @@ class GoogleDriveClient(SourceClient):
         }
 
     def get_accessor(self, record: FileRecord) -> Any:
+        # TODO implement file accessor for Google Drive files
         return None
 
     async def scan(self) -> AsyncIterator[FileRecord]:
@@ -84,69 +85,66 @@ class GoogleDriveClient(SourceClient):
                 for file in files:
                     try:
                         provider_id = file.get("id", "")
-                        canonical_uri = (
-                            f"gdrive://{provider_id}"
-                            if provider_id
-                            else f"gdrive://{self.id}/missing"
-                        )
                         size = int(file.get("size")) if file.get("size") else None
                         modified = parse_google_drive_datetime(file.get("modifiedTime"))
                         created = parse_google_drive_datetime(file.get("createdTime"))
                         record = FileRecord(
+                            id=provider_id,
                             source_id=self.id,
-                            canonical_uri=canonical_uri,
-                            provider_file_id=provider_id or None,
-                            path=file.get("name"),
-                            filename=file.get("originalFilename", file.get("name", "")),
-                            size_bytes=size,
-                            mtime=modified,
-                            ctime=created,
-                            mime_type=file.get("mimeType"),
-                            checksum_md5=file.get("md5Checksum"),
                             # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
                             # Other fields: kind, description, name
                             # thumbnailLink if download thumbnail instead of generating it?
                             # GDrive also has free text labels, although not often used?
                         )
-                        if record.mime_type:
-                            record.add_metadata(
-                                "core/mime/type",
-                                self.PLUGIN_ID,
-                                record.mime_type,
-                                "string",
-                            )
-                        if record.checksum_md5:
-                            record.add_metadata(
-                                "core/checksum/md5",
-                                self.PLUGIN_ID,
-                                record.checksum_md5,
-                                "string",
-                            )
-                        if size is not None:
-                            record.add_metadata(
-                                "core/file/size",
-                                self.PLUGIN_ID,
-                                size,
-                                "int",
-                            )
+
+                        record.add_metadata(
+                            "file/path", self.PLUGIN_ID, file.get("name"), "string"
+                        )
+                        record.add_metadata(
+                            "file/filename",
+                            self.PLUGIN_ID,
+                            file.get("originalFilename", file.get("name", "")),
+                            "string",
+                        )
+
                         if modified:
                             record.add_metadata(
-                                "core/time/modified",
+                                "time/modified",
                                 self.PLUGIN_ID,
                                 modified,
                                 "datetime",
                             )
+
                         if created:
                             record.add_metadata(
-                                "core/time/created",
+                                "time/created",
                                 self.PLUGIN_ID,
                                 created,
                                 "datetime",
                             )
+                        if file.get("mimeType"):
+                            record.add_metadata(
+                                "mime/type",
+                                self.PLUGIN_ID,
+                                file.get("mimeType"),
+                                "string",
+                            )
+                        if file.get("md5Checksum"):
+                            record.add_metadata(
+                                "hash/md5",
+                                self.PLUGIN_ID,
+                                file.get("md5Checksum"),
+                                "string",
+                            )
+                        if size is not None:
+                            record.add_metadata(
+                                "file/size", self.PLUGIN_ID, size, "int"
+                            )
+
                         starred = file.get("starred")
                         if starred is not None:
                             record.add_metadata(
-                                "gdrive/file/starred",
+                                "file/starred",
                                 self.PLUGIN_ID,
                                 int(bool(starred)),
                                 "int",
