@@ -62,9 +62,6 @@ async def initialize_sources():
     return {"status": "scan complete", "sources": list(source_map.keys())}
 
 
-@app.get("/list")
-def list_local_files():
-    rows = database.conn.execute(
-        "SELECT id, source_id, canonical_uri, path, filename, size_bytes, checksum_md5, mime_type, last_seen_at FROM file_records"
-    ).fetchall()
-    return [dict(row) for row in rows]
+@app.get("/files/{source_id}")
+def list_files(source_id: str):
+    return database.list_files_with_metadata(source_id)

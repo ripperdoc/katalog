@@ -58,6 +58,7 @@ class MetadataValue:
 class FileRecord:
     id: str
     source_id: str
+    canonical_uri: str
     asset_id: str | None = None
     first_seen_at: _dt.datetime | None = None
     last_seen_at: _dt.datetime | None = None

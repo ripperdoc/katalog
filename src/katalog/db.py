@@ -5,7 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from katalog.models import FileRecord, MetadataValue
 
@@ -34,9 +34,11 @@ SCHEMA_STATEMENTS = (
         id TEXT PRIMARY KEY,
         asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
         source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        canonical_uri TEXT NOT NULL,
         first_seen_at DATETIME NOT NULL,
         last_seen_at DATETIME NOT NULL,
         deleted_at DATETIME,
+        UNIQUE (source_id, canonical_uri)
     );
     """,
     """-- sql
@@ -162,9 +164,9 @@ class Database:
 
     def upsert_file_record(self, record: FileRecord, ctx: ScanContext) -> str:
         if not record.id:
-            raise ValueError(
-                "file record must have either provider_file_id or canonical_uri"
-            )
+            raise ValueError("file record requires a stable id")
+        if not record.canonical_uri:
+            raise ValueError("file record requires a canonical_uri")
         last_seen = ctx.started_at.isoformat()
         first_seen = (
             record.first_seen_at.isoformat() if record.first_seen_at else last_seen
@@ -172,10 +174,11 @@ class Database:
         self.conn.execute(
             """-- sql
             INSERT INTO file_records (
-                id, asset_id, source_id, first_seen_at, last_seen_at, deleted_at
-            ) VALUES (?, ?, ?, ?, ?, NULL)
+                id, asset_id, source_id, canonical_uri, first_seen_at, last_seen_at, deleted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL)
             ON CONFLICT(id) DO UPDATE SET
                 asset_id=excluded.asset_id,
+                canonical_uri=excluded.canonical_uri,
                 last_seen_at=excluded.last_seen_at,
                 deleted_at=NULL
             """,
@@ -183,6 +186,7 @@ class Database:
                 record.id,
                 record.asset_id,
                 record.source_id,
+                record.canonical_uri,
                 first_seen,
                 last_seen,
             ),
@@ -243,6 +247,96 @@ class Database:
                 ),
             )
         self.conn.commit()
+
+    def list_files_with_metadata(self, source_id: str) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """-- sql
+            SELECT id, asset_id, source_id, canonical_uri, first_seen_at, last_seen_at, deleted_at
+            FROM file_records
+            WHERE source_id = ?
+            ORDER BY last_seen_at DESC
+            """,
+            (source_id,),
+        ).fetchall()
+        if not rows:
+            return []
+        file_ids = [row["id"] for row in rows]
+        metadata_map = self._metadata_for_files(file_ids)
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            record["metadata"] = metadata_map.get(row["id"], [])
+            result.append(record)
+        return result
+
+    def _metadata_for_files(
+        self, file_ids: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        if not file_ids:
+            return {}
+        placeholders = ",".join("?" for _ in file_ids)
+        query = f"""-- sql
+            SELECT
+                id,
+                asset_id,
+                file_record_id,
+                source_id,
+                plugin_id,
+                metadata_id,
+                value_type,
+                value_text,
+                value_int,
+                value_real,
+                value_datetime,
+                value_json,
+                confidence,
+                version,
+                is_superseded,
+                updated_at
+            FROM metadata_entries
+            WHERE file_record_id IN ({placeholders})
+            ORDER BY file_record_id, metadata_id, plugin_id, id
+        """
+        rows = self.conn.execute(query, file_ids).fetchall()
+        per_file: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            per_file.setdefault(row["file_record_id"], []).append(
+                self._coerce_metadata_row(row)
+            )
+        return per_file
+
+    @staticmethod
+    def _coerce_metadata_row(row: sqlite3.Row) -> dict[str, Any]:
+        value: Any
+        if row["value_text"] is not None:
+            value = row["value_text"]
+        elif row["value_int"] is not None:
+            value = row["value_int"]
+        elif row["value_real"] is not None:
+            value = row["value_real"]
+        elif row["value_datetime"] is not None:
+            value = row["value_datetime"]
+        elif row["value_json"] is not None:
+            try:
+                value = json.loads(row["value_json"])
+            except json.JSONDecodeError:
+                value = row["value_json"]
+        else:
+            value = None
+        return {
+            "id": row["id"],
+            "asset_id": row["asset_id"],
+            "file_record_id": row["file_record_id"],
+            "source_id": row["source_id"],
+            "plugin_id": row["plugin_id"],
+            "metadata_id": row["metadata_id"],
+            "value_type": row["value_type"],
+            "value": value,
+            "confidence": row["confidence"],
+            "version": row["version"],
+            "is_superseded": bool(row["is_superseded"]),
+            "updated_at": row["updated_at"],
+        }
 
     @staticmethod
     def _maybe_iso(value: datetime | None) -> str | None:

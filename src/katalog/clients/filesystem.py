@@ -46,12 +46,10 @@ class FilesystemClient(SourceClient):
         }
 
     def get_accessor(self, record: FileRecord) -> Any:
-        """
-        Returns a FilesystemAccessor for the file represented by the FileRecord.
-        """
-        if not record.id:
+        """Return an accessor keyed off the canonical absolute path."""
+        if not record.canonical_uri:
             return None
-        return FilesystemAccessor(record.id)
+        return FilesystemAccessor(record.canonical_uri)
 
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
@@ -68,9 +66,24 @@ class FilesystemClient(SourceClient):
                     stat = os.stat(full_path)
                     modified = timestamp_to_utc(stat.st_mtime)
                     created = timestamp_to_utc(stat.st_ctime)
+                    inode = getattr(stat, "st_ino", None)
+                    device = getattr(stat, "st_dev", None)
+                    if inode and device:
+                        # POSIX st_ino/st_dev survive renames on macOS/Linux; Windows often reports 0 so we fall back to the path identifier there.
+                        record_id = f"inode:{device}:{inode}"
+                    else:
+                        record_id = f"path:{full_path}"
+                    abs_path = os.path.abspath(full_path)
                     record = FileRecord(
-                        id=full_path,
+                        id=record_id,
                         source_id=self.id,
+                        canonical_uri=abs_path,
+                    )
+                    record.add_metadata(
+                        "file/absolute_path",
+                        self.PLUGIN_ID,
+                        abs_path,
+                        "string",
                     )
                     if modified:
                         record.add_metadata(

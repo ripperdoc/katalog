@@ -88,9 +88,11 @@ class GoogleDriveClient(SourceClient):
                         size = int(file.get("size")) if file.get("size") else None
                         modified = parse_google_drive_datetime(file.get("modifiedTime"))
                         created = parse_google_drive_datetime(file.get("createdTime"))
+                        canonical_uri = f"gdrive://{self.id}/{provider_id}"
                         record = FileRecord(
                             id=provider_id,
                             source_id=self.id,
+                            canonical_uri=canonical_uri,
                             # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
                             # Other fields: kind, description, name
                             # thumbnailLink if download thumbnail instead of generating it?
