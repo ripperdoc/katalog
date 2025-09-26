@@ -3,6 +3,8 @@ import os
 import sys
 import pathlib
 
+from loguru import logger
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -21,10 +23,7 @@ def main():
 
     ws = pathlib.Path(workspace_input).expanduser().resolve()
     if not ws.exists() or not ws.is_dir():
-        print(
-            f"Error: workspace '{ws}' does not exist or is not a directory",
-            file=sys.stderr,
-        )
+        logger.error("Workspace '{}' does not exist or is not a directory", ws)
         sys.exit(2)
 
     os.environ["KATALOG_WORKSPACE"] = str(ws)
@@ -55,8 +54,8 @@ def main():
             reload=True,
             reload_dirs=[str(src_dir)],
         )
-    except Exception as exc:  # pragma: no cover - runtime errors
-        print("Failed to start server:", exc, file=sys.stderr)
+    except Exception:  # pragma: no cover - runtime errors
+        logger.exception("Failed to start server")
         sys.exit(1)
 
 
