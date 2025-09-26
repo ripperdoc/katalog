@@ -161,14 +161,15 @@ class GoogleDriveClient(SourceClient):
                                     "file/size", self.PLUGIN_ID, size, "int"
                                 )
 
-                            parent_ids = file.get("parents") or []
-                            if parent_ids:
-                                record.add_metadata(
-                                    "file/parent_ids",
-                                    self.PLUGIN_ID,
-                                    parent_ids,
-                                    "json",
-                                )
+                            owners = file.get("owners") or []
+                            if owners:
+                                for owner in owners:
+                                    record.add_metadata(
+                                        "file/owner",
+                                        self.PLUGIN_ID,
+                                        owner["emailAddress"],
+                                        "json",
+                                    )
                             starred = file.get("starred")
                             if starred is not None:
                                 record.add_metadata(
@@ -262,9 +263,9 @@ class GoogleDriveClient(SourceClient):
         return results
 
     def _sanitize_component(self, value: Optional[str]) -> str:
-        """Trim whitespace and escape literal slashes in a path component."""
+        """Trim whitespace and encode literal slashes in a path component."""
         cleaned = (value or "").strip()
-        return cleaned.replace("/", r"\/")
+        return cleaned.replace("/", "%2F")
 
     def _prime_folder_cache(self) -> None:
         cache, page_token, exhausted = self._load_folder_cache_from_disk()

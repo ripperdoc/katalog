@@ -54,11 +54,11 @@ async def initialize_sources():
 
     for payload in source_map.values():
         client = payload["client"]
-        logger.info(f"Scanning source: {client.id}")
-        ctx = database.begin_scan(client.id)
+        logger.info(f"Snapshotting source: {client.id}")
+        snapshot = database.begin_snapshot(client.id)
         async for record in client.scan():
-            database.upsert_file_record(record, ctx)
-        database.finalize_scan(ctx)
+            database.upsert_file_record(record, snapshot)
+        database.finalize_snapshot(snapshot)
 
     return {"status": "scan complete", "sources": list(source_map.keys())}
 

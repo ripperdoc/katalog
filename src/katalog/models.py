@@ -59,10 +59,9 @@ class FileRecord:
     id: str
     source_id: str
     canonical_uri: str
-    asset_id: str | None = None
-    first_seen_at: _dt.datetime | None = None
-    last_seen_at: _dt.datetime | None = None
-    deleted_at: _dt.datetime | None = None
+    created_snapshot_id: int | None = None
+    last_snapshot_id: int | None = None
+    deleted_snapshot_id: int | None = None
     metadata: list[MetadataValue] = field(default_factory=list)
     _data_accessor: FileAccessor | None = field(init=False, repr=False, default=None)
 
@@ -103,7 +102,6 @@ class ProcessorResult:
     ran_at: _dt.datetime = field(default_factory=_dt.datetime.utcnow)
 
 
-# asset_id: foreign key to an asset table. Many files record can point to the same asset.
 # version_of
 # variant_of
 
