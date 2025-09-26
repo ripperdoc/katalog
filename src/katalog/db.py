@@ -301,7 +301,7 @@ class Database:
                     value_datetime,
                     value_json,
                     confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         file_record_id,
