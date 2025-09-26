@@ -99,10 +99,17 @@ class GoogleDriveClient(SourceClient):
                                 canonical_uri=canonical_uri,
                             )
 
-                            path = self._resolve_path(file)
-                            if path:
+                            name_paths, id_paths = self._resolve_paths(file)
+                            for path in name_paths:
                                 record.add_metadata(
                                     "file/path", self.PLUGIN_ID, path, "string"
+                                )
+                            for path in id_paths:
+                                record.add_metadata(
+                                    "file/path_ids",
+                                    self.PLUGIN_ID,
+                                    path,
+                                    "string",
                                 )
                             record.add_metadata(
                                 "file/filename",
@@ -201,28 +208,58 @@ class GoogleDriveClient(SourceClient):
         finally:
             self._persist_folder_cache()
 
-    def _resolve_path(self, file: Dict[str, Any]) -> str:
-        components: List[str] = [
-            self._sanitize_component(file.get("name") or file.get("id", ""))
-        ]
-        parents = file.get("parents") or []
-        visited: set[str] = set()
-        while parents:
-            parent_id = parents[0]
+    def _resolve_paths(self, file: Dict[str, Any]) -> tuple[list[str], list[str]]:
+        """Return all name-based and ID-based paths for a Drive file."""
+        file_id = file.get("id", "")
+        leaf_name = self._sanitize_component(file.get("name") or file_id)
+        leaf_id = file_id.strip()
+        parent_paths = self._collect_parent_paths(file.get("parents") or [], set())
+        if not parent_paths:
+            parent_paths = [([], [])]
+
+        name_paths: list[str] = []
+        id_paths: list[str] = []
+        name_seen: set[str] = set()
+        id_seen: set[str] = set()
+        for name_chain, id_chain in parent_paths:
+            name_components = name_chain + [leaf_name]
+            id_components = id_chain + [leaf_id]
+            name_path = "/".join(filter(None, name_components))
+            id_path = "/".join(filter(None, id_components))
+            if name_path and name_path not in name_seen:
+                name_paths.append(name_path)
+                name_seen.add(name_path)
+            if id_path and id_path not in id_seen:
+                id_paths.append(id_path)
+                id_seen.add(id_path)
+        return name_paths, id_paths
+
+    def _collect_parent_paths(
+        self, parent_ids: List[str], visited: set[str]
+    ) -> list[tuple[list[str], list[str]]]:
+        if not parent_ids:
+            return [([], [])]
+        results: list[tuple[list[str], list[str]]] = []
+        for parent_id in parent_ids:
+            sanitized_id = parent_id.strip()
+            branch_visited = visited | {parent_id}
             if parent_id in visited:
-                components.append(self._sanitize_component(parent_id))
-                break
-            visited.add(parent_id)
+                fallback_name = self._sanitize_component(parent_id)
+                results.append(([fallback_name], [sanitized_id]))
+                continue
             folder = self._folder_cache.get(parent_id)
             if not folder:
                 folder = self._ensure_folder_loaded(parent_id)
             if not folder:
-                components.append(self._sanitize_component(parent_id))
-                break
-            components.append(self._sanitize_component(folder.get("name") or parent_id))
-            parents = folder.get("parents") or []
-        components.reverse()
-        return "/".join(components)
+                fallback_name = self._sanitize_component(parent_id)
+                results.append(([fallback_name], [sanitized_id]))
+                continue
+            folder_name = self._sanitize_component(folder.get("name") or parent_id)
+            folder_parents = folder.get("parents") or []
+            subpaths = self._collect_parent_paths(folder_parents, branch_visited)
+            for name_chain, id_chain in subpaths:
+                results.append((name_chain + [folder_name], id_chain + [sanitized_id]))
+        return results
 
     def _sanitize_component(self, value: Optional[str]) -> str:
         """Trim whitespace and escape literal slashes in a path component."""
