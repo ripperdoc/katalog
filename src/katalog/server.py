@@ -94,11 +94,17 @@ async def snapshot_source(source_id: str):
     client = _get_client(source_id, source_cfg)
     logger.info("Snapshotting source: {}", source_id)
     snapshot = database.begin_snapshot(source_id)
-    processed = 0
+    seen = 0
+    added = 0
+    updated = 0
     try:
         async for record in client.scan():
-            database.upsert_file_record(record, snapshot)
-            processed += 1
+            changes = database.upsert_file_record(record, snapshot)
+            seen += 1
+            if "file_record" in changes:
+                added += 1
+            if changes:
+                updated += 1
     except Exception:
         database.finalize_snapshot(snapshot, partial=True)
         raise
@@ -107,7 +113,11 @@ async def snapshot_source(source_id: str):
         "status": "snapshot complete",
         "source": source_id,
         "snapshot_id": snapshot.id,
-        "files_processed": processed,
+        "stats": {
+            "seen": seen,
+            "updated": updated,
+            "added": added,
+        },
     }
 
 

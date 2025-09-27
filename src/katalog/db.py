@@ -232,7 +232,7 @@ class Database:
             self.conn.commit()
         snapshot.is_partial = bool(partial_flag)
 
-    def upsert_file_record(self, record: FileRecord, snapshot: Snapshot) -> str:
+    def upsert_file_record(self, record: FileRecord, snapshot: Snapshot) -> set[str]:
         if not record.id:
             raise ValueError("file record requires a stable id")
         if not record.canonical_uri:
@@ -245,20 +245,32 @@ class Database:
         created_snapshot_id = record.created_snapshot_id or snapshot.id
         last_snapshot_id = snapshot.id
         with self._lock:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 """-- sql
-            INSERT INTO file_records (
-                id,
-                source_id,
-                canonical_uri,
-                created_snapshot_id,
-                last_snapshot_id,
-                deleted_snapshot_id
-            ) VALUES (?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(id) DO UPDATE SET
-                canonical_uri=excluded.canonical_uri,
-                last_snapshot_id=excluded.last_snapshot_id,
-                deleted_snapshot_id=NULL
+            WITH upsert AS (
+                INSERT INTO file_records (
+                    id,
+                    source_id,
+                    canonical_uri,
+                    created_snapshot_id,
+                    last_snapshot_id,
+                    deleted_snapshot_id
+                ) VALUES (?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(id) DO UPDATE SET
+                    canonical_uri=excluded.canonical_uri,
+                    last_snapshot_id=excluded.last_snapshot_id,
+                    deleted_snapshot_id=NULL
+                RETURNING
+                    id,
+                    created_snapshot_id
+            )
+            SELECT
+                upsert.id AS file_id,
+                CASE
+                    WHEN upsert.created_snapshot_id = ? THEN 1
+                    ELSE 0
+                END AS inserted
+            FROM upsert
             """,
                 (
                     record.id,
@@ -266,12 +278,23 @@ class Database:
                     record.canonical_uri,
                     created_snapshot_id,
                     last_snapshot_id,
+                    snapshot.id,
                 ),
             )
+            row = cursor.fetchone()
+            inserted = bool(row[1]) if row else False
             self.conn.commit()
+
         if record.metadata:
-            self._insert_metadata(snapshot.id, record.id, record, record.metadata)
-        return record.id
+            changed_metadata = self._insert_metadata(
+                snapshot.id, record.id, record, record.metadata
+            )
+        else:
+            changed_metadata: set[str] = set()
+        if inserted:
+            # Signals that the file record itself was created
+            changed_metadata.add("file_record")
+        return changed_metadata
 
     def _insert_metadata(
         self,
@@ -279,14 +302,16 @@ class Database:
         file_record_id: str,
         record: FileRecord,
         metadata: Iterable[MetadataValue],
-    ) -> None:
+    ) -> set[str]:
+        changed_ids: set[str] = set()
         with self._lock:
             for entry in metadata:
                 columns = entry.as_sql_columns()
                 value_json = columns["value_json"]
-                if isinstance(value_json, (dict, list)):
-                    columns["value_json"] = json.dumps(value_json)
-                self.conn.execute(
+                if value_json is not None and not isinstance(value_json, str):
+                    columns["value_json"] = json.dumps(value_json, sort_keys=True)
+                entry_source_id = entry.source_id or record.source_id
+                cursor = self.conn.execute(
                     """-- sql
                 INSERT INTO metadata_entries (
                     file_record_id,
@@ -301,12 +326,39 @@ class Database:
                     value_datetime,
                     value_json,
                     confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                )
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM metadata_entries AS existing
+                    WHERE existing.file_record_id = ?
+                      AND existing.source_id = ?
+                      AND existing.plugin_id = ?
+                      AND existing.metadata_id = ?
+                      AND existing.value_type = ?
+                      AND existing.value_text IS ?
+                      AND existing.value_int IS ?
+                      AND existing.value_real IS ?
+                      AND existing.value_datetime IS ?
+                      AND existing.value_json IS ?
+                      AND existing.confidence = ?
+                )
                 """,
                     (
                         file_record_id,
-                        entry.source_id or record.source_id,
+                        entry_source_id,
                         snapshot_id,
+                        entry.plugin_id,
+                        entry.metadata_id,
+                        entry.value_type,
+                        columns["value_text"],
+                        columns["value_int"],
+                        columns["value_real"],
+                        columns["value_datetime"],
+                        columns["value_json"],
+                        entry.confidence,
+                        file_record_id,
+                        entry_source_id,
                         entry.plugin_id,
                         entry.metadata_id,
                         entry.value_type,
@@ -318,7 +370,10 @@ class Database:
                         entry.confidence,
                     ),
                 )
+                if cursor.rowcount == 1:
+                    changed_ids.add(entry.metadata_id)
             self.conn.commit()
+        return changed_ids
 
     def list_files_with_metadata(
         self, source_id: str, *, view: Literal["flat", "complete"] = "flat"
