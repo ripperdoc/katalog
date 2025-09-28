@@ -22,7 +22,9 @@ from katalog.models import (
     MIME_TYPE,
     TIME_CREATED,
     TIME_MODIFIED,
+    Metadata,
     define_metadata_key,
+    make_metadata,
 )
 from katalog.utils.utils import parse_google_drive_datetime
 
@@ -75,7 +77,7 @@ class GoogleDriveClient(SourceClient):
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
-    async def scan(self) -> AsyncIterator[FileRecord]:
+    async def scan(self) -> AsyncIterator[tuple[FileRecord, list[Metadata]]]:
         """Asynchronously scan Google Drive and yield FileRecord objects."""
         self._prime_folder_cache()
         page_token: Optional[str] = None
@@ -94,9 +96,9 @@ class GoogleDriveClient(SourceClient):
                     count,
                 )
                 for file in files:
-                    record = self._build_record(file)
-                    if record:
-                        yield record
+                    record, metadata = self._build_record(file)
+                    if record and metadata:
+                        yield (record, metadata)
 
                 page_token = response.get("nextPageToken")
                 if not page_token:
@@ -112,7 +114,9 @@ class GoogleDriveClient(SourceClient):
         finally:
             self._persist_folder_cache()
 
-    def _build_record(self, file: Dict[str, Any]) -> Optional[FileRecord]:
+    def _build_record(
+        self, file: Dict[str, Any]
+    ) -> tuple[FileRecord | None, list[Metadata] | None]:
         """Transform a Drive file payload into a FileRecord, guarding errors."""
         try:
             file_id = file.get("id", "")
@@ -123,48 +127,53 @@ class GoogleDriveClient(SourceClient):
                 source_id=self.id,
                 canonical_uri=canonical_uri,
             )
+            metadata = list()
 
             name_paths, id_paths = self._resolve_paths(file)
             for path in name_paths:
-                record.add_metadata(self.PLUGIN_ID, FILE_PATH, path)
+                metadata.append(make_metadata(self.PLUGIN_ID, FILE_PATH, path))
             for path in id_paths:
-                record.add_metadata(self.PLUGIN_ID, FILE_ID_PATH, path)
-            record.add_metadata(
-                self.PLUGIN_ID,
-                FILE_NAME,
-                file.get("originalFilename", file.get("name", "")),
+                metadata.append(make_metadata(self.PLUGIN_ID, FILE_ID_PATH, path))
+            metadata.append(
+                make_metadata(
+                    self.PLUGIN_ID,
+                    FILE_NAME,
+                    file.get("originalFilename", file.get("name", "")),
+                ),
             )
 
             created = parse_google_drive_datetime(file.get("createdTime"))
             if created:
-                record.add_metadata(self.PLUGIN_ID, TIME_CREATED, created)
+                metadata.append(make_metadata(self.PLUGIN_ID, TIME_CREATED, created))
 
             modified = parse_google_drive_datetime(file.get("modifiedTime"))
             if modified:
-                record.add_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified)
+                metadata.append(make_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified))
 
             mime_type = file.get("mimeType")
             if mime_type:
-                record.add_metadata(self.PLUGIN_ID, MIME_TYPE, mime_type)
+                metadata.append(make_metadata(self.PLUGIN_ID, MIME_TYPE, mime_type))
             checksum = file.get("md5Checksum")
             if checksum:
-                record.add_metadata(self.PLUGIN_ID, HASH_MD5, checksum)
+                metadata.append(make_metadata(self.PLUGIN_ID, HASH_MD5, checksum))
 
             raw_size = file.get("size")
             size = int(raw_size) if raw_size else None
             if size is not None:
-                record.add_metadata(self.PLUGIN_ID, FILE_SIZE, size)
+                metadata.append(make_metadata(self.PLUGIN_ID, FILE_SIZE, size))
 
             owners = file.get("owners") or []
             if owners:
                 for owner in owners:
-                    record.add_metadata(
-                        self.PLUGIN_ID, FILE_OWNER, owner["emailAddress"]
+                    metadata.append(
+                        make_metadata(self.PLUGIN_ID, FILE_OWNER, owner["emailAddress"])
                     )
             starred = file.get("starred")
             if starred is not None:
-                record.add_metadata(self.PLUGIN_ID, self.STARRED, int(bool(starred)))
-            return record
+                metadata.append(
+                    make_metadata(self.PLUGIN_ID, self.STARRED, int(bool(starred)))
+                )
+            return record, metadata
         except Exception as exc:  # pragma: no cover - defensive
             file_id = file.get("id", "error")
             logger.warning(
@@ -173,7 +182,7 @@ class GoogleDriveClient(SourceClient):
                 file_id,
                 exc,
             )
-            return None
+            return None, None
 
     def _fetch_files_page(self, page_token: Optional[str]) -> Optional[Dict[str, Any]]:
         try:

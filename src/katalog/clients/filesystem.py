@@ -11,6 +11,8 @@ from katalog.models import (
     TIME_MODIFIED,
     FileAccessor,
     FileRecord,
+    Metadata,
+    make_metadata,
 )
 from katalog.utils.utils import timestamp_to_utc
 
@@ -61,7 +63,7 @@ class FilesystemClient(SourceClient):
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
 
-    async def scan(self) -> AsyncIterator[FileRecord]:
+    async def scan(self) -> AsyncIterator[tuple[FileRecord, list[Metadata]]]:
         """
         Recursively scan the directory and yield FileRecord objects.
         """
@@ -86,12 +88,21 @@ class FilesystemClient(SourceClient):
                         source_id=self.id,
                         canonical_uri=abs_path,
                     )
-                    record.add_metadata(self.PLUGIN_ID, FILE_ABSOLUTE_PATH, abs_path)
+                    metadata = list()
+                    metadata.append(
+                        make_metadata(self.PLUGIN_ID, FILE_ABSOLUTE_PATH, abs_path)
+                    )
                     if modified:
-                        record.add_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified)
+                        metadata.append(
+                            make_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified)
+                        )
                     if created:
-                        record.add_metadata(self.PLUGIN_ID, TIME_CREATED, created)
-                    record.add_metadata(self.PLUGIN_ID, FILE_SIZE, int(stat.st_size))
+                        metadata.append(
+                            make_metadata(self.PLUGIN_ID, TIME_CREATED, created)
+                        )
+                    metadata.append(
+                        make_metadata(self.PLUGIN_ID, FILE_SIZE, int(stat.st_size))
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to stat %s for source %s: %s",
@@ -100,7 +111,7 @@ class FilesystemClient(SourceClient):
                         e,
                     )
                     continue
-                yield record
+                yield record, metadata
                 count += 1
                 if count > 100:
                     return

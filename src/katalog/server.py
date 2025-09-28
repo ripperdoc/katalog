@@ -1,3 +1,4 @@
+import asyncio
 import tomllib
 from loguru import logger
 
@@ -7,6 +8,11 @@ from typing import Any, Literal
 from katalog.clients.base import SourceClient
 from katalog.config import WORKSPACE
 from katalog.db import Database
+from katalog.processors.runtime import (
+    ProcessorStage,
+    process as run_processors,
+    sort_processors,
+)
 from katalog.utils.utils import import_client_class
 
 app = FastAPI()
@@ -24,10 +30,12 @@ logger.info(f"Using database: {DATABASE_URL}")
 database = Database(db_path)
 database.initialize_schema()
 SOURCE_CONFIGS: dict[str, dict[str, Any]] = {}
+PROCESSOR_CONFIGS: list[dict[str, Any]] = []
+PROCESSOR_PIPELINE: list[ProcessorStage] | None = None
 CLIENT_CACHE: dict[str, SourceClient] = {}
 
 
-def _load_source_configs() -> dict[str, dict[str, Any]]:
+def _load_workspace_config() -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"Missing katalog config: {CONFIG_PATH}")
     with CONFIG_PATH.open("rb") as f:
@@ -41,7 +49,8 @@ def _load_source_configs() -> dict[str, dict[str, Any]]:
         if source_id in result:
             raise ValueError(f"Duplicate source id '{source_id}' in {CONFIG_PATH}")
         result[source_id] = raw
-    return result
+    processors = config.get("processors", []) or []
+    return result, processors
 
 
 def _import_source_class(source_cfg: dict[str, Any]):
@@ -84,7 +93,23 @@ def _get_client(source_id: str, source_cfg: dict[str, Any]) -> SourceClient:
     return client
 
 
-SOURCE_CONFIGS = _load_source_configs()
+def _get_processor_pipeline() -> list[ProcessorStage]:
+    global PROCESSOR_PIPELINE
+    if PROCESSOR_PIPELINE is None:
+        PROCESSOR_PIPELINE = sort_processors(PROCESSOR_CONFIGS)
+    return PROCESSOR_PIPELINE
+
+
+async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> None:
+    if not tasks:
+        return
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.opt(exception=result).error("Processor task failed")
+
+
+SOURCE_CONFIGS, PROCESSOR_CONFIGS = _load_workspace_config()
 _ensure_sources_registered()
 
 
@@ -92,22 +117,48 @@ _ensure_sources_registered()
 async def snapshot_source(source_id: str):
     source_cfg = _get_source_config_or_404(source_id)
     client = _get_client(source_id, source_cfg)
+    processor_pipeline = _get_processor_pipeline()
     logger.info("Snapshotting source: {}", source_id)
     snapshot = database.begin_snapshot(source_id)
     seen = 0
     added = 0
     updated = 0
+    processed = 0
+    processor_tasks: list[asyncio.Task[Any]] = []
     try:
-        async for record in client.scan():
-            changes = database.upsert_file_record(record, snapshot)
+        async for record, metadata in client.scan():
+            try:
+                record.attach_accessor(client.get_accessor(record))
+            except Exception:
+                logger.exception(
+                    "Failed to attach accessor for record %s in source %s",
+                    record.id,
+                    source_id,
+                )
+            changes = database.upsert_file_record(record, metadata, snapshot)
             seen += 1
             if "file_record" in changes:
                 added += 1
             if changes:
                 updated += 1
+            if processor_pipeline:
+                processed += 1
+                processor_tasks.append(
+                    asyncio.create_task(
+                        run_processors(
+                            record=record,
+                            snapshot=snapshot,
+                            database=database,
+                            stages=processor_pipeline,
+                            initial_changes=changes,
+                        )
+                    )
+                )
     except Exception:
+        await _drain_processor_tasks(processor_tasks)
         database.finalize_snapshot(snapshot, partial=True)
         raise
+    await _drain_processor_tasks(processor_tasks)
     database.finalize_snapshot(snapshot)
     return {
         "status": "snapshot complete",
@@ -117,6 +168,7 @@ async def snapshot_source(source_id: str):
             "seen": seen,
             "updated": updated,
             "added": added,
+            "processed": processed,
         },
     }
 

@@ -8,9 +8,14 @@ from katalog.processors.base import Processor
 
 
 def import_processor_class(package_path: str) -> type[Processor]:
-    parts = package_path.rsplit(".", 1)
-    module = importlib.import_module(parts[0])
-    ProcessorClass = getattr(module, parts[1])
+    module_name, class_name = package_path.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        if module_name.startswith("katalog."):
+            raise
+        module = importlib.import_module(f"katalog.{module_name}")
+    ProcessorClass = getattr(module, class_name)
     return ProcessorClass
 
 
@@ -40,39 +45,6 @@ def timestamp_to_utc(ts: float | None) -> datetime | None:
     if ts is None:
         return None
     return datetime.utcfromtimestamp(ts)
-
-
-def sort_processors(
-    proc_map: dict[str, type[Processor]],
-) -> list[tuple[str, type[Processor]]]:
-    """
-    Topologically sort processors by their data-field dependencies.
-    Each processor declares .dependencies (FileRecord fields it reads)
-    and .outputs (fields it writes). Producers must run before consumers.
-    """
-    # Map each field to processors that produce it
-    field_to_producers: dict[str, set[str]] = {}
-    for name, cls in proc_map.items():
-        for out in cls.outputs:
-            field_to_producers.setdefault(out, set()).add(name)
-    # Build dependency graph: proc_name -> set of producer proc_names
-    deps: dict[str, set[str]] = {name: set() for name in proc_map}
-    for name, cls in proc_map.items():
-        for field in cls.dependencies:
-            producers = field_to_producers.get(field, set())
-            deps[name].update(producers)
-    # Kahn's algorithm
-    sorted_list: list[tuple[str, type[Processor]]] = []
-    while deps:
-        ready = [n for n, d in deps.items() if not d]
-        if not ready:
-            raise RuntimeError(f"Circular dependency among processors: {deps}")
-        for n in ready:
-            sorted_list.append((n, proc_map[n]))
-            deps.pop(n)
-            for other in deps.values():
-                other.discard(n)
-    return sorted_list
 
 
 def parse_google_drive_datetime(dt_str: Optional[str]) -> Optional[datetime]:

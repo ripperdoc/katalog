@@ -1,6 +1,6 @@
 from typing import Any, AsyncIterator
 
-from katalog.models import FileRecord
+from katalog.models import FileRecord, Metadata
 
 
 class SourceClient:
@@ -23,9 +23,9 @@ class SourceClient:
         """Check if the client can connect to the given URI."""
         raise NotImplementedError()
 
-    async def scan(self) -> AsyncIterator[FileRecord]:
+    async def scan(self) -> AsyncIterator[tuple[FileRecord, list[Metadata]]]:
         """
-        Scan the source and yields FileRecord objects.
+        Scan the source and yield FileRecord objects with their metadata payloads.
         """
         if False:
             yield  # This makes it an async generator

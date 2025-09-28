@@ -1,20 +1,43 @@
+from __future__ import annotations
+
 import hashlib
-from katalog.processors.base import Processor
-from katalog.models import FileRecord
+from typing import Any, Optional
+
+from katalog.db import Database
+from katalog.processors.base import Processor, file_data_changed
+from katalog.models import HASH_MD5, FileRecord, Metadata, make_metadata
+
+
+def _has_existing_hash(database: Optional[Database], record: FileRecord) -> bool:
+    if not database:
+        return False
+    existing = database.get_metadata_for_file(
+        record.id,
+        source_id=record.source_id,
+        metadata_key=HASH_MD5,
+    )
+    return bool(existing)
 
 
 class MD5HashProcessor(Processor):
+    PLUGIN_ID = "dev.katalog.processor.md5_hash"
     dependencies = frozenset()  # No dependencies, runs on any record
-    outputs = frozenset({"checksum_md5"})
+    outputs = frozenset({HASH_MD5})
 
-    def should_run(self, record: FileRecord, changes: set[str] | None) -> bool:
-        # If the SourceClient provides a hash, don't add this processor to the list, as it would not be
-        # able to tell that the hash is already present.
-        if record.checksum_md5 is None and record.data:
+    def should_run(
+        self,
+        record: FileRecord,
+        changes: set[str] | None,
+        database: Database | None = None,
+    ) -> bool:
+        if changes and HASH_MD5 in changes:
+            # Source already supplied the hash during this snapshot.
+            return False
+        if file_data_changed(self, record, changes):
             return True
-        return prev_cache != self.cache_key(record)
+        return not _has_existing_hash(database, record)
 
-    async def run(self, record: FileRecord, changes: set[str] | None) -> FileRecord:
+    async def run(self, record: FileRecord, changes: set[str] | None) -> list[Metadata]:
         d = record.data
         if d is None:
             raise ValueError("FileRecord does not have a data accessor")
@@ -29,5 +52,4 @@ class MD5HashProcessor(Processor):
                 break
             hash_md5.update(chunk)
             offset += len(chunk)
-        record.checksum_md5 = hash_md5.hexdigest()
-        return record
+        return [make_metadata(self.PLUGIN_ID, HASH_MD5, hash_md5.hexdigest())]

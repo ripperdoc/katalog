@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal
 
-from katalog.models import FileRecord, MetadataValue
+from katalog.models import FileRecord, Metadata, MetadataKey
 
 
 SCHEMA_STATEMENTS = (
@@ -232,7 +232,9 @@ class Database:
             self.conn.commit()
         snapshot.is_partial = bool(partial_flag)
 
-    def upsert_file_record(self, record: FileRecord, snapshot: Snapshot) -> set[str]:
+    def upsert_file_record(
+        self, record: FileRecord, metadata: list[Metadata], snapshot: Snapshot
+    ) -> set[str]:
         if not record.id:
             raise ValueError("file record requires a stable id")
         if not record.canonical_uri:
@@ -285,9 +287,9 @@ class Database:
             inserted = bool(row[1]) if row else False
             self.conn.commit()
 
-        if record.metadata:
+        if metadata:
             changed_metadata = self._insert_metadata(
-                snapshot.id, record.id, record, record.metadata
+                snapshot.id, record.id, record, metadata
             )
         else:
             changed_metadata: set[str] = set()
@@ -301,7 +303,7 @@ class Database:
         snapshot_id: int,
         file_record_id: str,
         record: FileRecord,
-        metadata: Iterable[MetadataValue],
+        metadata: Iterable[Metadata],
     ) -> set[str]:
         changed_ids: set[str] = set()
         with self._lock:
@@ -430,15 +432,62 @@ class Database:
             metadata_entry = self._metadata_from_join_row(row)
             if metadata_entry and current_record is not None:
                 if view == "complete":
-                    current_record["metadata"].append(metadata_entry)
+                    current_record["metadata"].append(metadata_entry.to_json())
                 else:
                     metadata_dict = current_record["metadata"]
-                    metadata_key = metadata_entry["metadata_key"]
+                    metadata_key = str(metadata_entry.key)
                     if metadata_key not in metadata_dict:
-                        metadata_dict[metadata_key] = metadata_entry["value"]
+                        metadata_dict[metadata_key] = metadata_entry.value
         if current_record:
             result.append(current_record)
         return result
+
+    def get_metadata_for_file(
+        self,
+        file_record_id: str,
+        *,
+        source_id: str | None = None,
+        snapshot_id: int | None = None,
+        plugin_id: str | None = None,
+        metadata_key: MetadataKey | None = None,
+    ) -> list[Metadata]:
+        """Fetch metadata rows for a single file record with optional filters."""
+
+        query = """-- sql
+            SELECT
+                id,
+                file_record_id,
+                source_id,
+                snapshot_id,
+                plugin_id,
+                metadata_key,
+                value_type,
+                value_text,
+                value_int,
+                value_real,
+                value_datetime,
+                value_json,
+                confidence
+            FROM metadata_entries
+            WHERE file_record_id = ?
+        """
+        params: list[Any] = [file_record_id]
+        if source_id is not None:
+            query += " AND source_id = ?"
+            params.append(source_id)
+        if snapshot_id is not None:
+            query += " AND snapshot_id = ?"
+            params.append(snapshot_id)
+        if plugin_id is not None:
+            query += " AND plugin_id = ?"
+            params.append(plugin_id)
+        if metadata_key is not None:
+            query += " AND metadata_key = ?"
+            params.append(str(metadata_key))
+        query += " ORDER BY snapshot_id DESC, id DESC"
+        with self._lock:
+            rows = self.conn.execute(query, params).fetchall()
+        return [Metadata.from_sql_row(row) for row in rows]
 
     def list_relationships(
         self,
@@ -490,7 +539,7 @@ class Database:
         ]
 
     @staticmethod
-    def _metadata_from_join_row(row: sqlite3.Row) -> dict[str, Any] | None:
+    def _metadata_from_join_row(row: sqlite3.Row) -> Metadata | None:
         entry_id = row["metadata_entry_id"]
         if entry_id is None:
             return None
@@ -509,37 +558,7 @@ class Database:
             "value_json": row["metadata_value_json"],
             "confidence": row["metadata_confidence"],
         }
-        return Database._coerce_metadata_row(payload)
-
-    @staticmethod
-    def _coerce_metadata_row(row: Mapping[str, Any]) -> dict[str, Any]:
-        value: Any
-        if row["value_text"] is not None:
-            value = row["value_text"]
-        elif row["value_int"] is not None:
-            value = row["value_int"]
-        elif row["value_real"] is not None:
-            value = row["value_real"]
-        elif row["value_datetime"] is not None:
-            value = row["value_datetime"]
-        elif row["value_json"] is not None:
-            try:
-                value = json.loads(row["value_json"])
-            except json.JSONDecodeError:
-                value = row["value_json"]
-        else:
-            value = None
-        return {
-            "id": row["id"],
-            "file_record_id": row["file_record_id"],
-            "source_id": row["source_id"],
-            "snapshot_id": row["snapshot_id"],
-            "plugin_id": row["plugin_id"],
-            "metadata_key": row["metadata_key"],
-            "value_type": row["value_type"],
-            "value": value,
-            "confidence": row["confidence"],
-        }
+        return Metadata.from_sql_row(payload)
 
     @staticmethod
     def _maybe_iso(value: datetime | None) -> str | None:

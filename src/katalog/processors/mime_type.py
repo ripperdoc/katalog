@@ -1,6 +1,15 @@
+from __future__ import annotations
+
 import magic
-from katalog.processors.base import Processor
-from katalog.models import FileRecord
+from typing import Any
+
+from katalog.db import Database
+from katalog.processors.base import (
+    Processor,
+    file_data_changed,
+    file_data_change_dependencies,
+)
+from katalog.models import MIME_TYPE, FileRecord, Metadata, make_metadata
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic
@@ -8,14 +17,21 @@ from katalog.models import FileRecord
 
 
 class MimeTypeProcessor(Processor):
-    dependencies = frozenset({"checksum_md5"})
-    outputs = frozenset({"mime_type"})
+    PLUGIN_ID = "dev.katalog.processor.mime_type"
+    dependencies = file_data_change_dependencies
+    outputs = frozenset({MIME_TYPE})
 
-    def should_run(self, record: FileRecord, changes: set[str] | None) -> bool:
-        return record.source_id == "downloads" and prev_cache != self.cache_key(record)
+    def should_run(
+        self,
+        record: FileRecord,
+        changes: set[str] | None,
+        database: Database | None = None,
+    ) -> bool:
+        # TODO, some services report application/octet-stream but there is probably a better mime type to find
+        # Is there a logic where we can check for that, without having to recheck every time?
+        return file_data_changed(self, record, changes)
 
-    async def run(self, record: FileRecord, changes: set[str] | None) -> FileRecord:
-        # TODO, some services report application/octet-stream but there is a better mime type to find
+    async def run(self, record: FileRecord, changes: set[str] | None) -> list[Metadata]:
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
         if not record.data:
@@ -23,5 +39,4 @@ class MimeTypeProcessor(Processor):
         m = magic.Magic(mime=True)
         buf = await record.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)
-        record.mime_type = mt
-        return record
+        return [make_metadata(self.PLUGIN_ID, MIME_TYPE, mt)]

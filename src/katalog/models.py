@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from abc import ABC, abstractmethod
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, NewType
 
@@ -63,6 +64,10 @@ def _ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
     raise TypeError(f"Expected {expected}, got {type(value).__name__}")
 
 
+# Special keys to signal changes
+DATA_KEY = define_metadata_key("data", "int")
+FILE_RECORD_KEY = define_metadata_key("file_record", "int")
+
 # Built-in metadata
 FILE_ABSOLUTE_PATH = define_metadata_key("file/absolute_path", "string")
 FILE_PATH = define_metadata_key("file/path", "string")
@@ -77,13 +82,16 @@ TIME_MODIFIED = define_metadata_key("time/modified", "datetime")
 
 
 @dataclass(slots=True)
-class MetadataValue:
+class Metadata:
     plugin_id: str
     key: MetadataKey
     value: MetadataScalar
     value_type: MetadataType
     confidence: float = 1.0
     source_id: str | None = None
+    id: int | None = None
+    file_record_id: str | None = None
+    snapshot_id: int | None = None
 
     def as_sql_columns(self) -> dict[str, Any]:
         """Return a dict matching metadata_entries columns for insertion."""
@@ -111,6 +119,77 @@ class MetadataValue:
             raise ValueError(f"Unsupported value_type {self.value_type}")
         return column_map
 
+    @classmethod
+    def from_sql_row(cls, row: Mapping[str, Any]) -> Metadata:
+        """Instantiate Metadata from a metadata_entries SELECT row."""
+
+        if row.get("value_text") is not None:
+            value: Any = row["value_text"]
+        elif row.get("value_int") is not None:
+            value = row["value_int"]
+        elif row.get("value_real") is not None:
+            value = row["value_real"]
+        elif row.get("value_datetime") is not None:
+            value = row["value_datetime"]
+        elif row.get("value_json") is not None:
+            try:
+                value = json.loads(row["value_json"])
+            except (json.JSONDecodeError, TypeError):
+                value = row["value_json"]
+        else:
+            value = None
+
+        confidence = row.get("confidence", 1.0)
+        if confidence is None:
+            confidence = 1.0
+
+        return cls(
+            id=row.get("id"),
+            file_record_id=row.get("file_record_id"),
+            source_id=row.get("source_id"),
+            snapshot_id=row.get("snapshot_id"),
+            plugin_id=row["plugin_id"],
+            key=MetadataKey(row["metadata_key"]),
+            value=value,
+            value_type=row["value_type"],
+            confidence=float(confidence),
+        )
+
+    def to_json(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of this metadata entry."""
+
+        return {
+            "id": self.id,
+            "file_record_id": self.file_record_id,
+            "source_id": self.source_id,
+            "snapshot_id": self.snapshot_id,
+            "plugin_id": self.plugin_id,
+            "metadata_key": str(self.key),
+            "value_type": self.value_type,
+            "value": self.value,
+            "confidence": self.confidence,
+        }
+
+
+def make_metadata(
+    plugin_id: str,
+    key: MetadataKey,
+    value: MetadataScalar,
+    *,
+    confidence: float = 1.0,
+    source_id: str | None = None,
+):
+    metadata_def = get_metadata_def(key)
+    _ensure_value_type(metadata_def.value_type, value)
+    return Metadata(
+        plugin_id=plugin_id,
+        key=key,
+        value=value,
+        value_type=metadata_def.value_type,
+        confidence=confidence,
+        source_id=source_id,
+    )
+
 
 @dataclass(slots=True)
 class FileRecord:
@@ -120,31 +199,7 @@ class FileRecord:
     created_snapshot_id: int | None = None
     last_snapshot_id: int | None = None
     deleted_snapshot_id: int | None = None
-    metadata: list[MetadataValue] = field(default_factory=list)
     _data_accessor: FileAccessor | None = field(init=False, repr=False, default=None)
-
-    def add_metadata(
-        self,
-        plugin_id: str,
-        key: MetadataKey,
-        value: MetadataScalar,
-        *,
-        confidence: float = 1.0,
-        source_id: str | None = None,
-    ) -> None:
-        metadata_def = get_metadata_def(key)
-        _ensure_value_type(metadata_def.value_type, value)
-
-        self.metadata.append(
-            MetadataValue(
-                plugin_id=plugin_id,
-                key=key,
-                value=value,
-                value_type=metadata_def.value_type,
-                confidence=confidence,
-                source_id=source_id,
-            )
-        )
 
     @property
     def data(self) -> FileAccessor | None:
@@ -152,14 +207,6 @@ class FileRecord:
 
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
-
-
-@dataclass(slots=True)
-class ProcessorResult:
-    file_id: str
-    processor_id: str
-    cache_key: str
-    ran_at: _dt.datetime = field(default_factory=_dt.datetime.utcnow)
 
 
 # version_of
