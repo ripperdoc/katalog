@@ -82,129 +82,119 @@ class GoogleDriveClient(SourceClient):
         count = 0
         try:
             while True:
-                try:
-                    response = (
-                        self.service.files()
-                        .list(
-                            corpora="user",
-                            pageSize=500,
-                            fields="""nextPageToken, files(id, kind, starred, trashed, description, originalFilename, parents, owners, fileExtension, md5Checksum, name, mimeType, size, modifiedTime, createdTime)""",
-                            pageToken=page_token,
-                            orderBy="modifiedTime desc",
-                        )
-                        .execute()
-                    )
-                    files = response.get("files", [])
-                    count += len(files)
-                    logger.info(
-                        "Scanning Google Drive source {} — processed {} files so far",
-                        self.id,
-                        count,
-                    )
-                    for file in files:
-                        try:
-                            file_id = file.get("id", "")
-                            canonical_uri = f"https://drive.google.com/file/d/{file_id}"
+                response = self._fetch_files_page(page_token)
+                if response is None:
+                    break
 
-                            record = FileRecord(
-                                id=file_id,
-                                source_id=self.id,
-                                canonical_uri=canonical_uri,
-                            )
-
-                            name_paths, id_paths = self._resolve_paths(file)
-                            for path in name_paths:
-                                record.add_metadata(self.PLUGIN_ID, FILE_PATH, path)
-                            for path in id_paths:
-                                record.add_metadata(self.PLUGIN_ID, FILE_ID_PATH, path)
-                            record.add_metadata(
-                                self.PLUGIN_ID,
-                                FILE_NAME,
-                                file.get("originalFilename", file.get("name", "")),
-                            )
-
-                            created = parse_google_drive_datetime(
-                                file.get("createdTime")
-                            )
-                            if created:
-                                record.add_metadata(
-                                    self.PLUGIN_ID,
-                                    TIME_CREATED,
-                                    created,
-                                )
-
-                            modified = parse_google_drive_datetime(
-                                file.get("modifiedTime")
-                            )
-                            if modified:
-                                record.add_metadata(
-                                    self.PLUGIN_ID,
-                                    TIME_MODIFIED,
-                                    modified,
-                                )
-
-                            if file.get("mimeType"):
-                                record.add_metadata(
-                                    self.PLUGIN_ID,
-                                    MIME_TYPE,
-                                    file.get("mimeType"),
-                                )
-                            if file.get("md5Checksum"):
-                                record.add_metadata(
-                                    self.PLUGIN_ID,
-                                    HASH_MD5,
-                                    file.get("md5Checksum"),
-                                )
-
-                            size = int(file.get("size")) if file.get("size") else None
-                            if size is not None:
-                                record.add_metadata(self.PLUGIN_ID, FILE_SIZE, size)
-
-                            owners = file.get("owners") or []
-                            if owners:
-                                for owner in owners:
-                                    record.add_metadata(
-                                        self.PLUGIN_ID,
-                                        FILE_OWNER,
-                                        owner["emailAddress"],
-                                    )
-                            starred = file.get("starred")
-                            if starred is not None:
-                                record.add_metadata(
-                                    self.PLUGIN_ID,
-                                    self.STARRED,
-                                    int(bool(starred)),
-                                )
-                        except Exception as exc:  # pragma: no cover - defensive
-                            file_id = file.get("id", "error")
-                            logger.warning(
-                                "Failed to transform Google Drive file %s (%s): %s",
-                                file.get("name"),
-                                file_id,
-                                exc,
-                            )
-                            continue
+                files = response.get("files", [])
+                count += len(files)
+                logger.info(
+                    "Scanning Google Drive source {} — processed {} files so far",
+                    self.id,
+                    count,
+                )
+                for file in files:
+                    record = self._build_record(file)
+                    if record:
                         yield record
-                    page_token = response.get("nextPageToken")
-                    if not page_token:
-                        break
-                    if count >= self.max_files:
-                        logger.info(
-                            "Reached max files {} — stopping scan for source {}",
-                            self.max_files,
-                            self.id,
-                        )
-                        break
-                except HttpError as error:
-                    logger.error(
-                        "Google Drive API error for source %s: %s",
+
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
+                if count >= self.max_files:
+                    logger.info(
+                        "Reached max files {} — stopping scan for source {}",
+                        self.max_files,
                         self.id,
-                        error,
                     )
                     break
                 await asyncio.sleep(0)
         finally:
             self._persist_folder_cache()
+
+    def _build_record(self, file: Dict[str, Any]) -> Optional[FileRecord]:
+        """Transform a Drive file payload into a FileRecord, guarding errors."""
+        try:
+            file_id = file.get("id", "")
+            canonical_uri = f"https://drive.google.com/file/d/{file_id}"
+
+            record = FileRecord(
+                id=file_id,
+                source_id=self.id,
+                canonical_uri=canonical_uri,
+            )
+
+            name_paths, id_paths = self._resolve_paths(file)
+            for path in name_paths:
+                record.add_metadata(self.PLUGIN_ID, FILE_PATH, path)
+            for path in id_paths:
+                record.add_metadata(self.PLUGIN_ID, FILE_ID_PATH, path)
+            record.add_metadata(
+                self.PLUGIN_ID,
+                FILE_NAME,
+                file.get("originalFilename", file.get("name", "")),
+            )
+
+            created = parse_google_drive_datetime(file.get("createdTime"))
+            if created:
+                record.add_metadata(self.PLUGIN_ID, TIME_CREATED, created)
+
+            modified = parse_google_drive_datetime(file.get("modifiedTime"))
+            if modified:
+                record.add_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified)
+
+            mime_type = file.get("mimeType")
+            if mime_type:
+                record.add_metadata(self.PLUGIN_ID, MIME_TYPE, mime_type)
+            checksum = file.get("md5Checksum")
+            if checksum:
+                record.add_metadata(self.PLUGIN_ID, HASH_MD5, checksum)
+
+            raw_size = file.get("size")
+            size = int(raw_size) if raw_size else None
+            if size is not None:
+                record.add_metadata(self.PLUGIN_ID, FILE_SIZE, size)
+
+            owners = file.get("owners") or []
+            if owners:
+                for owner in owners:
+                    record.add_metadata(
+                        self.PLUGIN_ID, FILE_OWNER, owner["emailAddress"]
+                    )
+            starred = file.get("starred")
+            if starred is not None:
+                record.add_metadata(self.PLUGIN_ID, self.STARRED, int(bool(starred)))
+            return record
+        except Exception as exc:  # pragma: no cover - defensive
+            file_id = file.get("id", "error")
+            logger.warning(
+                "Failed to transform Google Drive file %s (%s): %s",
+                file.get("name"),
+                file_id,
+                exc,
+            )
+            return None
+
+    def _fetch_files_page(self, page_token: Optional[str]) -> Optional[Dict[str, Any]]:
+        try:
+            return (
+                self.service.files()
+                .list(
+                    corpora="user",
+                    pageSize=500,
+                    fields="""nextPageToken, files(id, kind, starred, trashed, description, originalFilename, parents, owners, fileExtension, md5Checksum, name, mimeType, size, modifiedTime, createdTime)""",
+                    pageToken=page_token,
+                    orderBy="modifiedTime desc",
+                )
+                .execute()
+            )
+        except HttpError as error:
+            logger.error(
+                "Google Drive API error for source %s: %s",
+                self.id,
+                error,
+            )
+            return None
 
     def _resolve_paths(self, file: Dict[str, Any]) -> tuple[list[str], list[str]]:
         """Return all name-based and ID-based paths for a Drive file."""
