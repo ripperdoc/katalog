@@ -11,7 +11,19 @@ from loguru import logger
 
 from katalog.clients.base import SourceClient
 from katalog.config import WORKSPACE
-from katalog.models import FileRecord
+from katalog.models import (
+    FILE_OWNER,
+    FILE_PATH,
+    FileRecord,
+    FILE_ID_PATH,
+    FILE_NAME,
+    FILE_SIZE,
+    HASH_MD5,
+    MIME_TYPE,
+    TIME_CREATED,
+    TIME_MODIFIED,
+    define_metadata_key,
+)
 from katalog.utils.utils import parse_google_drive_datetime
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
@@ -21,6 +33,7 @@ class GoogleDriveClient(SourceClient):
     """Client that lists files from Google Drive."""
 
     PLUGIN_ID = "dev.katalog.client.googledrive"
+    STARRED = define_metadata_key("file/starred", "int")
 
     def __init__(self, id: str, max_files: int = 500, **_: Any) -> None:
         self.id = id
@@ -101,21 +114,13 @@ class GoogleDriveClient(SourceClient):
 
                             name_paths, id_paths = self._resolve_paths(file)
                             for path in name_paths:
-                                record.add_metadata(
-                                    "file/path", self.PLUGIN_ID, path, "string"
-                                )
+                                record.add_metadata(self.PLUGIN_ID, FILE_PATH, path)
                             for path in id_paths:
-                                record.add_metadata(
-                                    "file/path_ids",
-                                    self.PLUGIN_ID,
-                                    path,
-                                    "string",
-                                )
+                                record.add_metadata(self.PLUGIN_ID, FILE_ID_PATH, path)
                             record.add_metadata(
-                                "file/filename",
                                 self.PLUGIN_ID,
+                                FILE_NAME,
                                 file.get("originalFilename", file.get("name", "")),
-                                "string",
                             )
 
                             created = parse_google_drive_datetime(
@@ -123,10 +128,9 @@ class GoogleDriveClient(SourceClient):
                             )
                             if created:
                                 record.add_metadata(
-                                    "time/created",
                                     self.PLUGIN_ID,
+                                    TIME_CREATED,
                                     created,
-                                    "datetime",
                                 )
 
                             modified = parse_google_drive_datetime(
@@ -134,49 +138,42 @@ class GoogleDriveClient(SourceClient):
                             )
                             if modified:
                                 record.add_metadata(
-                                    "time/modified",
                                     self.PLUGIN_ID,
+                                    TIME_MODIFIED,
                                     modified,
-                                    "datetime",
                                 )
 
                             if file.get("mimeType"):
                                 record.add_metadata(
-                                    "mime/type",
                                     self.PLUGIN_ID,
+                                    MIME_TYPE,
                                     file.get("mimeType"),
-                                    "string",
                                 )
                             if file.get("md5Checksum"):
                                 record.add_metadata(
-                                    "hash/md5",
                                     self.PLUGIN_ID,
+                                    HASH_MD5,
                                     file.get("md5Checksum"),
-                                    "string",
                                 )
 
                             size = int(file.get("size")) if file.get("size") else None
                             if size is not None:
-                                record.add_metadata(
-                                    "file/size", self.PLUGIN_ID, size, "int"
-                                )
+                                record.add_metadata(self.PLUGIN_ID, FILE_SIZE, size)
 
                             owners = file.get("owners") or []
                             if owners:
                                 for owner in owners:
                                     record.add_metadata(
-                                        "file/owner",
                                         self.PLUGIN_ID,
+                                        FILE_OWNER,
                                         owner["emailAddress"],
-                                        "json",
                                     )
                             starred = file.get("starred")
                             if starred is not None:
                                 record.add_metadata(
-                                    "file/starred",
                                     self.PLUGIN_ID,
+                                    self.STARRED,
                                     int(bool(starred)),
-                                    "int",
                                 )
                         except Exception as exc:  # pragma: no cover - defensive
                             file_id = file.get("id", "error")

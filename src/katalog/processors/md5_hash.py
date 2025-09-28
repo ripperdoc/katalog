@@ -7,18 +7,14 @@ class MD5HashProcessor(Processor):
     dependencies = frozenset()  # No dependencies, runs on any record
     outputs = frozenset({"checksum_md5"})
 
-    def cache_key(self, record: FileRecord) -> str:
-        size = record.size_bytes or 0
-        mtime_str = record.mtime.isoformat() if record.mtime else ""
-        return f"{size}-{mtime_str}-v1"
-
-    def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
-        # Only run if md5 is missing or cache key changed
+    def should_run(self, record: FileRecord, changes: set[str] | None) -> bool:
+        # If the SourceClient provides a hash, don't add this processor to the list, as it would not be
+        # able to tell that the hash is already present.
         if record.checksum_md5 is None and record.data:
             return True
         return prev_cache != self.cache_key(record)
 
-    async def run(self, record: FileRecord) -> FileRecord:
+    async def run(self, record: FileRecord, changes: set[str] | None) -> FileRecord:
         d = record.data
         if d is None:
             raise ValueError("FileRecord does not have a data accessor")

@@ -142,7 +142,7 @@ setup.
 source, e.g. `se.helmgast.gdrive`. This allows multiple plugins even for the same provider to
 co-exist.
 
-`metadata_id` is a globally unique identifier for a type of metadata. It has the format
+`metadata_key` is a globally unique identifier for a type of metadata. It has the format
 `<category>/<property>`, e.g. `time/created_at`. This allows us to easily filter metadata, e.g. all
 from a specific plugin, all relating to `time` or all relating to a specific concept such as
 `time/created_at`.
@@ -243,15 +243,15 @@ changed and there is no need to run the MimeTypeProcessor.
 ### If two sources report files with the same MD5 hash, can we detect that via SQL?
 
 Yes. Every processor that emits checksums writes them as metadata rows (e.g.
-`metadata_id = "core/checksum/md5"`, `value_type = 'string'`, value stored in `value_text`). Because
-`metadata_entries` keeps the `file_record_id`, we can join back to `file_records` and spot
+`metadata_key = "core/checksum/md5"`, `value_type = 'string'`, value stored in `value_text`).
+Because `metadata_entries` keeps the `file_record_id`, we can join back to `file_records` and spot
 duplicates across sources with a single query:
 
 ```sql
 SELECT me.value_text AS md5, GROUP_CONCAT(fr.id) AS file_record_ids
 FROM metadata_entries me
 JOIN file_records fr ON fr.id = me.file_record_id
-WHERE me.metadata_id = 'core/checksum/md5'
+WHERE me.metadata_key = 'core/checksum/md5'
 GROUP BY me.value_text
 HAVING COUNT(DISTINCT fr.source_id) > 1;
 ```

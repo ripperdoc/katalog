@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as _dt
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, NewType
 
 
 class FileAccessor(ABC):
@@ -16,12 +16,70 @@ class FileAccessor(ABC):
 
 MetadataScalar = str | int | float | bool | _dt.datetime | Mapping[str, Any] | list[Any]
 MetadataType = Literal["string", "int", "float", "datetime", "json"]
+MetadataKey = NewType("MetadataKey", str)
+
+
+@dataclass(frozen=True)
+class MetadataDef:
+    key: MetadataKey
+    value_type: MetadataType  # e.g. "TEXT", "INTEGER", "JSONB", etc.
+    description: str = ""
+
+
+# Central registry of built-in keys
+METADATA_REGISTRY: dict[MetadataKey, MetadataDef] = {}
+
+
+def define_metadata_key(
+    name: str, value_type: MetadataType, description: str = ""
+) -> MetadataKey:
+    key = MetadataKey(name)
+    METADATA_REGISTRY[key] = MetadataDef(key, value_type, description)
+    return key
+
+
+def get_metadata_def(key: MetadataKey) -> MetadataDef:
+    try:
+        return METADATA_REGISTRY[key]
+    except KeyError:  # pragma: no cover
+        raise ValueError(f"Unknown metadata key {key!s}")
+
+
+def _ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
+    if expected == "string" and isinstance(value, str):
+        return
+    if expected == "int" and isinstance(value, int) and not isinstance(value, bool):
+        return
+    if (
+        expected == "float"
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    ):
+        return
+    if expected == "datetime" and isinstance(value, _dt.datetime):
+        return
+    if expected == "json":  # accept Mapping/list primitives
+        return
+    raise TypeError(f"Expected {expected}, got {type(value).__name__}")
+
+
+# Built-in metadata
+FILE_ABSOLUTE_PATH = define_metadata_key("file/absolute_path", "string")
+FILE_PATH = define_metadata_key("file/path", "string")
+FILE_ID_PATH = define_metadata_key("file/id_path", "string")
+FILE_NAME = define_metadata_key("file/filename", "string")
+FILE_SIZE = define_metadata_key("file/size", "int")
+FILE_OWNER = define_metadata_key("file/owner", "string")
+HASH_MD5 = define_metadata_key("hash/md5", "string")
+MIME_TYPE = define_metadata_key("mime/type", "string")
+TIME_CREATED = define_metadata_key("time/created", "datetime")
+TIME_MODIFIED = define_metadata_key("time/modified", "datetime")
 
 
 @dataclass(slots=True)
 class MetadataValue:
-    metadata_id: str
     plugin_id: str
+    key: MetadataKey
     value: MetadataScalar
     value_type: MetadataType
     confidence: float = 1.0
@@ -67,20 +125,22 @@ class FileRecord:
 
     def add_metadata(
         self,
-        metadata_id: str,
         plugin_id: str,
+        key: MetadataKey,
         value: MetadataScalar,
-        value_type: MetadataType,
         *,
         confidence: float = 1.0,
         source_id: str | None = None,
     ) -> None:
+        metadata_def = get_metadata_def(key)
+        _ensure_value_type(metadata_def.value_type, value)
+
         self.metadata.append(
             MetadataValue(
-                metadata_id=metadata_id,
                 plugin_id=plugin_id,
+                key=key,
                 value=value,
-                value_type=value_type,
+                value_type=metadata_def.value_type,
                 confidence=confidence,
                 source_id=source_id,
             )

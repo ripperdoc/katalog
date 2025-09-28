@@ -4,7 +4,14 @@ from typing import Any, AsyncIterator, Dict
 from loguru import logger
 
 from katalog.clients.base import SourceClient
-from katalog.models import FileAccessor, FileRecord
+from katalog.models import (
+    FILE_ABSOLUTE_PATH,
+    FILE_SIZE,
+    TIME_CREATED,
+    TIME_MODIFIED,
+    FileAccessor,
+    FileRecord,
+)
 from katalog.utils.utils import timestamp_to_utc
 
 
@@ -79,32 +86,12 @@ class FilesystemClient(SourceClient):
                         source_id=self.id,
                         canonical_uri=abs_path,
                     )
-                    record.add_metadata(
-                        "file/absolute_path",
-                        self.PLUGIN_ID,
-                        abs_path,
-                        "string",
-                    )
+                    record.add_metadata(self.PLUGIN_ID, FILE_ABSOLUTE_PATH, abs_path)
                     if modified:
-                        record.add_metadata(
-                            "time/modified",
-                            self.PLUGIN_ID,
-                            modified,
-                            "datetime",
-                        )
+                        record.add_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified)
                     if created:
-                        record.add_metadata(
-                            "time/created",
-                            self.PLUGIN_ID,
-                            created,
-                            "datetime",
-                        )
-                    record.add_metadata(
-                        "file/size",
-                        self.PLUGIN_ID,
-                        int(stat.st_size),
-                        "int",
-                    )
+                        record.add_metadata(self.PLUGIN_ID, TIME_CREATED, created)
+                    record.add_metadata(self.PLUGIN_ID, FILE_SIZE, int(stat.st_size))
                 except Exception as e:
                     logger.warning(
                         "Failed to stat %s for source %s: %s",

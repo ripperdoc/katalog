@@ -56,7 +56,7 @@ SCHEMA_STATEMENTS = (
         source_id TEXT REFERENCES sources(id),
         snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
         plugin_id TEXT NOT NULL,
-        metadata_id TEXT NOT NULL,
+        metadata_key TEXT NOT NULL,
         value_type TEXT NOT NULL CHECK (value_type IN ('string','int','float','datetime','json')),
         value_text TEXT,
         value_int INTEGER,
@@ -75,7 +75,7 @@ SCHEMA_STATEMENTS = (
     );
     """,
     """-- sql
-    CREATE INDEX IF NOT EXISTS idx_metadata_lookup ON metadata_entries (metadata_id, value_type);
+    CREATE INDEX IF NOT EXISTS idx_metadata_lookup ON metadata_entries (metadata_key, value_type);
     """,
     """-- sql
     CREATE TABLE IF NOT EXISTS file_relationships (
@@ -318,7 +318,7 @@ class Database:
                     source_id,
                     snapshot_id,
                     plugin_id,
-                    metadata_id,
+                    metadata_key,
                     value_type,
                     value_text,
                     value_int,
@@ -334,7 +334,7 @@ class Database:
                     WHERE existing.file_record_id = ?
                       AND existing.source_id = ?
                       AND existing.plugin_id = ?
-                      AND existing.metadata_id = ?
+                      AND existing.metadata_key = ?
                       AND existing.value_type = ?
                       AND existing.value_text IS ?
                       AND existing.value_int IS ?
@@ -349,7 +349,7 @@ class Database:
                         entry_source_id,
                         snapshot_id,
                         entry.plugin_id,
-                        entry.metadata_id,
+                        entry.key,
                         entry.value_type,
                         columns["value_text"],
                         columns["value_int"],
@@ -360,7 +360,7 @@ class Database:
                         file_record_id,
                         entry_source_id,
                         entry.plugin_id,
-                        entry.metadata_id,
+                        entry.key,
                         entry.value_type,
                         columns["value_text"],
                         columns["value_int"],
@@ -371,7 +371,7 @@ class Database:
                     ),
                 )
                 if cursor.rowcount == 1:
-                    changed_ids.add(entry.metadata_id)
+                    changed_ids.add(entry.key)
             self.conn.commit()
         return changed_ids
 
@@ -391,7 +391,7 @@ class Database:
                 m.source_id AS metadata_source_id,
                 m.snapshot_id AS metadata_snapshot_id,
                 m.plugin_id AS metadata_plugin_id,
-                m.metadata_id AS metadata_metadata_id,
+                m.metadata_key AS metadata_metadata_key,
                 m.value_type AS metadata_value_type,
                 m.value_text AS metadata_value_text,
                 m.value_int AS metadata_value_int,
@@ -403,7 +403,7 @@ class Database:
             LEFT JOIN metadata_entries AS m
                 ON m.file_record_id = f.id
             WHERE f.source_id = ?
-            ORDER BY f.last_snapshot_id DESC, f.id, m.metadata_id, m.id
+            ORDER BY f.last_snapshot_id DESC, f.id, m.metadata_key, m.id
         """
         with self._lock:
             rows = self.conn.execute(query, (source_id,)).fetchall()
@@ -433,9 +433,9 @@ class Database:
                     current_record["metadata"].append(metadata_entry)
                 else:
                     metadata_dict = current_record["metadata"]
-                    metadata_id = metadata_entry["metadata_id"]
-                    if metadata_id not in metadata_dict:
-                        metadata_dict[metadata_id] = metadata_entry["value"]
+                    metadata_key = metadata_entry["metadata_key"]
+                    if metadata_key not in metadata_dict:
+                        metadata_dict[metadata_key] = metadata_entry["value"]
         if current_record:
             result.append(current_record)
         return result
@@ -500,7 +500,7 @@ class Database:
             "source_id": row["metadata_source_id"],
             "snapshot_id": row["metadata_snapshot_id"],
             "plugin_id": row["metadata_plugin_id"],
-            "metadata_id": row["metadata_metadata_id"],
+            "metadata_key": row["metadata_metadata_key"],
             "value_type": row["metadata_value_type"],
             "value_text": row["metadata_value_text"],
             "value_int": row["metadata_value_int"],
@@ -535,7 +535,7 @@ class Database:
             "source_id": row["source_id"],
             "snapshot_id": row["snapshot_id"],
             "plugin_id": row["plugin_id"],
-            "metadata_id": row["metadata_id"],
+            "metadata_key": row["metadata_key"],
             "value_type": row["value_type"],
             "value": value,
             "confidence": row["confidence"],

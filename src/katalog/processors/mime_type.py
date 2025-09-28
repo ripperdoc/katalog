@@ -11,14 +11,10 @@ class MimeTypeProcessor(Processor):
     dependencies = frozenset({"checksum_md5"})
     outputs = frozenset({"mime_type"})
 
-    def cache_key(self, record: FileRecord) -> str:
-        md5 = record.checksum_md5 or ""
-        return f"{md5}-v1"
-
-    def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
+    def should_run(self, record: FileRecord, changes: set[str] | None) -> bool:
         return record.source_id == "downloads" and prev_cache != self.cache_key(record)
 
-    async def run(self, record: FileRecord) -> FileRecord:
+    async def run(self, record: FileRecord, changes: set[str] | None) -> FileRecord:
         # TODO, some services report application/octet-stream but there is a better mime type to find
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
