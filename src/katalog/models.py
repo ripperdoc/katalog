@@ -79,6 +79,7 @@ HASH_MD5 = define_metadata_key("hash/md5", "string")
 MIME_TYPE = define_metadata_key("mime/type", "string")
 TIME_CREATED = define_metadata_key("time/created", "datetime")
 TIME_MODIFIED = define_metadata_key("time/modified", "datetime")
+WARNING_NAME_READABILITY = define_metadata_key("warning/name_readability", "json")
 
 
 @dataclass(slots=True)

@@ -246,10 +246,11 @@ class Database:
             )
         created_snapshot_id = record.created_snapshot_id or snapshot.id
         last_snapshot_id = snapshot.id
+        inserted = False
         with self._lock:
-            cursor = self.conn.execute(
-                """-- sql
-            WITH upsert AS (
+            try:
+                self.conn.execute(
+                    """-- sql
                 INSERT INTO file_records (
                     id,
                     source_id,
@@ -258,33 +259,31 @@ class Database:
                     last_snapshot_id,
                     deleted_snapshot_id
                 ) VALUES (?, ?, ?, ?, ?, NULL)
-                ON CONFLICT(id) DO UPDATE SET
-                    canonical_uri=excluded.canonical_uri,
-                    last_snapshot_id=excluded.last_snapshot_id,
-                    deleted_snapshot_id=NULL
-                RETURNING
-                    id,
-                    created_snapshot_id
-            )
-            SELECT
-                upsert.id AS file_id,
-                CASE
-                    WHEN upsert.created_snapshot_id = ? THEN 1
-                    ELSE 0
-                END AS inserted
-            FROM upsert
-            """,
-                (
-                    record.id,
-                    record.source_id,
-                    record.canonical_uri,
-                    created_snapshot_id,
-                    last_snapshot_id,
-                    snapshot.id,
-                ),
-            )
-            row = cursor.fetchone()
-            inserted = bool(row[1]) if row else False
+                """,
+                    (
+                        record.id,
+                        record.source_id,
+                        record.canonical_uri,
+                        created_snapshot_id,
+                        last_snapshot_id,
+                    ),
+                )
+                inserted = True
+            except sqlite3.IntegrityError:
+                self.conn.execute(
+                    """-- sql
+                UPDATE file_records
+                SET canonical_uri = ?,
+                    last_snapshot_id = ?,
+                    deleted_snapshot_id = NULL
+                WHERE id = ?
+                """,
+                    (
+                        record.canonical_uri,
+                        last_snapshot_id,
+                        record.id,
+                    ),
+                )
             self.conn.commit()
 
         if metadata:
@@ -487,7 +486,7 @@ class Database:
         query += " ORDER BY snapshot_id DESC, id DESC"
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
-        return [Metadata.from_sql_row(row) for row in rows]
+        return [Metadata.from_sql_row(dict(row)) for row in rows]
 
     def list_relationships(
         self,

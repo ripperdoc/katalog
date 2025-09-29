@@ -100,13 +100,19 @@ def _get_processor_pipeline() -> list[ProcessorStage]:
     return PROCESSOR_PIPELINE
 
 
-async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> None:
+async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> int:
     if not tasks:
-        return
+        return 0
     results = await asyncio.gather(*tasks, return_exceptions=True)
+    modified = 0
     for result in results:
         if isinstance(result, Exception):
             logger.opt(exception=result).error("Processor task failed")
+            continue
+        if result:
+            modified += 1
+    tasks.clear()
+    return modified
 
 
 SOURCE_CONFIGS, PROCESSOR_CONFIGS = _load_workspace_config()
@@ -123,7 +129,7 @@ async def snapshot_source(source_id: str):
     seen = 0
     added = 0
     updated = 0
-    processed = 0
+    processor_modified = 0
     processor_tasks: list[asyncio.Task[Any]] = []
     try:
         async for record, metadata in client.scan():
@@ -142,7 +148,6 @@ async def snapshot_source(source_id: str):
             if changes:
                 updated += 1
             if processor_pipeline:
-                processed += 1
                 processor_tasks.append(
                     asyncio.create_task(
                         run_processors(
@@ -155,10 +160,10 @@ async def snapshot_source(source_id: str):
                     )
                 )
     except Exception:
-        await _drain_processor_tasks(processor_tasks)
+        processor_modified += await _drain_processor_tasks(processor_tasks)
         database.finalize_snapshot(snapshot, partial=True)
         raise
-    await _drain_processor_tasks(processor_tasks)
+    processor_modified += await _drain_processor_tasks(processor_tasks)
     database.finalize_snapshot(snapshot)
     return {
         "status": "snapshot complete",
@@ -168,7 +173,7 @@ async def snapshot_source(source_id: str):
             "seen": seen,
             "updated": updated,
             "added": added,
-            "processed": processed,
+            "processor_modified": processor_modified,
         },
     }
 
