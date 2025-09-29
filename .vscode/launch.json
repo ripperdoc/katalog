@@ -18,7 +18,7 @@
       ],
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "KATALOG_WORKSPACE": "pdx_workspace"
+        "KATALOG_WORKSPACE": "hg_workspace"
       },
       "jinja": true,
       "justMyCode": true,

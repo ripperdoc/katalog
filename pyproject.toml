@@ -17,6 +17,10 @@ dependencies = [
 
 [tool.uv]
 # Optional: configuration for uv if needed
+package = true
+
+[dependency-groups]
+dev = ["pip", "pytest", "pytest-asyncio"]
 
 [project.scripts]
 # Installable console script: runs katalog.cli:main as `katalog`

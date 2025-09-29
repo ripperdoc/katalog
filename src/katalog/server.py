@@ -5,6 +5,7 @@ from loguru import logger
 from fastapi import FastAPI, HTTPException
 from typing import Any, Literal
 
+from katalog.analyzers.runtime import AnalyzerEntry, load_analyzers, run_analyzers
 from katalog.clients.base import SourceClient
 from katalog.config import WORKSPACE
 from katalog.db import Database
@@ -31,11 +32,15 @@ database = Database(db_path)
 database.initialize_schema()
 SOURCE_CONFIGS: dict[str, dict[str, Any]] = {}
 PROCESSOR_CONFIGS: list[dict[str, Any]] = []
+ANALYZER_CONFIGS: list[dict[str, Any]] = []
 PROCESSOR_PIPELINE: list[ProcessorStage] | None = None
+ANALYZER_PIPELINE: list[AnalyzerEntry] | None = None
 CLIENT_CACHE: dict[str, SourceClient] = {}
 
 
-def _load_workspace_config() -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+def _load_workspace_config() -> tuple[
+    dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]
+]:
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"Missing katalog config: {CONFIG_PATH}")
     with CONFIG_PATH.open("rb") as f:
@@ -50,7 +55,8 @@ def _load_workspace_config() -> tuple[dict[str, dict[str, Any]], list[dict[str, 
             raise ValueError(f"Duplicate source id '{source_id}' in {CONFIG_PATH}")
         result[source_id] = raw
     processors = config.get("processors", []) or []
-    return result, processors
+    analyzers = config.get("analyzers", []) or []
+    return result, processors, analyzers
 
 
 def _import_source_class(source_cfg: dict[str, Any]):
@@ -100,6 +106,13 @@ def _get_processor_pipeline() -> list[ProcessorStage]:
     return PROCESSOR_PIPELINE
 
 
+def _get_analyzers() -> list[AnalyzerEntry]:
+    global ANALYZER_PIPELINE
+    if ANALYZER_PIPELINE is None:
+        ANALYZER_PIPELINE = load_analyzers(ANALYZER_CONFIGS, database=database)
+    return ANALYZER_PIPELINE
+
+
 async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> int:
     if not tasks:
         return 0
@@ -115,7 +128,7 @@ async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> int:
     return modified
 
 
-SOURCE_CONFIGS, PROCESSOR_CONFIGS = _load_workspace_config()
+SOURCE_CONFIGS, PROCESSOR_CONFIGS, ANALYZER_CONFIGS = _load_workspace_config()
 _ensure_sources_registered()
 
 
@@ -186,3 +199,15 @@ def list_files(source_id: str, view: str = "flat"):
         "flat" if view == "flat" else "complete"
     )
     return database.list_files_with_metadata(source_id, view=selected_view)
+
+
+@app.post("/analyzers/run")
+async def run_all_analyzers():
+    analyzers = _get_analyzers()
+    if not analyzers:
+        return {"status": "no analyzers configured"}
+    results = await run_analyzers(database=database, analyzers=analyzers)
+    return {
+        "status": "analysis complete",
+        "results": results,
+    }

@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from katalog.analyzers.base import RelationshipRecord
 
 from katalog.models import FileRecord, Metadata, MetadataKey
 
@@ -487,6 +490,157 @@ class Database:
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
         return [Metadata.from_sql_row(dict(row)) for row in rows]
+
+    def insert_metadata_entries(
+        self,
+        entries: Iterable[Metadata],
+        *,
+        snapshot: Snapshot,
+        default_source_id: str | None = None,
+    ) -> int:
+        """Insert metadata rows that were produced outside of a source scan."""
+
+        source_fallback = default_source_id or snapshot.source_id
+        if source_fallback is None:
+            raise ValueError("A source id is required to insert metadata entries")
+        inserted = 0
+        with self._lock:
+            for entry in entries:
+                if not entry.file_record_id:
+                    raise ValueError("Metadata entry missing file_record_id")
+                entry_source_id = entry.source_id or source_fallback
+                columns = entry.as_sql_columns()
+                value_json = columns["value_json"]
+                if value_json is not None and not isinstance(value_json, str):
+                    columns["value_json"] = json.dumps(value_json, sort_keys=True)
+                self.conn.execute(
+                    """-- sql
+                INSERT INTO metadata_entries (
+                    file_record_id,
+                    source_id,
+                    snapshot_id,
+                    plugin_id,
+                    metadata_key,
+                    value_type,
+                    value_text,
+                    value_int,
+                    value_real,
+                    value_datetime,
+                    value_json,
+                    confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        entry.file_record_id,
+                        entry_source_id,
+                        snapshot.id,
+                        entry.plugin_id,
+                        entry.key,
+                        entry.value_type,
+                        columns["value_text"],
+                        columns["value_int"],
+                        columns["value_real"],
+                        columns["value_datetime"],
+                        columns["value_json"],
+                        entry.confidence,
+                    ),
+                )
+                inserted += 1
+            self.conn.commit()
+        return inserted
+
+    def replace_relationships(
+        self,
+        *,
+        plugin_id: str,
+        relationships: Iterable[RelationshipRecord],
+    ) -> int:
+        """Replace all relationships for a plugin with the provided records."""
+
+        if not plugin_id:
+            raise ValueError("plugin_id is required to store relationships")
+        rows = list(relationships)
+        with self._lock:
+            self.conn.execute(
+                """-- sql
+            DELETE FROM file_relationships WHERE plugin_id = ?
+            """,
+                (plugin_id,),
+            )
+            for rel in rows:
+                description = rel.description
+                if rel.attributes:
+                    payload = json.dumps(rel.attributes, default=str, sort_keys=True)
+                    description = description or payload
+                self.conn.execute(
+                    """-- sql
+            INSERT OR REPLACE INTO file_relationships (
+                from_file_id,
+                to_file_id,
+                relationship_type,
+                plugin_id,
+                confidence,
+                description
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+                    (
+                        rel.from_file_id,
+                        rel.to_file_id,
+                        rel.relationship_type,
+                        rel.plugin_id or plugin_id,
+                        rel.confidence,
+                        description,
+                    ),
+                )
+            self.conn.commit()
+        return len(rows)
+
+    def get_latest_metadata_by_key(
+        self, metadata_key: MetadataKey
+    ) -> list[tuple[str, Metadata]]:
+        """Return the most recent metadata rows for active files matching the key."""
+
+        query = """-- sql
+            SELECT
+                f.id AS file_id,
+                f.source_id AS file_source_id,
+                m.id AS metadata_entry_id,
+                m.file_record_id AS metadata_file_record_id,
+                m.source_id AS metadata_source_id,
+                m.snapshot_id AS metadata_snapshot_id,
+                m.plugin_id AS metadata_plugin_id,
+                m.metadata_key AS metadata_metadata_key,
+                m.value_type AS metadata_value_type,
+                m.value_text AS metadata_value_text,
+                m.value_int AS metadata_value_int,
+                m.value_real AS metadata_value_real,
+                m.value_datetime AS metadata_value_datetime,
+                m.value_json AS metadata_value_json,
+                m.confidence AS metadata_confidence
+            FROM metadata_entries AS m
+            JOIN file_records AS f
+                ON m.file_record_id = f.id
+            WHERE f.deleted_snapshot_id IS NULL
+              AND m.metadata_key = ?
+              AND m.snapshot_id = (
+                    SELECT MAX(m2.snapshot_id)
+                    FROM metadata_entries AS m2
+                    WHERE m2.file_record_id = m.file_record_id
+                      AND m2.source_id = m.source_id
+                      AND m2.plugin_id = m.plugin_id
+                      AND m2.metadata_key = m.metadata_key
+                )
+        """
+        params = (str(metadata_key),)
+        with self._lock:
+            rows = self.conn.execute(query, params).fetchall()
+        results: list[tuple[str, Metadata]] = []
+        for row in rows:
+            metadata_entry = self._metadata_from_join_row(row)
+            if metadata_entry is None:
+                continue
+            results.append((row["file_id"], metadata_entry))
+        return results
 
     def list_relationships(
         self,

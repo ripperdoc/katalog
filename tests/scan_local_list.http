@@ -1,2 +1,8 @@
 ### List files in /Users/martin/Downloads using FastAPI endpoint
 POST http://127.0.0.1:8000/snapshot/gdrive HTTP/1.1
+
+###
+POST http://127.0.0.1:8000/snapshot/downloads HTTP/1.1
+
+### Run analysis
+POST http://127.0.0.1:8000/analyzers/run HTTP/1.1

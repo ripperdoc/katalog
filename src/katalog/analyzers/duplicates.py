@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from collections import defaultdict
+
+from loguru import logger
+
+from katalog.analyzers.base import (
+    Analyzer,
+    AnalyzerIssue,
+    AnalyzerResult,
+    FileGroupFinding,
+    RelationshipRecord,
+)
+from katalog.db import Database, Snapshot
+from katalog.models import HASH_MD5, Metadata
+
+
+class ExactDuplicateAnalyzer(Analyzer):
+    """Groups files that share the same MD5 hash."""
+
+    PLUGIN_ID = "katalog.analyzers.exact_duplicates"
+    dependencies = frozenset({HASH_MD5})
+    outputs = frozenset()
+
+    def should_run(self, *, snapshot: Snapshot, database: Database) -> bool:  # noqa: D401
+        """Currently always runs; future versions may add change detection."""
+
+        return True
+
+    async def run(self, *, snapshot: Snapshot, database: Database) -> AnalyzerResult:
+        latest_hash_rows = database.get_latest_metadata_by_key(HASH_MD5)
+        per_file_hashes: dict[str, set[str]] = defaultdict(set)
+        per_file_sources: dict[str, str] = {}
+        issues: list[AnalyzerIssue] = []
+
+        for file_id, metadata in latest_hash_rows:
+            hash_value = self._extract_hash(metadata)
+            if hash_value is None:
+                continue
+            per_file_hashes[file_id].add(hash_value)
+            per_file_sources[file_id] = metadata.source_id or ""
+
+        confirmed_hashes: dict[str, str] = {}
+        for file_id, hash_values in per_file_hashes.items():
+            if len(hash_values) == 1:
+                confirmed_hashes[file_id] = next(iter(hash_values))
+                continue
+            conflict = sorted(hash_values)
+            message = "Multiple current hash/md5 values for file %s: %s" % (
+                file_id,
+                ", ".join(conflict),
+            )
+            logger.error(message)
+            issues.append(
+                AnalyzerIssue(
+                    level="error",
+                    message=message,
+                    file_ids=[file_id],
+                    extra={"hashes": conflict},
+                )
+            )
+
+        groups: list[FileGroupFinding] = []
+        relationships: list[RelationshipRecord] = []
+        groups_by_hash: dict[str, list[str]] = defaultdict(list)
+
+        for file_id, hash_value in confirmed_hashes.items():
+            groups_by_hash[hash_value].append(file_id)
+
+        for hash_value, file_ids in groups_by_hash.items():
+            if len(file_ids) < 2:
+                continue
+            sorted_members = sorted(file_ids)
+            member_sources = sorted(
+                {
+                    source_id
+                    for source_id in (
+                        per_file_sources.get(fid) for fid in sorted_members
+                    )
+                    if source_id
+                }
+            )
+            groups.append(
+                FileGroupFinding(
+                    kind="exact_duplicate",
+                    label=hash_value,
+                    file_ids=list(sorted_members),
+                    attributes={
+                        "hash": hash_value,
+                        "file_count": len(sorted_members),
+                        "source_ids": member_sources,
+                    },
+                )
+            )
+            anchor = sorted_members[0]
+            for other in sorted_members[1:]:
+                relationships.append(
+                    RelationshipRecord(
+                        from_file_id=anchor,
+                        to_file_id=other,
+                        relationship_type="exact_duplicate",
+                        plugin_id=self.PLUGIN_ID,
+                        confidence=1.0,
+                        description=f"Exact duplicate group for hash {hash_value}",
+                        attributes={"hash": hash_value},
+                    )
+                )
+
+        return AnalyzerResult(
+            metadata=[],
+            relationships=relationships,
+            groups=groups,
+            issues=issues,
+        )
+
+    @staticmethod
+    def _extract_hash(metadata: Metadata) -> str | None:
+        if metadata.value is None:
+            return None
+        text = str(metadata.value).strip()
+        return text.lower() or None

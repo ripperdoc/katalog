@@ -2,6 +2,7 @@ import importlib
 from datetime import datetime, timezone
 from typing import Optional
 
+from katalog.analyzers.base import Analyzer
 from katalog.clients.base import SourceClient
 from katalog.models import FileRecord
 from katalog.processors.base import Processor
@@ -17,6 +18,18 @@ def import_processor_class(package_path: str) -> type[Processor]:
         module = importlib.import_module(f"katalog.{module_name}")
     ProcessorClass = getattr(module, class_name)
     return ProcessorClass
+
+
+def import_analyzer_class(package_path: str) -> type[Analyzer]:
+    module_name, class_name = package_path.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        if module_name.startswith("katalog."):
+            raise
+        module = importlib.import_module(f"katalog.{module_name}")
+    AnalyzerClass = getattr(module, class_name)
+    return AnalyzerClass
 
 
 def import_client_class(package_path: str) -> type[SourceClient]:
