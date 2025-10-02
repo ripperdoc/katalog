@@ -177,7 +177,7 @@ class GoogleDriveClient(SourceClient):
         except Exception as exc:  # pragma: no cover - defensive
             file_id = file.get("id", "error")
             logger.warning(
-                "Failed to transform Google Drive file %s (%s): %s",
+                "Failed to transform Google Drive file {} ({}): {}",
                 file.get("name"),
                 file_id,
                 exc,
@@ -199,7 +199,7 @@ class GoogleDriveClient(SourceClient):
             )
         except HttpError as error:
             logger.error(
-                "Google Drive API error for source %s: %s",
+                "Google Drive API error for source {}: {}",
                 self.id,
                 error,
             )

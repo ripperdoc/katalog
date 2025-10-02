@@ -1,0 +1,140 @@
+# Source ideas
+
+Various ideas for sources that can be connected to katalog.
+
+- Scrape a website for documents and files
+  - May work a lot better with a browser extension as middle man
+  - A lot of website specific sources can be developed
+- Dropbox
+- OneDrive
+- Wordpress database (e.g. SQL file or live DB)
+- Mediawiki database, API or similar
+- Github Repository (allows reading historical snapshots as well)
+- Specific app databases, like iTunes, Photos, Lightroom
+- Online database tools like Airtable
+- File list: we could have a "metasource" which contains a list of specific files from various
+  sources, e.g. a bookmark file. To access the files we might need to use another source client.
+- Backups, allowing us to record file snapshots over time (either backup with a known model, like
+  arq, or referencing a filesystem where a naming pattern identifies snapshots at different times)
+
+## Source improvements
+
+- Settings to filter incoming file records e.g. based on path or other criteria (filter before
+  saving, or saving but with a flag that they are filtered?). Filtering will depend on each source
+  how to best implement and what's supported.
+- Settings to give default metadata to records from that source
+
+# Processor ideas
+
+- Archive processor - unpacks archives and contributes additional file records from it (required
+  core API change?). Maybe the archive processor needs to be defined as a source instance? (might
+  create lots of them)
+- Read extended attributes from file systems
+- Read sidecar files (may also require API changes as it connects two file records together)
+- Guess metadata from path or URI (last resort?)
+- TextExtractor: Extract text content (maybe not a single processor, but a processor per file type,
+  which parses more than just text). Could be based on Pandoc.
+- Summarizer, depends on text content, maybe also output language
+- Thumbnail extractor (find embedded or linked thumbnail, or create one from raw data)
+- EXIF/IPTC
+- OfficeDocs reader, including their specific metadata
+- ID3Reader
+- HTML: read metadata from common HTML markups, e.g. head element, JSON-LD, Schema.org, etc
+- PDFMeta: read metadata from PDFs
+- Warnings - create various warnings that can be surfaced about files, such as:
+  - [ ] Empty folders
+  - [ ] Empty files (may be more than just 0 bytes)
+  - [ ] Variant, version, copy file-names -> likely a variant
+  - [ ] Corrupt files -> corrupt
+  - [ ] Bad dates -> dates like 1970-01-01, 0000-…, future dates
+  - [ ] Name readability -> short names, many underscores, no spaces. Can be applied to most string
+        based metadata.
+
+# Analyzer ideas
+
+- Topic extraction, e.g. Named Entity Recognition, see below for a topic or entity table
+- Content similarity - group files that have similar content, either text or bit similarity
+  (identical copies would be found via hash comparison)
+  - If we have a group of similar files, we could also try to denote which one is top quality. Or,
+    seen another way, all the other files are variants of that one.
+- Metadata similarity - group files where selected metadata is similar, typically path, timing,
+  size, title and author information
+- AI similarity - let an LLM group files that are deemed similar, based on selected metadata
+- Stats: produce a stats report, e.g. stats over some metadata, file type, file sizes, file counts,
+  etc.
+
+# Core ideas
+
+- A topic database to allow general topic modelling. May be covered by expanding file relationships?
+-
+
+## Generalize to any dataset (not just files)
+
+This may be slightly a sidetrack for katalog.
+
+When I want to put together a dataset, there are several major manual steps, even in the age of AI:
+
+1. Copying the data from any random place. It can be a PDF, a web page and much more
+2. Extracting it into a structured (often table) format that matches the format I am consolidating
+   the data into
+3. I may need to also reformat fields into different types
+4. After adding the new records, I need to deduplicate
+5. If there are conflicts, I need to make a decision about them
+6. And whenever the source updates, I need to redo this all again, except now it’s even harder as
+   most of the data will already be copied, therefore need to be deduplicated
+
+Several of the steps are fuzzy, that cannot easily be converted in a regular manner. LLMs are now
+pretty good at doing that, but we are hampered by the fact that the AI cannot cross all domains.
+It’s not native in the spreadsheet, in the browser, and I need to copy and paste between various AI
+tools.
+
+Even so, the AI will do a poorer job if it’s not prompted correctly, not informed about the data
+types and context, if it’s not able to produce output in the right format. It will also do worse on
+large batch data, but it will be prohibitively slow and costly if applied on a per record basis.
+
+Also, we cannot rely on fully automatic solutions, because there will always be exceptions and we
+may want to make human edits. And by the way, we need many people to do that.
+
+From a solution standpoint, the tricky part is that probably the solution has to adapt to whatever
+database tool a team is using. We can’t make a better Airtable or Google Sheets, we need to let
+users use that tool, but remove the work of getting data into it.
+
+A general architecture could be:
+
+- For each general source, define adapters that can extract data (via API, via scraping, OCR, etc).
+  These may require credentials or plugins and may break if the data source is not willing to share
+  (e.g. scraping). There are already many best practices here, we want to re-use as much as that as
+  possible.
+- Assuming we can now read a source, we now need to create a recipe for input structures and output
+  structures, e.g. “that random user’s spreadsheet with these 32 columns”. This includes a
+  structured schema and rule set, and and several AI prompts, including prompts for converting
+  individual records. The prompt can both read from, and write to, the rule set, as it receives
+  additional information or the source changes. A knowledgeable user can also edit this rule set.
+- At this point, in theory, we can automatically retrieve all the data we care about, in the format
+  we care about, and it brings us to the next phase of data cleaning and manipulation. Here we have
+  to face the fact that most users will have their favourite tool already, and it may not be
+  possible or desirable to provide another UI that lets users do this. It would simplify the
+  solution a lot if we can indeed “outsource” the rest of the features to that tool.
+
+A UX approach to it is also - instead of having to tell upfront to the AI what you want, you should
+do it in steps together: add the source, answer relevant questions from the AI, ingest, answer more
+relevant questions.
+
+Internals:
+
+- One approach would be to fetch a record from each source, and then form record pairs, where the
+  same “real” entity is described by multiple records. There could then be a transformation rule
+  applied to each record to form a joint record. That includes selecting fields, transforming
+  fields. Manual edits could be seen as additional records. This all depends on the ability to
+  either uniquely tie the records together, usually by saying “sourceA ID and sourceB ID are
+  actually referring to the same thing”.
+
+Other minor tools required:
+
+- Date conversions
+- Trimming
+- Fetching data from other sources, e.g. I have a list of ISBN, I want to use the ISBN to fetch the
+  image from Amazon and the description from Google Books
+
+Look into AutoMerge, as they have thought a lot about this problem:
+https://www.inkandswitch.com/cambria/

@@ -98,9 +98,10 @@ async def _run_processor(
     entry: ProcessorEntry, record: FileRecord, changes: set[str]
 ) -> list[Metadata]:
     try:
+        logger.debug("Running processor {} for record {}", entry.name, record.id)
         return await entry.instance.run(record, changes)
     except Exception:
-        logger.exception("Processor %s failed for record %s", entry.name, record.id)
+        logger.exception("Processor {} failed for record {}", entry.name, record.id)
         return []
 
 
@@ -125,7 +126,7 @@ async def process(
                 should_run = entry.instance.should_run(record, changes, database)
             except Exception:
                 logger.exception(
-                    "Processor %s.should_run failed for record %s",
+                    "Processor {}.should_run failed for record {}",
                     entry.name,
                     record.id,
                 )

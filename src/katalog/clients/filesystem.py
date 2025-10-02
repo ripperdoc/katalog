@@ -43,9 +43,10 @@ class FilesystemClient(SourceClient):
 
     PLUGIN_ID = "dev.katalog.client.filesystem"
 
-    def __init__(self, id: str, root_path: str, **kwargs):
+    def __init__(self, id: str, root_path: str, max_files: int = 500, **kwargs):
         self.id = id
         self.root_path = root_path
+        self.max_files = max_files
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -70,6 +71,11 @@ class FilesystemClient(SourceClient):
         count = 0
         for dirpath, dirnames, filenames in os.walk(self.root_path):
             for filename in filenames:
+                if count >= self.max_files:
+                    logger.info(
+                        "Reached max_files limit of {}, stopping scan.", self.max_files
+                    )
+                    return
                 full_path = os.path.join(dirpath, filename)
                 try:
                     stat = os.stat(full_path)
@@ -105,7 +111,7 @@ class FilesystemClient(SourceClient):
                     )
                 except Exception as e:
                     logger.warning(
-                        "Failed to stat %s for source %s: %s",
+                        "Failed to stat {} for source {}: {}",
                         full_path,
                         self.id,
                         e,
@@ -113,5 +119,3 @@ class FilesystemClient(SourceClient):
                     continue
                 yield record, metadata
                 count += 1
-                if count > 100:
-                    return

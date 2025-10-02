@@ -150,7 +150,7 @@ async def snapshot_source(source_id: str):
                 record.attach_accessor(client.get_accessor(record))
             except Exception:
                 logger.exception(
-                    "Failed to attach accessor for record %s in source %s",
+                    "Failed to attach accessor for record {} in source {}",
                     record.id,
                     source_id,
                 )
