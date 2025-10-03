@@ -37,3 +37,34 @@ Who is it for?
   storage becoming the norm
 - Archivists and data hoarders who want to manage their archives across many types of media
 - Small businesses needing a flexible Digital Asset Management solution
+
+## Local UI
+
+The `ui/` folder contains a lightweight React single-page app (Vite + TypeScript) that runs next to
+the FastAPI backend for local exploration.
+
+1. Start the backend via the CLI so FastAPI exposes `http://localhost:8000`:
+
+```bash
+python -m katalog.cli ./hg_workspace
+```
+
+Replace `./hg_workspace` with any workspace directory that includes `katalog.toml`. 2. Install UI
+dependencies and launch the dev server (served on <http://localhost:5173>):
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+The Vite dev proxy forwards `/api/*` calls to the FastAPI server, so no extra CORS setup is
+needed. 3. (Optional) When serving the built UI elsewhere, set `VITE_API_BASE_URL` before
+`npm run dev` or `npm run build` so API calls target the correct backend, e.g.:
+
+```bash
+VITE_API_BASE_URL="http://localhost:8000" npm run build
+```
+
+The UI currently lets you enter a source id, query `/files/{source_id}` with the `flat` or
+`complete` view, and render each file record with its metadata payload.
