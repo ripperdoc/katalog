@@ -23,6 +23,13 @@
       "jinja": true,
       "justMyCode": true,
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug web-app in Chrome",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/ui"
     }
   ]
 }

@@ -1,3 +1,5 @@
+import type { Row } from "simple-table-core";
+
 export type MetadataValue =
   | string
   | number
@@ -19,7 +21,7 @@ export interface MetadataEntry {
   confidence: number;
 }
 
-export interface FileRecordFlat {
+export interface FileRecord extends Row {
   id: string;
   source_id: string;
   canonical_uri: string;
@@ -29,9 +31,16 @@ export interface FileRecordFlat {
   metadata: MetadataFlat;
 }
 
-export interface FileRecordComplete extends Omit<FileRecordFlat, "metadata"> {
+export interface FileRecordResponse {
+  records: FileRecord[];
+  stats: {
+    records: number;
+    metadata: Record<string, number>;
+  };
+}
+
+export interface FileRecordComplete extends Omit<FileRecord, "metadata"> {
   metadata: MetadataEntry[];
 }
 
 export type ViewMode = "flat" | "complete";
-export type FileRecordResponse = FileRecordFlat | FileRecordComplete;

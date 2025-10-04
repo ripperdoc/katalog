@@ -12,7 +12,7 @@
   importing this module in tests unless the workspace env vars are set.
 - FastAPI endpoints: `POST /snapshot/{source_id}` scans a source and writes rows via
   `Database.upsert_file_record`, `GET /files/{source_id}?view=flat|complete` reads metadata via
-  `Database.list_files_with_metadata`.
+  `Database.list_records_with_metadata`.
 - Reuse the HTTP file `tests/scan_local_list.http` to exercise these endpoints without wiring a full
   UI.
 

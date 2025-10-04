@@ -14,11 +14,19 @@ async function handleResponse(response: Response) {
 export async function fetchFilesBySource(
   sourceId: string,
   view: ViewMode
-): Promise<FileRecordResponse[]> {
+): Promise<FileRecordResponse> {
   if (!sourceId) {
     throw new Error("source id is required");
   }
   const url = `${API_BASE}/files/${encodeURIComponent(sourceId)}?view=${view}`;
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchRecords(view: ViewMode = "flat"): Promise<FileRecordResponse> {
+  const url = `${API_BASE}/records?view=${view}`;
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
   });

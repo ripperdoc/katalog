@@ -4,7 +4,7 @@ import datetime as _dt
 from abc import ABC, abstractmethod
 import json
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping, NewType
+from typing import Any, Iterable, Literal, Mapping, NewType
 
 
 class FileAccessor(ABC):
@@ -155,6 +155,14 @@ class Metadata:
             value_type=row["value_type"],
             confidence=float(confidence),
         )
+
+    @classmethod
+    def list_to_dict_by_key(cls, entries: Iterable[Metadata]) -> dict[str, list]:
+        """Convert a list of Metadata entries to a dict keyed by metadata_key."""
+        result: dict[str, list] = {}
+        for entry in entries:
+            result.setdefault(str(entry.key), []).append(entry)
+        return result
 
     def to_json(self) -> dict[str, Any]:
         """Return a JSON-serializable representation of this metadata entry."""

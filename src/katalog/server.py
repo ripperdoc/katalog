@@ -3,7 +3,7 @@ import tomllib
 from loguru import logger
 
 from fastapi import FastAPI, HTTPException
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from katalog.analyzers.runtime import AnalyzerEntry, load_analyzers, run_analyzers
 from katalog.clients.base import SourceClient
@@ -191,14 +191,14 @@ async def snapshot_source(source_id: str):
     }
 
 
-@app.get("/files/{source_id}")
-def list_files(source_id: str, view: str = "flat"):
+@app.get("/records")
+def list_files(source_id: Optional[str] = None, view: str = "flat"):
     if view not in {"flat", "complete"}:
         raise ValueError("view must be 'flat' or 'complete'")
     selected_view: Literal["flat", "complete"] = (
         "flat" if view == "flat" else "complete"
     )
-    return database.list_files_with_metadata(source_id, view=selected_view)
+    return database.list_records_with_metadata(source_id=source_id, view=selected_view)
 
 
 @app.post("/analyzers/run")

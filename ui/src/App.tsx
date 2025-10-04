@@ -1,4 +1,6 @@
-import SourceExplorer from "./components/SourceExplorer";
+import { Navigate, Route, Routes } from "react-router-dom";
+import RecordsRoute from "./routes/RecordsRoute";
+import Test from "./routes/Test";
 
 function App() {
   return (
@@ -8,7 +10,11 @@ function App() {
         <p>Inspect scanned sources via the local FastAPI backend.</p>
       </header>
       <main>
-        <SourceExplorer />
+        <Routes>
+          <Route path="/records" element={<RecordsRoute />} />
+          <Route path="/test" element={<Test />} />
+          <Route path="*" element={<Navigate to="/records" replace />} />
+        </Routes>
       </main>
       <footer>
         <small>Version {__APP_VERSION__ ?? "dev"}</small>

@@ -3,6 +3,7 @@
   line-height: 1.5;
   color: #0f172a;
   background-color: #f8fafc;
+  font-size: 0.7rem;
 }
 
 body {
@@ -13,8 +14,7 @@ body {
 
 .app-shell {
   min-height: 100vh;
-  max-width: 960px;
-  margin: 0 auto;
+  margin: 0 10px;
   padding: 2rem 1.25rem 3rem;
   display: flex;
   flex-direction: column;
@@ -39,6 +39,14 @@ footer {
   border-radius: 0.75rem;
   padding: 1.5rem;
   box-shadow: 0 15px 45px rgba(15, 23, 42, 0.08);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
 form {
@@ -116,6 +124,21 @@ button:disabled {
   padding: 0.75rem;
   border-radius: 0.5rem;
   overflow-x: auto;
+}
+
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.record-list pre {
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0;
 }
 
 .empty-state {

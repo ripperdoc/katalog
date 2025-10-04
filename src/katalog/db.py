@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Iterable, Literal, TYPE_CHECKING
+from typing import Any, Iterable, Literal, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:  # pragma: no cover
     from katalog.analyzers.base import RelationshipRecord
@@ -379,9 +380,17 @@ class Database:
             self.conn.commit()
         return changed_ids
 
-    def list_files_with_metadata(
-        self, source_id: str, *, view: Literal["flat", "complete"] = "flat"
-    ) -> list[dict[str, Any]]:
+    # Metadata views
+    # Complete: metadata dict, keyed by each unique metadata key, has values that contains all metadata entries in a list
+    # Latest: metadata dict, keyed by each unique metadata key, has values that contains the latest metadata per source ID
+    # Canonical: TODO add a canonical view which only contains a selected canonical metadata entry per key?
+
+    def list_records_with_metadata(
+        self,
+        *,
+        source_id: Optional[str] = None,
+        view: Literal["flat", "complete"] = "flat",
+    ) -> dict:
         query = """-- sql
             SELECT
                 f.id AS file_id,
@@ -406,20 +415,26 @@ class Database:
             FROM file_records AS f
             LEFT JOIN metadata_entries AS m
                 ON m.file_record_id = f.id
-            WHERE f.source_id = ?
-            ORDER BY f.last_snapshot_id DESC, f.id, m.metadata_key, m.id
+            ORDER BY f.id, m.id
         """
         with self._lock:
-            rows = self.conn.execute(query, (source_id,)).fetchall()
+            rows = self.conn.execute(query).fetchall()
         if not rows:
-            return []
+            return {"records": []}
         result: list[dict[str, Any]] = []
         current_id: str | None = None
         current_record: dict[str, Any] | None = None
+        current_metadata: list[Metadata] = []
+        metadata_counter = Counter()
+        stats: dict = {"metadata": metadata_counter}
         for row in rows:
             file_id = row["file_id"]
             if file_id != current_id:
                 if current_record:
+                    current_record["metadata"] = Metadata.list_to_dict_by_key(
+                        current_metadata
+                    )
+                    current_metadata = []
                     result.append(current_record)
                 current_record = {
                     "id": file_id,
@@ -432,17 +447,13 @@ class Database:
                 }
                 current_id = file_id
             metadata_entry = self._metadata_from_join_row(row)
-            if metadata_entry and current_record is not None:
-                if view == "complete":
-                    current_record["metadata"].append(metadata_entry.to_json())
-                else:
-                    metadata_dict = current_record["metadata"]
-                    metadata_key = str(metadata_entry.key)
-                    if metadata_key not in metadata_dict:
-                        metadata_dict[metadata_key] = metadata_entry.value
+            if metadata_entry:
+                metadata_counter[metadata_entry.key] += 1
+                current_metadata.append(metadata_entry)
         if current_record:
             result.append(current_record)
-        return result
+        stats["records"] = len(result)
+        return {"stats": stats, "records": result}
 
     def get_metadata_for_file(
         self,
