@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import json
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -13,7 +13,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from katalog.analyzers.base import RelationshipRecord
 
 from katalog.models import (
-    METADATA_REGISTRY,
     FileRecord,
     Metadata,
     MetadataKey,

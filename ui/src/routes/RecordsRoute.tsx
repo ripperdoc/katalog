@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchRecords } from "../api/client";
 import type { FileRecordResponse, FileRecord, MetadataEntry } from "../types/api";
 import {
@@ -60,11 +60,68 @@ const getSimpleTableType = (metadataType?: string): ColumnType => {
   return "string";
 };
 
+const collectSearchableParts = (value: unknown, parts: string[]) => {
+  if (value === null || value === undefined) {
+    return;
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    parts.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSearchableParts(item, parts));
+    return;
+  }
+  if (typeof value === "object") {
+    const recordValue = value as Record<string, unknown>;
+    if ("value" in recordValue) {
+      collectSearchableParts(recordValue.value, parts);
+    }
+    Object.values(recordValue).forEach((child) => collectSearchableParts(child, parts));
+  }
+};
+
+const buildSearchString = (record: FileRecord): string => {
+  const parts: string[] = [
+    record.id,
+    record.source_id,
+    record.canonical_uri,
+    record.created_snapshot_id,
+    record.last_snapshot_id,
+  ]
+    .filter((part) => part !== undefined && part !== null)
+    .map((part) => String(part));
+
+  if (record.metadata && typeof record.metadata === "object") {
+    Object.entries(record.metadata).forEach(([key, value]) => {
+      parts.push(key);
+      collectSearchableParts(value, parts);
+    });
+  }
+
+  return parts.map((part) => part.toLowerCase()).join(" ");
+};
+
 function RecordsRoute() {
   const [records, setRecords] = useState<FileRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [seenHeaders, setSeenHeaders] = useState<HeaderObject[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const indexedRecords = useMemo(
+    () => records.map((record) => ({ record, haystack: buildSearchString(record) })),
+    [records]
+  );
+
+  const filteredRecords = useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed) {
+      return indexedRecords.map(({ record }) => record);
+    }
+    return indexedRecords
+      .filter(({ haystack }) => haystack.includes(trimmed))
+      .map(({ record }) => record);
+  }, [indexedRecords, searchQuery]);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -110,13 +167,25 @@ function RecordsRoute() {
           {loading ? "Loading..." : "Reload"}
         </button>
       </header>
+      <div className="search-bar">
+        <input
+          type="search"
+          placeholder="Search records…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          aria-label="Search records"
+        />
+      </div>
       {error && <p className="error">{error}</p>}
       {!error && !loading && records.length === 0 && (
         <div className="empty-state">No records available.</div>
       )}
+      {!error && !loading && records.length > 0 && filteredRecords.length === 0 && (
+        <div className="empty-state">No records match your search.</div>
+      )}
       <SimpleTable
         defaultHeaders={[...headers, ...seenHeaders]}
-        rows={records}
+        rows={filteredRecords}
         height={"75vh"}
         selectableCells={true}
         rowIdAccessor="id"
