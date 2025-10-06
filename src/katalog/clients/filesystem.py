@@ -1,5 +1,9 @@
 import os
+from pathlib import Path
 from typing import Any, AsyncIterator, Dict
+
+if os.name == "nt":
+    import ctypes
 
 from loguru import logger
 
@@ -7,6 +11,7 @@ from katalog.clients.base import SourceClient
 from katalog.models import (
     FILE_ABSOLUTE_PATH,
     FILE_SIZE,
+    FLAG_HIDDEN,
     TIME_CREATED,
     TIME_MODIFIED,
     FileAccessor,
@@ -88,15 +93,16 @@ class FilesystemClient(SourceClient):
                         record_id = f"inode:{device}:{inode}"
                     else:
                         record_id = f"path:{full_path}"
-                    abs_path = os.path.abspath(full_path)
+
+                    abs_path = Path(full_path).resolve()
                     record = FileRecord(
                         id=record_id,
                         source_id=self.id,
-                        canonical_uri=abs_path,
+                        canonical_uri=abs_path.as_uri(),
                     )
                     metadata = list()
                     metadata.append(
-                        make_metadata(self.PLUGIN_ID, FILE_ABSOLUTE_PATH, abs_path)
+                        make_metadata(self.PLUGIN_ID, FILE_ABSOLUTE_PATH, str(abs_path))
                     )
                     if modified:
                         metadata.append(
@@ -109,6 +115,8 @@ class FilesystemClient(SourceClient):
                     metadata.append(
                         make_metadata(self.PLUGIN_ID, FILE_SIZE, int(stat.st_size))
                     )
+                    if _looks_hidden(abs_path):
+                        metadata.append(make_metadata(self.PLUGIN_ID, FLAG_HIDDEN, 1))
                 except Exception as e:
                     logger.warning(
                         "Failed to stat {} for source {}: {}",
@@ -119,3 +127,22 @@ class FilesystemClient(SourceClient):
                     continue
                 yield record, metadata
                 count += 1
+
+
+def _looks_hidden(path: Path) -> bool:
+    """Return True when the path appears to be hidden on the current platform."""
+    dotted_component = any(
+        part.startswith(".") for part in path.parts if part not in {"", ".", ".."}
+    )
+    if dotted_component:
+        return True
+    if os.name == "nt":
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        try:
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))  # type: ignore[attr-defined]
+        except Exception:
+            return False
+        if attrs == -1:
+            return False
+        return bool(attrs & FILE_ATTRIBUTE_HIDDEN)
+    return False

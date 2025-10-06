@@ -96,6 +96,7 @@ MIME_TYPE = define_metadata_key("mime/type", "string", "MIME Type")
 TIME_CREATED = define_metadata_key("time/created", "datetime", "Created")
 TIME_MODIFIED = define_metadata_key("time/modified", "datetime", "Modified")
 WARNING_NAME_READABILITY = define_metadata_key("warning/name_readability", "json")
+FLAG_HIDDEN = define_metadata_key("flag/hidden", "int")
 
 
 @dataclass(slots=True)

@@ -74,6 +74,8 @@ Various ideas for sources that can be connected to katalog.
   - MIME is shown as file icon and display name, full mime in tooltip
   - Source links to the source
   - ID links to full file display
+  - Absolute URI could open on local drive? We might want to store as file:// but actually display
+    it as a path depending on file system
 
 # Core ideas
 
