@@ -1,12 +1,6 @@
 import type { Row } from "simple-table-core";
 
-export type MetadataValue =
-  | string
-  | number
-  | boolean
-  | null
-  | Record<string, unknown>
-  | MetadataValue[];
+export type MetadataValue = string | number | boolean | null;
 
 export type MetadataFlat = Record<string, MetadataValue>;
 
@@ -21,6 +15,14 @@ export interface MetadataEntry {
   confidence: number;
 }
 
+export interface MetadataDefinition {
+  key: string;
+  value_type: string;
+  title: string;
+  description: string;
+  width: number | null;
+}
+
 export interface FileRecord extends Row {
   id: string;
   source_id: string;
@@ -33,6 +35,7 @@ export interface FileRecord extends Row {
 
 export interface FileRecordResponse {
   records: FileRecord[];
+  schema: Record<string, MetadataDefinition>;
   stats: {
     records: number;
     metadata: Record<string, number>;

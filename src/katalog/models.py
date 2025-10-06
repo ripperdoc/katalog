@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as _dt
 from abc import ABC, abstractmethod
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Literal, Mapping, NewType
 
 
@@ -24,7 +24,9 @@ MetadataKey = NewType("MetadataKey", str)
 class MetadataDef:
     key: MetadataKey
     value_type: MetadataType  # e.g. "TEXT", "INTEGER", "JSONB", etc.
+    title: str = ""
     description: str = ""
+    width: int | None = None  # For UI display purposes
 
 
 # Central registry of built-in keys
@@ -32,11 +34,23 @@ METADATA_REGISTRY: dict[MetadataKey, MetadataDef] = {}
 
 
 def define_metadata_key(
-    name: str, value_type: MetadataType, description: str = ""
+    name: str,
+    value_type: MetadataType,
+    title: str = "",
+    description: str = "",
+    width: int | None = None,
 ) -> MetadataKey:
     key = MetadataKey(name)
-    METADATA_REGISTRY[key] = MetadataDef(key, value_type, description)
+    METADATA_REGISTRY[key] = MetadataDef(key, value_type, title, description, width)
     return key
+
+
+def get_metadata_schema(key: MetadataKey) -> dict:
+    definition = METADATA_REGISTRY.get(key)
+    if definition is None:
+        return {}
+    else:
+        return asdict(definition)
 
 
 def get_metadata_def(key: MetadataKey) -> MetadataDef:
@@ -69,16 +83,18 @@ DATA_KEY = define_metadata_key("data", "int")
 FILE_RECORD_KEY = define_metadata_key("file_record", "int")
 
 # Built-in metadata
-FILE_ABSOLUTE_PATH = define_metadata_key("file/absolute_path", "string")
-FILE_PATH = define_metadata_key("file/path", "string")
+FILE_ABSOLUTE_PATH = define_metadata_key(
+    "file/absolute_path", "string", "Absolute path"
+)
+FILE_PATH = define_metadata_key("file/path", "string", "Path")
 FILE_ID_PATH = define_metadata_key("file/id_path", "string")
-FILE_NAME = define_metadata_key("file/filename", "string")
-FILE_SIZE = define_metadata_key("file/size", "int")
-FILE_OWNER = define_metadata_key("file/owner", "string")
-HASH_MD5 = define_metadata_key("hash/md5", "string")
-MIME_TYPE = define_metadata_key("mime/type", "string")
-TIME_CREATED = define_metadata_key("time/created", "datetime")
-TIME_MODIFIED = define_metadata_key("time/modified", "datetime")
+FILE_NAME = define_metadata_key("file/filename", "string", "Filename")
+FILE_SIZE = define_metadata_key("file/size", "int", "Size (bytes)", width=100)
+FILE_OWNER = define_metadata_key("file/owner", "string", "Owner")
+HASH_MD5 = define_metadata_key("hash/md5", "string", "MD5 Hash")
+MIME_TYPE = define_metadata_key("mime/type", "string", "MIME Type")
+TIME_CREATED = define_metadata_key("time/created", "datetime", "Created")
+TIME_MODIFIED = define_metadata_key("time/modified", "datetime", "Modified")
 WARNING_NAME_READABILITY = define_metadata_key("warning/name_readability", "json")
 
 

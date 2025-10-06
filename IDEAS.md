@@ -63,6 +63,18 @@ Various ideas for sources that can be connected to katalog.
 - Stats: produce a stats report, e.g. stats over some metadata, file type, file sizes, file counts,
   etc.
 
+# UI ideas
+
+- Cell visualizations:
+  - Show icon with popup if a cell has multiple values
+  - Shorten hash to last 6, tooltip shows full
+  - Paths show the beginning and end, but puts ellipsis in middle if column size is too short
+  - Datetimes show up as human readable "since" but full date in tooltip (can be switched?)
+  - Bytes are shown as human readable
+  - MIME is shown as file icon and display name, full mime in tooltip
+  - Source links to the source
+  - ID links to full file display
+
 # Core ideas
 
 - A topic database to allow general topic modelling. May be covered by expanding file relationships?

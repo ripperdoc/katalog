@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -12,7 +12,13 @@ from typing import Any, Iterable, Literal, TYPE_CHECKING, Optional
 if TYPE_CHECKING:  # pragma: no cover
     from katalog.analyzers.base import RelationshipRecord
 
-from katalog.models import FileRecord, Metadata, MetadataKey
+from katalog.models import (
+    METADATA_REGISTRY,
+    FileRecord,
+    Metadata,
+    MetadataKey,
+    get_metadata_schema,
+)
 
 
 SCHEMA_STATEMENTS = (
@@ -453,7 +459,8 @@ class Database:
         if current_record:
             result.append(current_record)
         stats["records"] = len(result)
-        return {"stats": stats, "records": result}
+        schema = {k: get_metadata_schema(k) for k in metadata_counter.keys()}
+        return {"schema": schema, "stats": stats, "records": result}
 
     def get_metadata_for_file(
         self,
