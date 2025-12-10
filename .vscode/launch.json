@@ -29,7 +29,8 @@
       "request": "launch",
       "type": "chrome",
       "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/ui"
+      "webRoot": "${workspaceFolder}/ui",
+      "preLaunchTask": "npm: dev (ui)"
     }
   ]
 }

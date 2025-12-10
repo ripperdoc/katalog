@@ -86,17 +86,39 @@ FILE_RECORD_KEY = define_metadata_key("asset", "int")
 FILE_ABSOLUTE_PATH = define_metadata_key(
     "file/absolute_path", "string", "Absolute path"
 )
-FILE_PATH = define_metadata_key("file/path", "string", "Path")
+FILE_DESCRIPTION = define_metadata_key("file/description", "string", "Description")
 FILE_ID_PATH = define_metadata_key("file/id_path", "string")
+FILE_LAST_MODIFYING_USER = define_metadata_key(
+    "file/last_modifying_user", "json", "Last modifying user"
+)
 FILE_NAME = define_metadata_key("file/filename", "string", "Filename")
-FILE_SIZE = define_metadata_key("file/size", "int", "Size (bytes)", width=120)
+FILE_ORIGINAL_NAME = define_metadata_key(
+    "file/original_filename", "string", "Original filename"
+)
 FILE_OWNER = define_metadata_key("file/owner", "string", "Owner")
+FILE_PATH = define_metadata_key("file/path", "string", "Path")
+FILE_QUOTA_BYTES_USED = define_metadata_key(
+    "file/quota_bytes_used", "int", "Quota bytes used"
+)
+FILE_SHARED = define_metadata_key("file/shared", "int", "Shared", width=100)
+FILE_SHARING_USER = define_metadata_key("file/sharing_user", "json", "Sharing user")
+FILE_SIZE = define_metadata_key("file/size", "int", "Size (bytes)", width=120)
+FILE_VERSION = define_metadata_key("file/version", "int", "Version")
+FLAG_HIDDEN = define_metadata_key("flag/hidden", "int", "Hidden", width=100)
 HASH_MD5 = define_metadata_key("hash/md5", "string", "MD5 Hash")
 MIME_TYPE = define_metadata_key("mime/type", "string", "MIME Type")
+STARRED = define_metadata_key("file/starred", "int", "Starred", width=100)
 TIME_CREATED = define_metadata_key("time/created", "datetime", "Created")
 TIME_MODIFIED = define_metadata_key("time/modified", "datetime", "Modified")
+TIME_MODIFIED_BY_ME = define_metadata_key(
+    "time/modified_by_me", "datetime", "Modified by me"
+)
+TIME_SHARED_WITH_ME = define_metadata_key(
+    "time/shared_with_me", "datetime", "Shared with me"
+)
+TIME_TRASHED = define_metadata_key("time/trashed", "datetime", "Trashed")
+TIME_VIEWED_BY_ME = define_metadata_key("time/viewed_by_me", "datetime", "Viewed by me")
 WARNING_NAME_READABILITY = define_metadata_key("warning/name_readability", "json")
-FLAG_HIDDEN = define_metadata_key("flag/hidden", "int", "Hidden", width=100)
 
 
 @dataclass(slots=True)

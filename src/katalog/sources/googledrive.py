@@ -12,30 +12,70 @@ from loguru import logger
 from katalog.sources.base import SourcePlugin
 from katalog.config import WORKSPACE
 from katalog.models import (
+    STARRED,
+    AssetRecord,
+    FILE_DESCRIPTION,
+    FILE_ID_PATH,
+    FILE_LAST_MODIFYING_USER,
+    FILE_NAME,
+    FILE_ORIGINAL_NAME,
     FILE_OWNER,
     FILE_PATH,
-    AssetRecord,
-    FILE_ID_PATH,
-    FILE_NAME,
+    FILE_QUOTA_BYTES_USED,
+    FILE_SHARING_USER,
+    FILE_SHARED,
     FILE_SIZE,
+    FILE_VERSION,
     HASH_MD5,
     MIME_TYPE,
+    Metadata,
     TIME_CREATED,
     TIME_MODIFIED,
-    Metadata,
+    TIME_MODIFIED_BY_ME,
+    TIME_SHARED_WITH_ME,
+    TIME_TRASHED,
+    TIME_VIEWED_BY_ME,
     define_metadata_key,
     make_metadata,
 )
 from katalog.utils.utils import parse_google_drive_datetime
 
+
+def get_user_email(google_user_info: Any) -> Optional[str]:
+    """Extract the user's email address from Google user info payload."""
+    if not google_user_info:
+        return None
+    email = google_user_info.get("emailAddress")
+    if isinstance(email, str):
+        return email
+    return None
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        value = stripped
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+# Available metadata in Google drive API:
+# https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
 
 
 class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive."""
 
     PLUGIN_ID = "dev.katalog.client.googledrive"
-    STARRED = define_metadata_key("file/starred", "int")
+    FILE_WEB_VIEW_LINK = define_metadata_key("file/web_view_link", "string", "Web link")
 
     def __init__(self, id: str, max_files: int = 500, **_: Any) -> None:
         self.id = id
@@ -141,6 +181,11 @@ class GoogleDriveClient(SourcePlugin):
                     file.get("originalFilename", file.get("name", "")),
                 ),
             )
+            original_filename = file.get("originalFilename")
+            if original_filename:
+                metadata.append(
+                    make_metadata(self.id, FILE_ORIGINAL_NAME, original_filename)
+                )
 
             created = parse_google_drive_datetime(file.get("createdTime"))
             if created:
@@ -149,6 +194,22 @@ class GoogleDriveClient(SourcePlugin):
             modified = parse_google_drive_datetime(file.get("modifiedTime"))
             if modified:
                 metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
+
+            modified_by_me = parse_google_drive_datetime(file.get("modifiedByMeTime"))
+            if modified_by_me:
+                metadata.append(
+                    make_metadata(self.id, TIME_MODIFIED_BY_ME, modified_by_me)
+                )
+
+            viewed_by_me = parse_google_drive_datetime(file.get("viewedByMeTime"))
+            if viewed_by_me:
+                metadata.append(make_metadata(self.id, TIME_VIEWED_BY_ME, viewed_by_me))
+
+            shared_with_me = parse_google_drive_datetime(file.get("sharedWithMeTime"))
+            if shared_with_me:
+                metadata.append(
+                    make_metadata(self.id, TIME_SHARED_WITH_ME, shared_with_me)
+                )
 
             mime_type = file.get("mimeType")
             if mime_type:
@@ -162,17 +223,59 @@ class GoogleDriveClient(SourcePlugin):
             if size is not None:
                 metadata.append(make_metadata(self.id, FILE_SIZE, size))
 
+            description = file.get("description")
+            if description:
+                metadata.append(make_metadata(self.id, FILE_DESCRIPTION, description))
+
+            # web_view_link = file.get("webViewLink")
+            # if web_view_link:
+            #     metadata.append(
+            #         make_metadata(self.id, self.FILE_WEB_VIEW_LINK, web_view_link)
+            #     )
+
+            shared_flag = file.get("shared")
+            if shared_flag is not None:
+                metadata.append(
+                    make_metadata(self.id, FILE_SHARED, int(bool(shared_flag)))
+                )
+
+            last_modifying_user = get_user_email(file.get("lastModifyingUser"))
+            if last_modifying_user:
+                metadata.append(
+                    make_metadata(
+                        self.id, FILE_LAST_MODIFYING_USER, last_modifying_user
+                    )
+                )
+
+            sharing_user = get_user_email(file.get("sharingUser"))
+            if sharing_user:
+                metadata.append(make_metadata(self.id, FILE_SHARING_USER, sharing_user))
+
+            trashed_time = parse_google_drive_datetime(file.get("trashedTime"))
+            if trashed_time:
+                metadata.append(make_metadata(self.id, TIME_TRASHED, trashed_time))
+
+            quota_bytes_used = _coerce_int(file.get("quotaBytesUsed"))
+            if quota_bytes_used is not None:
+                metadata.append(
+                    make_metadata(self.id, FILE_QUOTA_BYTES_USED, quota_bytes_used)
+                )
+
+            version_value = _coerce_int(file.get("version"))
+            if version_value is not None:
+                metadata.append(make_metadata(self.id, FILE_VERSION, version_value))
+
             owners = file.get("owners") or []
             if owners:
                 for owner in owners:
-                    metadata.append(
-                        make_metadata(self.id, FILE_OWNER, owner["emailAddress"])
-                    )
+                    o = get_user_email(owner)
+                    if o:
+                        metadata.append(make_metadata(self.id, FILE_OWNER, o))
+
             starred = file.get("starred")
             if starred is not None:
-                metadata.append(
-                    make_metadata(self.id, self.STARRED, int(bool(starred)))
-                )
+                metadata.append(make_metadata(self.id, STARRED, int(bool(starred))))
+
             return record, metadata
         except Exception as exc:  # pragma: no cover - defensive
             file_id = file.get("id", "error")
@@ -191,7 +294,14 @@ class GoogleDriveClient(SourcePlugin):
                 .list(
                     corpora="user",
                     pageSize=500,
-                    fields="""nextPageToken, files(id, kind, starred, trashed, description, originalFilename, parents, owners, fileExtension, md5Checksum, name, mimeType, size, modifiedTime, createdTime)""",
+                    fields=(
+                        "nextPageToken, files("
+                        "id, kind, starred, trashed, description, originalFilename, parents, "
+                        "owners, fileExtension, md5Checksum, name, mimeType, size, "
+                        "modifiedTime, createdTime, modifiedByMeTime, viewedByMeTime, "
+                        "sharedWithMeTime, shared, lastModifyingUser, sharingUser, "
+                        "webViewLink, trashedTime, quotaBytesUsed, version)"
+                    ),
                     pageToken=page_token,
                     orderBy="modifiedTime desc",
                 )

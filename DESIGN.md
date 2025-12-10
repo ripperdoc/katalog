@@ -5,14 +5,31 @@ is for.
 
 # TODO
 
-- [ ] Handle file data access with caching
-- [ ] Figure out how to rescan sources without doing full scan (e.g. what about moved, deleted,
+- [ ] Figure out how to rescan Google Drive without doing full scan (e.g. what about moved, deleted,
       added)
+- [ ] Read permissions list for each Google Drive file
+- [ ] How to handle metadata being nulled. E.g. I might have a value that is first a string and then
+      in a new snapshot is empty. Should the empty value replace the old value or be ignored?
+- [ ] UI to run scans and show progress
+- [ ] UI to run analysis
+- [ ] Handle remote file data access with caching
 - [ ] Default ignore lists to reduce number of files. Start with an include list. Still log all
       excluded files, for easy discovery.
 - [ ] Search through some basic archive files e.g. zip files, and create virtual File Records
 - [ ] Save as much metadata as possible, to make it easy to reprocess data later rather than
       re-scan.
+
+# Near term use cases
+
+E.g. what do I need `katalog` to do now for White Wolf?
+
+- Search the WW Google Drive and find duplicates and "badly named files" for manual fixing
+- Search the WW Google Drive and propose new folder organization (how?)
+- Search the WW Google and summarize stats for it
+- Quickly search and filter through files and metadata e.g. to find all PDFs and images to put in
+  library
+- Automatically move files to Shared Drive but keeping owners? (Seems too hard or risky to do with
+  my code?)
 
 ## Design Principles
 
@@ -105,6 +122,8 @@ be able to track:
   archive, a file bundle or image files attached inside a document file.
 - **Duplicate**: A special case of version is when two or more file records have identical contents
   to eachother.
+- **Link**: A file that is a link to another file (depends on SourceProvider if this is seen as just
+  one record or multiple records)
 - **Asset**: Back to our original definition, essentially we could cluster all files that are
   variants, versions and duplicates of eachother and consider them the same asset. But probably we
   don't consider files in a folder to be the same asset because they are in the same folder.
