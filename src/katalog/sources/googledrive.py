@@ -9,47 +9,60 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from loguru import logger
 
-from katalog.db import Snapshot
-from katalog.sources.base import SourcePlugin
 from katalog.config import WORKSPACE
+from katalog.db import Snapshot
 from katalog.models import (
-    STARRED,
-    AssetRecord,
+    ACCESS_OWNER,
+    ACCESS_SHARED,
+    ACCESS_SHARED_WITH,
+    ACCESS_SHARING_USER,
     FILE_DESCRIPTION,
     FILE_ID_PATH,
     FILE_LAST_MODIFYING_USER,
     FILE_NAME,
     FILE_ORIGINAL_NAME,
-    FILE_OWNER,
     FILE_PATH,
     FILE_QUOTA_BYTES_USED,
-    FILE_SHARING_USER,
-    FILE_SHARED,
     FILE_SIZE,
     FILE_VERSION,
     HASH_MD5,
     MIME_TYPE,
-    Metadata,
+    STARRED,
     TIME_CREATED,
     TIME_MODIFIED,
     TIME_MODIFIED_BY_ME,
     TIME_SHARED_WITH_ME,
     TIME_TRASHED,
     TIME_VIEWED_BY_ME,
+    AssetRecord,
+    Metadata,
     define_metadata_key,
     make_metadata,
 )
+from katalog.sources.base import SourcePlugin
 from katalog.utils.utils import parse_google_drive_datetime
 
 
-def get_user_email(google_user_info: Any) -> Optional[str]:
-    """Extract the user's email address from Google user info payload."""
-    if not google_user_info:
+def get_user_email(user_like_object: Any) -> Optional[str]:
+    """Extract the user's email address from Google user or permission info payload."""
+    if not user_like_object:
         return None
-    email = google_user_info.get("emailAddress")
+    email = user_like_object.get("emailAddress")
     if isinstance(email, str):
         return email
     return None
+
+
+def get_many_user_emails(user_like_objects: Any) -> List[str]:
+    """Extract multiple user email addresses from a list of Google user or permission info payloads."""
+    emails: List[str] = []
+    if not isinstance(user_like_objects, list):
+        return emails
+    for user_like_object in user_like_objects:
+        email = get_user_email(user_like_object)
+        if email:
+            emails.append(email)
+    return emails
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -66,8 +79,42 @@ def _coerce_int(value: Any) -> Optional[int]:
         return None
 
 
+def _extract_modified(metadata: list[Metadata]) -> Optional[Any]:
+    for entry in metadata:
+        if entry.key == TIME_MODIFIED:
+            return entry.value  # datetime
+    return None
+
+
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-_PARSED_MODIFIED_FIELD = "__katalog_modified_dt"
+_API_FIELDS = {
+    "id",
+    "kind",
+    "starred",
+    "trashed",
+    "description",
+    "originalFilename",
+    "parents",
+    "owners",
+    "fileExtension",
+    "md5Checksum",
+    "name",
+    "mimeType",
+    "size",
+    "modifiedTime",
+    "createdTime",
+    "modifiedByMeTime",
+    "viewedByMeTime",
+    "sharedWithMeTime",
+    "shared",
+    "lastModifyingUser",
+    "permissions",
+    "sharingUser",
+    "webViewLink",
+    "trashedTime",
+    "quotaBytesUsed",
+    "version",
+}
 
 # Available metadata in Google drive API:
 # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
@@ -154,13 +201,11 @@ class GoogleDriveClient(SourcePlugin):
                         )
                         break
 
-                    if cutoff:
-                        modified_dt = parse_google_drive_datetime(
-                            file.get("modifiedTime")
-                        )
-                        if modified_dt:
-                            file[_PARSED_MODIFIED_FIELD] = modified_dt
-                            if modified_dt < cutoff:
+                    record, metadata = self._build_record(file)
+                    if record and metadata:
+                        if cutoff:
+                            modified_dt = _extract_modified(metadata)
+                            if modified_dt and modified_dt < cutoff:
                                 cutoff_reached = True
                                 logger.info(
                                     "Stopping scan for source {} at cutoff {} (latest {})",
@@ -169,9 +214,6 @@ class GoogleDriveClient(SourcePlugin):
                                     modified_dt,
                                 )
                                 break
-
-                    record, metadata = self._build_record(file)
-                    if record and metadata:
                         yield (record, metadata)
                         count += 1
 
@@ -228,9 +270,7 @@ class GoogleDriveClient(SourcePlugin):
             if created:
                 metadata.append(make_metadata(self.id, TIME_CREATED, created))
 
-            modified = file.get(_PARSED_MODIFIED_FIELD)
-            if not modified:
-                modified = parse_google_drive_datetime(file.get("modifiedTime"))
+            modified = parse_google_drive_datetime(file.get("modifiedTime"))
             if modified:
                 metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
 
@@ -275,7 +315,7 @@ class GoogleDriveClient(SourcePlugin):
             shared_flag = file.get("shared")
             if shared_flag is not None:
                 metadata.append(
-                    make_metadata(self.id, FILE_SHARED, int(bool(shared_flag)))
+                    make_metadata(self.id, ACCESS_SHARED, int(bool(shared_flag)))
                 )
 
             last_modifying_user = get_user_email(file.get("lastModifyingUser"))
@@ -288,7 +328,9 @@ class GoogleDriveClient(SourcePlugin):
 
             sharing_user = get_user_email(file.get("sharingUser"))
             if sharing_user:
-                metadata.append(make_metadata(self.id, FILE_SHARING_USER, sharing_user))
+                metadata.append(
+                    make_metadata(self.id, ACCESS_SHARING_USER, sharing_user)
+                )
 
             trashed_time = parse_google_drive_datetime(file.get("trashedTime"))
             if trashed_time:
@@ -304,19 +346,22 @@ class GoogleDriveClient(SourcePlugin):
             if version_value is not None:
                 metadata.append(make_metadata(self.id, FILE_VERSION, version_value))
 
-            owners = file.get("owners") or []
-            if owners:
-                for owner in owners:
-                    o = get_user_email(owner)
-                    if o:
-                        metadata.append(make_metadata(self.id, FILE_OWNER, o))
+            owners = get_many_user_emails(file.get("owners"))
+            for owner_email in owners:
+                metadata.append(make_metadata(self.id, ACCESS_OWNER, owner_email))
+
+            shared_with = get_many_user_emails(file.get("permissions"))
+            for shared_email in shared_with:
+                metadata.append(
+                    make_metadata(self.id, ACCESS_SHARED_WITH, shared_email)
+                )
 
             starred = file.get("starred")
             if starred is not None:
                 metadata.append(make_metadata(self.id, STARRED, int(bool(starred))))
 
             return record, metadata
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             file_id = file.get("id", "error")
             logger.warning(
                 "Failed to transform Google Drive file {} ({}): {}",
@@ -334,12 +379,7 @@ class GoogleDriveClient(SourcePlugin):
                     corpora="user",
                     pageSize=500,
                     fields=(
-                        "nextPageToken, files("
-                        "id, kind, starred, trashed, description, originalFilename, parents, "
-                        "owners, fileExtension, md5Checksum, name, mimeType, size, "
-                        "modifiedTime, createdTime, modifiedByMeTime, viewedByMeTime, "
-                        "sharedWithMeTime, shared, lastModifyingUser, sharingUser, "
-                        "webViewLink, trashedTime, quotaBytesUsed, version)"
+                        "nextPageToken, files(" + ", ".join(sorted(_API_FIELDS)) + ")"
                     ),
                     pageToken=page_token,
                     orderBy="modifiedTime desc",

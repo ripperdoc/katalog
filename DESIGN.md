@@ -5,13 +5,13 @@ is for.
 
 # TODO
 
-- [ ] Figure out how to rescan Google Drive without doing full scan (e.g. what about moved, deleted,
-      added)
-- [ ] Read permissions list for each Google Drive file
+- [ ] Correctly set status for snapshots, e.g. partial due to date, partial due to max files,
+      cancelled, etc.
 - [ ] How to handle metadata being nulled. E.g. I might have a value that is first a string and then
       in a new snapshot is empty. Should the empty value replace the old value or be ignored?
 - [ ] UI to run scans and show progress
 - [ ] UI to run analysis
+- [ ] Read permissions for files in Google Shared Drive
 - [ ] Handle remote file data access with caching
 - [ ] Default ignore lists to reduce number of files. Start with an include list. Still log all
       excluded files, for easy discovery.
@@ -197,11 +197,6 @@ another "narrow" table for metadata, where each metadata value is linked to a sn
 This makes it an Entity-Attribute-Value (EAV) type model. These tables should allow us to develop
 new functionality over time without modifying table structures.
 
-### Snapshots
-
-By considering asset and metadata tables as "append-only", and connecting each change to a snapshot
-id, we get the ability to undo and even walk "back" in time large changes.
-
 ### Identifiers
 
 `asset_id` is a string ID that is a workspace unique UUID that is assigned once the system, or a
@@ -220,6 +215,80 @@ provider to co-exist.
 `<category>/<property>`, e.g. `time/created_at`. This allows us to easily filter metadata, e.g. all
 from a specific plugin, all relating to `time` or all relating to a specific concept such as
 `time/created_at`.
+
+### Snapshots
+
+By considering asset and metadata tables as "append-only" EAV, and connecting each change to a
+snapshot id, we get the ability to undo any change and edit history after the fact. This makes it
+very safe to do new scans and manual edits.
+
+However there are a few important notes about how this works:
+
+#### Metadata snapshots
+
+Take a metadata value like `access/owner`. It might seem at first a scalar, singular value. But in
+fact it can have multiple values. On one hand, we may have multiple sources (`provider_id`s) that
+give different values for `access/owner`. On top of that, some APIs might return multiple
+`access/owner` for the same asset. As our metadata structure should allow for maximum modularity, we
+can never assume a value is singular.
+
+So over time, `access/owner` might both change a singular value to a different one, or we might add
+an aditional value in addition to the previous, and we might remove a value but keeping the other.
+And if we step back in time, we should always represent the value as it was from the provider at
+that time.
+
+If we have new a value but there was nothing before from that `provider_id`, we simple add a new
+row.
+
+If we have a new value but it's different than the previous one for that `provider_id`, we add a new
+row and in next query only the most recent (maximum) snapshot will be shown.
+
+If have a new value, from a different `provider_id`, we add it as a new row and a query might show
+both values (but from different providers).
+
+If we remove a value that was previously there, from same `provider_id`, we add a row with same
+value as before but `removed=1`.
+
+If the provider at some time later suddenly provides multiple values (e.g. an array) we compare the
+values with the most recent snapshot for same provider, and any values added are given a new row,
+any values the same are ignored and any values removed are added as a row with `removed=1`.
+
+Note, this approach does not allow us to store duplicate values, which would in theory be possible
+in a list. This would be a very minor problem, and the escape hatch is to store it all as JSON.
+
+#### Relationship snapshots
+
+Relationships between assets are also saved by snapshot to allow us to walk back as needed. But the
+nature of a relationship is a little bit different.
+
+If we want to add a relationship A-(type)->B, and there was no such relation before for that
+provider, we add a row.
+
+If we want to then add a relationship A-(othertype)->B, it is also added.
+
+If we analyze again and want to set the same relationship again, with the same provider, we should
+detect that they are the same and not add a new row.
+
+If we want to set that there is NO relationshop A-(type)->B, and it existed already for that
+provider, we add a new row which sets this relationship as `removed=1`. However, a typical analyzer
+would not explicitly say which files are not related in a way, just say that somme files may be
+related. Therefore it would be unusual to remove a relationship.
+
+#### Removing snapshots
+
+Removing the last snapshot, e.g. undo, is as straightforward as deleting the snapshot and letting
+the cascade delete all related rows.
+
+To restore to a point in history, it just means deleting every snapshot from now back to that point
+in time.
+
+The history can also be edited by removing snapshots in the middle.
+
+Finally, we may want remove some snapshots to save space. The naive approach of removing the X
+oldest snapshots will not work, because as we record only changes the first snapshot will contain
+most data and subsequent ones will only contain changes. We could concatenate snapshots, but that
+effectively only saves space if values have been changing back and forth many times, to only contain
+the last written value, e.g. a type of compression.
 
 ### Main server
 

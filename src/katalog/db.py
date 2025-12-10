@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable, Literal, TYPE_CHECKING, Optional
 
-if TYPE_CHECKING:  # pragma: no cover
+if TYPE_CHECKING:
     from katalog.analyzers.base import RelationshipRecord
 
 from katalog.models import (
@@ -72,6 +72,7 @@ SCHEMA_STATEMENTS = (
         value_real REAL,
         value_datetime DATETIME,
         value_json TEXT,
+        removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0,1)),
         confidence REAL NOT NULL DEFAULT 1.0 CHECK (confidence BETWEEN 0 AND 1),
         CHECK (
             (value_text IS NOT NULL) +
@@ -147,6 +148,18 @@ class Database:
         with self._lock:
             for statement in SCHEMA_STATEMENTS:
                 self.conn.execute(statement)
+            self.conn.commit()
+        self._run_post_migrations()
+
+    def _run_post_migrations(self) -> None:
+        target_version = 1
+        with self._lock:
+            row = self.conn.execute("PRAGMA user_version").fetchone()
+            current_version = row[0] if row else 0
+            if current_version >= target_version:
+                return
+            self.conn.execute("UPDATE metadata SET removed = 0")
+            self.conn.execute(f"PRAGMA user_version = {target_version}")
             self.conn.commit()
 
     def ensure_source(
@@ -398,73 +411,192 @@ class Database:
         record: AssetRecord,
         metadata: Iterable[Metadata],
     ) -> set[str]:
+        grouped_values: dict[
+            tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]
+        ] = {}
+        provider_scope: set[str] = set()
+        for entry in metadata:
+            columns = entry.as_sql_columns()
+            value_json = columns["value_json"]
+            if value_json is not None and not isinstance(value_json, str):
+                columns["value_json"] = json.dumps(value_json, sort_keys=True)
+            entry_provider_id = entry.provider_id or record.provider_id
+            provider_scope.add(entry_provider_id)
+            combo = (entry_provider_id, entry.key)
+            normalized_value = self._normalize_value(entry.value_type, columns)
+            bucket = grouped_values.setdefault(combo, {})
+            if normalized_value in bucket:
+                continue
+            bucket[normalized_value] = {
+                "value_type": entry.value_type,
+                "columns": columns,
+                "confidence": entry.confidence,
+            }
+
+        existing_state = self._load_current_metadata_state(asset_id, provider_scope)
+        combos = set(existing_state.keys()) | set(grouped_values.keys())
+        if not combos:
+            return set()
+
         changed_ids: set[str] = set()
-        with self._lock:
-            for entry in metadata:
-                columns = entry.as_sql_columns()
-                value_json = columns["value_json"]
-                if value_json is not None and not isinstance(value_json, str):
-                    columns["value_json"] = json.dumps(value_json, sort_keys=True)
-                entry_provider_id = entry.provider_id or record.provider_id
-                cursor = self.conn.execute(
-                    """-- sql
-                INSERT INTO metadata (
-                    asset_id,
-                    provider_id,
-                    snapshot_id,
-                    metadata_key,
-                    value_type,
-                    value_text,
-                    value_int,
-                    value_real,
-                    value_datetime,
-                    value_json,
-                    confidence
-                )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM metadata AS existing
-                    WHERE existing.asset_id = ?
-                      AND existing.provider_id = ?
-                      AND existing.metadata_key = ?
-                      AND existing.value_type = ?
-                      AND existing.value_text IS ?
-                      AND existing.value_int IS ?
-                      AND existing.value_real IS ?
-                      AND existing.value_datetime IS ?
-                      AND existing.value_json IS ?
-                      AND existing.confidence = ?
-                )
-                """,
+        rows_to_insert: list[tuple[Any, ...]] = []
+        for combo in combos:
+            provider_id, metadata_key = combo
+            incoming_values = grouped_values.get(combo, {})
+            existing_values = existing_state.get(combo, {})
+            active_values = {
+                norm: payload
+                for norm, payload in existing_values.items()
+                if not payload["removed"]
+            }
+
+            incoming_keys = set(incoming_values.keys())
+            active_keys = set(active_values.keys())
+            additions = incoming_keys - active_keys
+            removals = active_keys - incoming_keys
+
+            if additions or removals:
+                changed_ids.add(str(metadata_key))
+
+            for normalized_value in additions:
+                payload = incoming_values[normalized_value]
+                rows_to_insert.append(
                     (
                         asset_id,
-                        entry_provider_id,
+                        provider_id,
                         snapshot_id,
-                        entry.key,
-                        entry.value_type,
-                        columns["value_text"],
-                        columns["value_int"],
-                        columns["value_real"],
-                        columns["value_datetime"],
-                        columns["value_json"],
-                        entry.confidence,
-                        asset_id,
-                        entry_provider_id,
-                        entry.key,
-                        entry.value_type,
-                        columns["value_text"],
-                        columns["value_int"],
-                        columns["value_real"],
-                        columns["value_datetime"],
-                        columns["value_json"],
-                        entry.confidence,
-                    ),
+                        metadata_key,
+                        payload["value_type"],
+                        payload["columns"]["value_text"],
+                        payload["columns"]["value_int"],
+                        payload["columns"]["value_real"],
+                        payload["columns"]["value_datetime"],
+                        payload["columns"]["value_json"],
+                        payload["confidence"],
+                        0,
+                    )
                 )
-                if cursor.rowcount == 1:
-                    changed_ids.add(entry.key)
+
+            for normalized_value in removals:
+                payload = active_values[normalized_value]
+                rows_to_insert.append(
+                    (
+                        asset_id,
+                        provider_id,
+                        snapshot_id,
+                        metadata_key,
+                        payload["value_type"],
+                        payload["columns"]["value_text"],
+                        payload["columns"]["value_int"],
+                        payload["columns"]["value_real"],
+                        payload["columns"]["value_datetime"],
+                        payload["columns"]["value_json"],
+                        payload["confidence"],
+                        1,
+                    )
+                )
+
+        if not rows_to_insert:
+            return changed_ids
+
+        with self._lock:
+            self.conn.executemany(
+                """-- sql
+            INSERT INTO metadata (
+                asset_id,
+                provider_id,
+                snapshot_id,
+                metadata_key,
+                value_type,
+                value_text,
+                value_int,
+                value_real,
+                value_datetime,
+                value_json,
+                confidence,
+                removed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                rows_to_insert,
+            )
             self.conn.commit()
         return changed_ids
+
+    def _load_current_metadata_state(
+        self, asset_id: str, provider_ids: set[str]
+    ) -> dict[tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]]:
+        if not provider_ids:
+            return {}
+        ordered_providers = sorted(provider_ids)
+        placeholders = ",".join("?" for _ in ordered_providers)
+        query = f"""-- sql
+            SELECT
+                provider_id,
+                metadata_key,
+                value_type,
+                value_text,
+                value_int,
+                value_real,
+                value_datetime,
+                value_json,
+                confidence,
+                removed,
+                snapshot_id,
+                id
+            FROM metadata
+            WHERE asset_id = ?
+              AND provider_id IN ({placeholders})
+            ORDER BY metadata_key, snapshot_id DESC, id DESC
+        """
+        params: list[Any] = [asset_id]
+        params.extend(ordered_providers)
+        with self._lock:
+            rows = self.conn.execute(query, params).fetchall()
+        current: dict[tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]] = {}
+        seen: set[tuple[tuple[str, MetadataKey], tuple[str, Any]]] = set()
+        for row in rows:
+            provider_id = row["provider_id"]
+            metadata_key = MetadataKey(row["metadata_key"])
+            columns = {
+                "value_text": row["value_text"],
+                "value_int": row["value_int"],
+                "value_real": row["value_real"],
+                "value_datetime": row["value_datetime"],
+                "value_json": row["value_json"],
+            }
+            normalized_value = self._normalize_value(row["value_type"], columns)
+            combo = (provider_id, metadata_key)
+            combo_key = (combo, normalized_value)
+            if combo_key in seen:
+                continue
+            seen.add(combo_key)
+            confidence = row["confidence"]
+            payload = {
+                "value_type": row["value_type"],
+                "columns": columns,
+                "confidence": float(confidence if confidence is not None else 1.0),
+                "removed": bool(row["removed"]),
+            }
+            current.setdefault(combo, {})[normalized_value] = payload
+        return current
+
+    @staticmethod
+    def _normalize_value(value_type: str, columns: dict[str, Any]) -> tuple[str, Any]:
+        if value_type == "string":
+            return (value_type, columns.get("value_text"))
+        if value_type == "int":
+            raw = columns.get("value_int")
+            if raw is None:
+                raise ValueError("Integer metadata is missing value_int")
+            return (value_type, int(raw))
+        if value_type == "float":
+            raw = columns.get("value_real")
+            return (value_type, float(raw) if raw is not None else None)
+        if value_type == "datetime":
+            return (value_type, columns.get("value_datetime"))
+        if value_type == "json":
+            return (value_type, columns.get("value_json"))
+        raise ValueError(f"Unsupported metadata value_type: {value_type}")
 
     # Metadata views
     # Complete: metadata dict, keyed by each unique metadata key, has values that contains all metadata entries in a list
@@ -496,10 +628,11 @@ class Database:
                 m.value_real AS metadata_value_real,
                 m.value_datetime AS metadata_value_datetime,
                 m.value_json AS metadata_value_json,
-                m.confidence AS metadata_confidence
+                m.confidence AS metadata_confidence,
+                m.removed AS metadata_removed
             FROM assets AS f
             LEFT JOIN metadata AS m
-                ON m.asset_id = f.id
+                ON m.asset_id = f.id AND m.removed = 0
         """
         params: list[Any] = []
         clauses: list[str] = []
@@ -571,7 +704,8 @@ class Database:
                 value_real,
                 value_datetime,
                 value_json,
-                confidence
+                confidence,
+                removed
             FROM metadata
             WHERE asset_id = ?
         """
@@ -625,8 +759,9 @@ class Database:
                     value_real,
                     value_datetime,
                     value_json,
-                    confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence,
+                    removed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         entry.asset_id,
@@ -640,6 +775,7 @@ class Database:
                         columns["value_datetime"],
                         columns["value_json"],
                         entry.confidence,
+                        int(entry.removed),
                     ),
                 )
                 inserted += 1
@@ -713,18 +849,21 @@ class Database:
                 m.value_real AS metadata_value_real,
                 m.value_datetime AS metadata_value_datetime,
                 m.value_json AS metadata_value_json,
-                m.confidence AS metadata_confidence
+                m.confidence AS metadata_confidence,
+                m.removed AS metadata_removed
             FROM metadata AS m
             JOIN assets AS f
                 ON m.asset_id = f.id
             WHERE f.deleted_snapshot_id IS NULL
               AND m.metadata_key = ?
+                            AND m.removed = 0
               AND m.snapshot_id = (
                     SELECT MAX(m2.snapshot_id)
                     FROM metadata AS m2
                     WHERE m2.asset_id = m.asset_id
                       AND m2.provider_id = m.provider_id
                       AND m2.metadata_key = m.metadata_key
+                                            AND m2.removed = 0
                 )
         """
         params = (str(metadata_key),)
@@ -796,6 +935,11 @@ class Database:
         entry_id = row["metadata_entry_id"]
         if entry_id is None:
             return None
+        removed_value = (
+            row["metadata_removed"]
+            if "metadata_removed" in row.keys()
+            else 0
+        )
         payload = {
             "id": entry_id,
             "asset_id": row["metadata_asset_id"],
@@ -809,6 +953,7 @@ class Database:
             "value_datetime": row["metadata_value_datetime"],
             "value_json": row["metadata_value_json"],
             "confidence": row["metadata_confidence"],
+            "removed": removed_value,
         }
         return Metadata.from_sql_row(payload)
 

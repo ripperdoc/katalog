@@ -95,13 +95,16 @@ FILE_NAME = define_metadata_key("file/filename", "string", "Filename")
 FILE_ORIGINAL_NAME = define_metadata_key(
     "file/original_filename", "string", "Original filename"
 )
-FILE_OWNER = define_metadata_key("file/owner", "string", "Owner")
 FILE_PATH = define_metadata_key("file/path", "string", "Path")
 FILE_QUOTA_BYTES_USED = define_metadata_key(
     "file/quota_bytes_used", "int", "Quota bytes used"
 )
-FILE_SHARED = define_metadata_key("file/shared", "int", "Shared", width=100)
-FILE_SHARING_USER = define_metadata_key("file/sharing_user", "json", "Sharing user")
+
+ACCESS_OWNER = define_metadata_key("access/owner", "string", "Owner")
+ACCESS_SHARED = define_metadata_key("access/shared", "int", "Shared", width=100)
+ACCESS_SHARED_WITH = define_metadata_key("access/shared_with", "string", "Shared with")
+ACCESS_SHARING_USER = define_metadata_key("access/sharing_user", "json", "Sharing user")
+
 FILE_SIZE = define_metadata_key("file/size", "int", "Size (bytes)", width=120)
 FILE_VERSION = define_metadata_key("file/version", "int", "Version")
 FLAG_HIDDEN = define_metadata_key("flag/hidden", "int", "Hidden", width=100)
@@ -131,6 +134,7 @@ class Metadata:
     id: int | None = None
     asset_id: str | None = None
     snapshot_id: int | None = None
+    removed: bool = False
 
     def as_sql_columns(self) -> dict[str, Any]:
         """Return a dict matching metadata columns for insertion."""
@@ -182,6 +186,7 @@ class Metadata:
         if confidence is None:
             confidence = 1.0
 
+        removed_raw = row.get("removed", 0)
         return cls(
             id=row.get("id"),
             asset_id=row.get("asset_id"),
@@ -191,6 +196,7 @@ class Metadata:
             value=value,
             value_type=row["value_type"],
             confidence=float(confidence),
+            removed=bool(removed_raw),
         )
 
     @classmethod
@@ -213,6 +219,7 @@ class Metadata:
             "value_type": self.value_type,
             "value": self.value,
             "confidence": self.confidence,
+            "removed": self.removed,
         }
 
 
