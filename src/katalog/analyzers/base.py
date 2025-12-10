@@ -29,12 +29,12 @@ class FileGroupFinding:
 
 @dataclass(slots=True)
 class RelationshipRecord:
-    """Records a relationship edge that can be persisted to file_relationships."""
+    """Records a relationship edge that can be persisted to asset_relationships."""
 
     from_file_id: str
     to_file_id: str
     relationship_type: str
-    plugin_id: str
+    provider_id: str | None = None
     confidence: float | None = None
     description: str | None = None
     attributes: dict[str, Any] = field(default_factory=dict)

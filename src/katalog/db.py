@@ -13,7 +13,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from katalog.analyzers.base import RelationshipRecord
 
 from katalog.models import (
-    FileRecord,
+    AssetRecord,
     Metadata,
     MetadataKey,
     get_metadata_schema,
@@ -22,11 +22,12 @@ from katalog.models import (
 
 SCHEMA_STATEMENTS = (
     """-- sql
-    CREATE TABLE IF NOT EXISTS sources (
+    CREATE TABLE IF NOT EXISTS providers (
         id TEXT PRIMARY KEY,
         title TEXT,
         plugin_id TEXT,
         config TEXT,
+        type TEXT NOT NULL CHECK (type IN ('source','processor','analyzer','editor', 'exporter')),
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -34,37 +35,36 @@ SCHEMA_STATEMENTS = (
     """-- sql
     CREATE TABLE IF NOT EXISTS snapshots (
         id INTEGER PRIMARY KEY,
-        source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
         started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         completed_at DATETIME,
-        is_partial INTEGER NOT NULL DEFAULT 0 CHECK (is_partial IN (0,1)),
+        status TEXT NOT NULL CHECK (status IN ('in_progress','partial','full', 'failed', 'canceled')),
         metadata TEXT
     );
     """,
     """-- sql
-    CREATE INDEX IF NOT EXISTS idx_snapshots_source ON snapshots (source_id, id);
+    CREATE INDEX IF NOT EXISTS idx_snapshots_source ON snapshots (provider_id, id);
     """,
     """-- sql
-    CREATE TABLE IF NOT EXISTS file_records (
+    CREATE TABLE IF NOT EXISTS assets (
         id TEXT PRIMARY KEY,
-        source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
         canonical_uri TEXT NOT NULL,
         created_snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE RESTRICT,
         last_snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE RESTRICT,
         deleted_snapshot_id INTEGER REFERENCES snapshots(id) ON DELETE SET NULL,
-        UNIQUE (source_id, canonical_uri)
+        UNIQUE (provider_id, canonical_uri)
     );
     """,
     """-- sql
-    CREATE INDEX IF NOT EXISTS idx_file_records_source ON file_records (source_id, last_snapshot_id);
+    CREATE INDEX IF NOT EXISTS idx_assets_source ON assets (provider_id, last_snapshot_id);
     """,
     """-- sql
-    CREATE TABLE IF NOT EXISTS metadata_entries (
+    CREATE TABLE IF NOT EXISTS metadata (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_record_id TEXT REFERENCES file_records(id) ON DELETE CASCADE,
-        source_id TEXT REFERENCES sources(id),
+        asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL REFERENCES providers(id),
         snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
-        plugin_id TEXT NOT NULL,
         metadata_key TEXT NOT NULL,
         value_type TEXT NOT NULL CHECK (value_type IN ('string','int','float','datetime','json')),
         value_text TEXT,
@@ -84,23 +84,23 @@ SCHEMA_STATEMENTS = (
     );
     """,
     """-- sql
-    CREATE INDEX IF NOT EXISTS idx_metadata_lookup ON metadata_entries (metadata_key, value_type);
+    CREATE INDEX IF NOT EXISTS idx_metadata_lookup ON metadata (metadata_key, value_type);
     """,
     """-- sql
-    CREATE TABLE IF NOT EXISTS file_relationships (
+    CREATE TABLE IF NOT EXISTS asset_relationships (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        from_file_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
-        to_file_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+        from_file_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        to_file_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
         relationship_type TEXT NOT NULL,
-        plugin_id TEXT,
         confidence REAL,
         description TEXT,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (from_file_id, to_file_id, relationship_type)
+        UNIQUE (provider_id, from_file_id, to_file_id, relationship_type)
     );
     """,
     """-- sql
-    CREATE INDEX IF NOT EXISTS idx_relationships_type ON file_relationships (relationship_type);
+    CREATE INDEX IF NOT EXISTS idx_relationships_type ON asset_relationships (relationship_type);
     """,
 )
 
@@ -108,18 +108,18 @@ SCHEMA_STATEMENTS = (
 @dataclass(slots=True)
 class Snapshot:
     id: int
-    source_id: str
+    provider_id: str
     started_at: datetime
-    is_partial: bool = False
+    status: str
 
 
 @dataclass(slots=True)
-class FileRelationship:
+class AssetRelationship:
     id: int
+    provider_id: str
     from_file_id: str
     to_file_id: str
     relationship_type: str
-    plugin_id: str | None
     confidence: float | None
     description: str | None
     created_at: datetime
@@ -149,34 +149,68 @@ class Database:
 
     def ensure_source(
         self,
-        source_id: str,
+        provider_id: str,
         *,
         title: str | None,
         plugin_id: str | None,
         config: dict | None,
+        provider_type: str = "source",
     ) -> None:
         payload = json.dumps(config or {}, default=str)
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
             self.conn.execute(
                 """-- sql
-            INSERT INTO sources (id, title, plugin_id, config, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO providers (id, type, title, plugin_id, config, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                type=excluded.type,
                 title=excluded.title,
                 plugin_id=excluded.plugin_id,
                 config=excluded.config,
                 updated_at=excluded.updated_at
             """,
-                (source_id, title, plugin_id, payload, now),
+                (provider_id, provider_type, title, plugin_id, payload, now),
             )
             self.conn.commit()
 
+    def list_providers(self, provider_type: str | None = None) -> list[dict[str, Any]]:
+        """Return provider rows with parsed config payloads."""
+
+        query = """-- sql
+            SELECT id, type, title, plugin_id, config
+            FROM providers
+        """
+        params: list[Any] = []
+        if provider_type is not None:
+            query += " WHERE type = ?"
+            params.append(provider_type)
+        query += " ORDER BY updated_at DESC, id"
+        with self._lock:
+            rows = self.conn.execute(query, params).fetchall()
+        providers: list[dict[str, Any]] = []
+        for row in rows:
+            config_payload = row["config"] or "{}"
+            try:
+                parsed_config = json.loads(config_payload)
+            except json.JSONDecodeError:
+                parsed_config = {}
+            providers.append(
+                {
+                    "id": row["id"],
+                    "type": row["type"],
+                    "title": row["title"],
+                    "plugin_id": row["plugin_id"],
+                    "config": parsed_config,
+                }
+            )
+        return providers
+
     def begin_snapshot(
         self,
-        source_id: str,
+        provider_id: str,
         *,
-        partial: bool = False,
+        status: str = "in_progress",
         metadata: dict[str, Any] | None = None,
     ) -> Snapshot:
         started = datetime.now(timezone.utc)
@@ -187,14 +221,14 @@ class Database:
                 try:
                     self.conn.execute(
                         """-- sql
-                    INSERT INTO snapshots (id, source_id, started_at, is_partial, metadata)
+                    INSERT INTO snapshots (id, provider_id, started_at, status, metadata)
                     VALUES (?, ?, ?, ?, ?)
                     """,
                         (
                             snapshot_id,
-                            source_id,
+                            provider_id,
                             started.isoformat(),
-                            int(partial),
+                            status,
                             payload,
                         ),
                     )
@@ -203,55 +237,55 @@ class Database:
                 except sqlite3.IntegrityError:
                     snapshot_id += 1
         return Snapshot(
-            id=snapshot_id, source_id=source_id, started_at=started, is_partial=partial
+            id=snapshot_id,
+            provider_id=provider_id,
+            started_at=started,
+            status=status,
         )
 
-    def finalize_snapshot(
-        self, snapshot: Snapshot, *, partial: bool | None = None
-    ) -> None:
+    def finalize_snapshot(self, snapshot: Snapshot, *, status: str) -> None:
         completed_iso = datetime.now(timezone.utc).isoformat()
-        partial_flag = int(partial if partial is not None else snapshot.is_partial)
         with self._lock:
             self.conn.execute(
                 """-- sql
             UPDATE snapshots
-            SET completed_at = ?, is_partial = ?
+            SET completed_at = ?, status = ?
             WHERE id = ?
             """,
-                (completed_iso, partial_flag, snapshot.id),
+                (completed_iso, status, snapshot.id),
             )
             self.conn.execute(
                 """-- sql
-            UPDATE file_records
+            UPDATE assets
             SET deleted_snapshot_id = ?
-            WHERE source_id = ?
+            WHERE provider_id = ?
               AND deleted_snapshot_id IS NULL
               AND last_snapshot_id < ?
             """,
-                (snapshot.id, snapshot.source_id, snapshot.id),
+                (snapshot.id, snapshot.provider_id, snapshot.id),
             )
             self.conn.execute(
                 """-- sql
-            UPDATE sources
+            UPDATE providers
             SET updated_at = ?
             WHERE id = ?
             """,
-                (completed_iso, snapshot.source_id),
+                (completed_iso, snapshot.provider_id),
             )
             self.conn.commit()
-        snapshot.is_partial = bool(partial_flag)
+        snapshot.status = status
 
-    def upsert_file_record(
-        self, record: FileRecord, metadata: list[Metadata], snapshot: Snapshot
+    def upsert_asset(
+        self, record: AssetRecord, metadata: list[Metadata], snapshot: Snapshot
     ) -> set[str]:
         if not record.id:
             raise ValueError("file record requires a stable id")
         if not record.canonical_uri:
             raise ValueError("file record requires a canonical_uri")
-        if record.source_id != snapshot.source_id:
+        if record.provider_id != snapshot.provider_id:
             raise ValueError(
                 "file record source mismatch: %s vs %s"
-                % (record.source_id, snapshot.source_id)
+                % (record.provider_id, snapshot.provider_id)
             )
         created_snapshot_id = record.created_snapshot_id or snapshot.id
         last_snapshot_id = snapshot.id
@@ -260,9 +294,9 @@ class Database:
             try:
                 self.conn.execute(
                     """-- sql
-                INSERT INTO file_records (
+                INSERT INTO assets (
                     id,
-                    source_id,
+                    provider_id,
                     canonical_uri,
                     created_snapshot_id,
                     last_snapshot_id,
@@ -271,7 +305,7 @@ class Database:
                 """,
                     (
                         record.id,
-                        record.source_id,
+                        record.provider_id,
                         record.canonical_uri,
                         created_snapshot_id,
                         last_snapshot_id,
@@ -281,7 +315,7 @@ class Database:
             except sqlite3.IntegrityError:
                 self.conn.execute(
                     """-- sql
-                UPDATE file_records
+                UPDATE assets
                 SET canonical_uri = ?,
                     last_snapshot_id = ?,
                     deleted_snapshot_id = NULL
@@ -303,14 +337,14 @@ class Database:
             changed_metadata: set[str] = set()
         if inserted:
             # Signals that the file record itself was created
-            changed_metadata.add("file_record")
+            changed_metadata.add("asset")
         return changed_metadata
 
     def _insert_metadata(
         self,
         snapshot_id: int,
-        file_record_id: str,
-        record: FileRecord,
+        asset_id: str,
+        record: AssetRecord,
         metadata: Iterable[Metadata],
     ) -> set[str]:
         changed_ids: set[str] = set()
@@ -320,14 +354,13 @@ class Database:
                 value_json = columns["value_json"]
                 if value_json is not None and not isinstance(value_json, str):
                     columns["value_json"] = json.dumps(value_json, sort_keys=True)
-                entry_source_id = entry.source_id or record.source_id
+                entry_provider_id = entry.provider_id or record.provider_id
                 cursor = self.conn.execute(
                     """-- sql
-                INSERT INTO metadata_entries (
-                    file_record_id,
-                    source_id,
+                INSERT INTO metadata (
+                    asset_id,
+                    provider_id,
                     snapshot_id,
-                    plugin_id,
                     metadata_key,
                     value_type,
                     value_text,
@@ -337,13 +370,12 @@ class Database:
                     value_json,
                     confidence
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE NOT EXISTS (
                     SELECT 1
-                    FROM metadata_entries AS existing
-                    WHERE existing.file_record_id = ?
-                      AND existing.source_id = ?
-                      AND existing.plugin_id = ?
+                    FROM metadata AS existing
+                    WHERE existing.asset_id = ?
+                      AND existing.provider_id = ?
                       AND existing.metadata_key = ?
                       AND existing.value_type = ?
                       AND existing.value_text IS ?
@@ -355,10 +387,9 @@ class Database:
                 )
                 """,
                     (
-                        file_record_id,
-                        entry_source_id,
+                        asset_id,
+                        entry_provider_id,
                         snapshot_id,
-                        entry.plugin_id,
                         entry.key,
                         entry.value_type,
                         columns["value_text"],
@@ -367,9 +398,8 @@ class Database:
                         columns["value_datetime"],
                         columns["value_json"],
                         entry.confidence,
-                        file_record_id,
-                        entry_source_id,
-                        entry.plugin_id,
+                        asset_id,
+                        entry_provider_id,
                         entry.key,
                         entry.value_type,
                         columns["value_text"],
@@ -393,22 +423,21 @@ class Database:
     def list_records_with_metadata(
         self,
         *,
-        source_id: Optional[str] = None,
+        provider_id: Optional[str] = None,
         view: Literal["flat", "complete"] = "flat",
     ) -> dict:
         query = """-- sql
             SELECT
                 f.id AS file_id,
-                f.source_id AS file_source_id,
+                f.provider_id AS file_provider_id,
                 f.canonical_uri,
                 f.created_snapshot_id,
                 f.last_snapshot_id,
                 f.deleted_snapshot_id,
                 m.id AS metadata_entry_id,
-                m.file_record_id AS metadata_file_record_id,
-                m.source_id AS metadata_source_id,
+                m.asset_id AS metadata_asset_id,
+                m.provider_id AS metadata_provider_id,
                 m.snapshot_id AS metadata_snapshot_id,
-                m.plugin_id AS metadata_plugin_id,
                 m.metadata_key AS metadata_metadata_key,
                 m.value_type AS metadata_value_type,
                 m.value_text AS metadata_value_text,
@@ -417,13 +446,20 @@ class Database:
                 m.value_datetime AS metadata_value_datetime,
                 m.value_json AS metadata_value_json,
                 m.confidence AS metadata_confidence
-            FROM file_records AS f
-            LEFT JOIN metadata_entries AS m
-                ON m.file_record_id = f.id
-            ORDER BY f.id, m.id
+            FROM assets AS f
+            LEFT JOIN metadata AS m
+                ON m.asset_id = f.id
         """
+        params: list[Any] = []
+        clauses: list[str] = []
+        if provider_id:
+            clauses.append("f.provider_id = ?")
+            params.append(provider_id)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY f.id, m.id"
         with self._lock:
-            rows = self.conn.execute(query).fetchall()
+            rows = self.conn.execute(query, params).fetchall()
         if not rows:
             return {"records": []}
         result: list[dict[str, Any]] = []
@@ -443,7 +479,7 @@ class Database:
                     result.append(current_record)
                 current_record = {
                     "id": file_id,
-                    "source_id": row["file_source_id"],
+                    "provider_id": row["file_provider_id"],
                     "canonical_uri": row["canonical_uri"],
                     "created_snapshot_id": row["created_snapshot_id"],
                     "last_snapshot_id": row["last_snapshot_id"],
@@ -463,11 +499,10 @@ class Database:
 
     def get_metadata_for_file(
         self,
-        file_record_id: str,
+        asset_id: str,
         *,
-        source_id: str | None = None,
+        provider_id: str | None = None,
         snapshot_id: int | None = None,
-        plugin_id: str | None = None,
         metadata_key: MetadataKey | None = None,
     ) -> list[Metadata]:
         """Fetch metadata rows for a single file record with optional filters."""
@@ -475,10 +510,9 @@ class Database:
         query = """-- sql
             SELECT
                 id,
-                file_record_id,
-                source_id,
+                asset_id,
+                provider_id,
                 snapshot_id,
-                plugin_id,
                 metadata_key,
                 value_type,
                 value_text,
@@ -487,19 +521,16 @@ class Database:
                 value_datetime,
                 value_json,
                 confidence
-            FROM metadata_entries
-            WHERE file_record_id = ?
+            FROM metadata
+            WHERE asset_id = ?
         """
-        params: list[Any] = [file_record_id]
-        if source_id is not None:
-            query += " AND source_id = ?"
-            params.append(source_id)
+        params: list[Any] = [asset_id]
+        if provider_id is not None:
+            query += " AND provider_id = ?"
+            params.append(provider_id)
         if snapshot_id is not None:
             query += " AND snapshot_id = ?"
             params.append(snapshot_id)
-        if plugin_id is not None:
-            query += " AND plugin_id = ?"
-            params.append(plugin_id)
         if metadata_key is not None:
             query += " AND metadata_key = ?"
             params.append(str(metadata_key))
@@ -508,35 +539,34 @@ class Database:
             rows = self.conn.execute(query, params).fetchall()
         return [Metadata.from_sql_row(dict(row)) for row in rows]
 
-    def insert_metadata_entries(
+    def insert_metadata(
         self,
         entries: Iterable[Metadata],
         *,
         snapshot: Snapshot,
-        default_source_id: str | None = None,
+        default_provider_id: str | None = None,
     ) -> int:
         """Insert metadata rows that were produced outside of a source scan."""
 
-        source_fallback = default_source_id or snapshot.source_id
+        source_fallback = default_provider_id or snapshot.provider_id
         if source_fallback is None:
             raise ValueError("A source id is required to insert metadata entries")
         inserted = 0
         with self._lock:
             for entry in entries:
-                if not entry.file_record_id:
-                    raise ValueError("Metadata entry missing file_record_id")
-                entry_source_id = entry.source_id or source_fallback
+                if not entry.asset_id:
+                    raise ValueError("Metadata entry missing asset_id")
+                entry_provider_id = entry.provider_id or source_fallback
                 columns = entry.as_sql_columns()
                 value_json = columns["value_json"]
                 if value_json is not None and not isinstance(value_json, str):
                     columns["value_json"] = json.dumps(value_json, sort_keys=True)
                 self.conn.execute(
                     """-- sql
-                INSERT INTO metadata_entries (
-                    file_record_id,
-                    source_id,
+                INSERT INTO metadata (
+                    asset_id,
+                    provider_id,
                     snapshot_id,
-                    plugin_id,
                     metadata_key,
                     value_type,
                     value_text,
@@ -545,13 +575,12 @@ class Database:
                     value_datetime,
                     value_json,
                     confidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
-                        entry.file_record_id,
-                        entry_source_id,
+                        entry.asset_id,
+                        entry_provider_id,
                         snapshot.id,
-                        entry.plugin_id,
                         entry.key,
                         entry.value_type,
                         columns["value_text"],
@@ -569,42 +598,43 @@ class Database:
     def replace_relationships(
         self,
         *,
-        plugin_id: str,
+        provider_id: str,
         relationships: Iterable[RelationshipRecord],
     ) -> int:
-        """Replace all relationships for a plugin with the provided records."""
+        """Replace all relationships for a source with the provided records."""
 
-        if not plugin_id:
-            raise ValueError("plugin_id is required to store relationships")
+        if not provider_id:
+            raise ValueError("provider_id is required to store relationships")
         rows = list(relationships)
         with self._lock:
             self.conn.execute(
                 """-- sql
-            DELETE FROM file_relationships WHERE plugin_id = ?
+            DELETE FROM asset_relationships WHERE provider_id = ?
             """,
-                (plugin_id,),
+                (provider_id,),
             )
             for rel in rows:
                 description = rel.description
                 if rel.attributes:
                     payload = json.dumps(rel.attributes, default=str, sort_keys=True)
                     description = description or payload
+                rel_provider_id = rel.provider_id or provider_id
                 self.conn.execute(
                     """-- sql
-            INSERT OR REPLACE INTO file_relationships (
+            INSERT OR REPLACE INTO asset_relationships (
+                provider_id,
                 from_file_id,
                 to_file_id,
                 relationship_type,
-                plugin_id,
                 confidence,
                 description
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
                     (
+                        rel_provider_id,
                         rel.from_file_id,
                         rel.to_file_id,
                         rel.relationship_type,
-                        rel.plugin_id or plugin_id,
                         rel.confidence,
                         description,
                     ),
@@ -620,12 +650,11 @@ class Database:
         query = """-- sql
             SELECT
                 f.id AS file_id,
-                f.source_id AS file_source_id,
+                f.provider_id AS file_provider_id,
                 m.id AS metadata_entry_id,
-                m.file_record_id AS metadata_file_record_id,
-                m.source_id AS metadata_source_id,
+                m.asset_id AS metadata_asset_id,
+                m.provider_id AS metadata_provider_id,
                 m.snapshot_id AS metadata_snapshot_id,
-                m.plugin_id AS metadata_plugin_id,
                 m.metadata_key AS metadata_metadata_key,
                 m.value_type AS metadata_value_type,
                 m.value_text AS metadata_value_text,
@@ -634,17 +663,16 @@ class Database:
                 m.value_datetime AS metadata_value_datetime,
                 m.value_json AS metadata_value_json,
                 m.confidence AS metadata_confidence
-            FROM metadata_entries AS m
-            JOIN file_records AS f
-                ON m.file_record_id = f.id
+            FROM metadata AS m
+            JOIN assets AS f
+                ON m.asset_id = f.id
             WHERE f.deleted_snapshot_id IS NULL
               AND m.metadata_key = ?
               AND m.snapshot_id = (
                     SELECT MAX(m2.snapshot_id)
-                    FROM metadata_entries AS m2
-                    WHERE m2.file_record_id = m.file_record_id
-                      AND m2.source_id = m.source_id
-                      AND m2.plugin_id = m.plugin_id
+                    FROM metadata AS m2
+                    WHERE m2.asset_id = m.asset_id
+                      AND m2.provider_id = m.provider_id
                       AND m2.metadata_key = m.metadata_key
                 )
         """
@@ -662,43 +690,47 @@ class Database:
     def list_relationships(
         self,
         *,
-        source_id: str | None = None,
+        provider_id: str | None = None,
         file_id: str | None = None,
-    ) -> list[FileRelationship]:
+        relationship_provider_id: str | None = None,
+    ) -> list[AssetRelationship]:
         query = """-- sql
             SELECT
                 r.id,
+                r.provider_id,
                 r.from_file_id,
                 r.to_file_id,
                 r.relationship_type,
-                r.plugin_id,
                 r.confidence,
                 r.description,
                 r.created_at
-            FROM file_relationships AS r
-            JOIN file_records AS f_from ON f_from.id = r.from_file_id
-            JOIN file_records AS f_to ON f_to.id = r.to_file_id
+            FROM asset_relationships AS r
+            JOIN assets AS f_from ON f_from.id = r.from_file_id
+            JOIN assets AS f_to ON f_to.id = r.to_file_id
         """
         params: list[Any] = []
         clauses: list[str] = []
-        if source_id:
-            clauses.append("(f_from.source_id = ? OR f_to.source_id = ?)")
-            params.extend([source_id, source_id])
+        if provider_id:
+            clauses.append("(f_from.provider_id = ? OR f_to.provider_id = ?)")
+            params.extend([provider_id, provider_id])
         if file_id:
             clauses.append("(r.from_file_id = ? OR r.to_file_id = ?)")
             params.extend([file_id, file_id])
+        if relationship_provider_id:
+            clauses.append("r.provider_id = ?")
+            params.append(relationship_provider_id)
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY r.created_at DESC, r.id DESC"
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
         return [
-            FileRelationship(
+            AssetRelationship(
                 id=row["id"],
+                provider_id=row["provider_id"],
                 from_file_id=row["from_file_id"],
                 to_file_id=row["to_file_id"],
                 relationship_type=row["relationship_type"],
-                plugin_id=row["plugin_id"],
                 confidence=row["confidence"],
                 description=row["description"],
                 created_at=datetime.fromisoformat(row["created_at"])
@@ -715,10 +747,9 @@ class Database:
             return None
         payload = {
             "id": entry_id,
-            "file_record_id": row["metadata_file_record_id"],
-            "source_id": row["metadata_source_id"],
+            "asset_id": row["metadata_asset_id"],
+            "provider_id": row["metadata_provider_id"],
             "snapshot_id": row["metadata_snapshot_id"],
-            "plugin_id": row["metadata_plugin_id"],
             "metadata_key": row["metadata_metadata_key"],
             "value_type": row["metadata_value_type"],
             "value_text": row["metadata_value_text"],

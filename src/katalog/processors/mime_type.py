@@ -9,7 +9,7 @@ from katalog.processors.base import (
     file_data_changed,
     file_data_change_dependencies,
 )
-from katalog.models import MIME_TYPE, FileRecord, Metadata, make_metadata
+from katalog.models import MIME_TYPE, AssetRecord, Metadata, make_metadata
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic
@@ -23,7 +23,7 @@ class MimeTypeProcessor(Processor):
 
     def should_run(
         self,
-        record: FileRecord,
+        record: AssetRecord,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
@@ -31,12 +31,15 @@ class MimeTypeProcessor(Processor):
         # Is there a logic where we can check for that, without having to recheck every time?
         return file_data_changed(self, record, changes)
 
-    async def run(self, record: FileRecord, changes: set[str] | None) -> list[Metadata]:
+    async def run(
+        self, record: AssetRecord, changes: set[str] | None
+    ) -> list[Metadata]:
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
         if not record.data:
-            raise ValueError("FileRecord does not have a data accessor")
+            raise ValueError("AssetRecord does not have a data accessor")
         m = magic.Magic(mime=True)
         buf = await record.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)
-        return [make_metadata(self.PLUGIN_ID, MIME_TYPE, mt)]
+        provider_id = getattr(self, "provider_id", record.provider_id)
+        return [make_metadata(provider_id, MIME_TYPE, mt)]

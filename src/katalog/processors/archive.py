@@ -16,8 +16,8 @@ class ArchiveProcess(Processor):
     def __init__(self, *, database: Database | None = None, **_: Any) -> None:
         self.database = database
 
-    # def should_run(self, record: FileRecord, prev_cache: str | None) -> bool:
-    #     return record.source_id == "downloads" and prev_cache != self.cache_key(record)
+    # def should_run(self, record: AssetRecord, prev_cache: str | None) -> bool:
+    #     return record.provider_id == "downloads" and prev_cache != self.cache_key(record)
 
-    # async def run(self, record: FileRecord) -> FileRecord:
+    # async def run(self, record: AssetRecord) -> AssetRecord:
     #     return await super().run(record)

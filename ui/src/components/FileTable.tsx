@@ -1,7 +1,7 @@
-import type { FileRecordResponse, MetadataEntry, MetadataFlat, ViewMode } from "../types/api";
+import type { AssetRecordResponse, MetadataEntry, MetadataFlat, ViewMode } from "../types/api";
 
 type Props = {
-  files: FileRecordResponse[];
+  files: AssetRecordResponse[];
   view: ViewMode;
 };
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchRecords } from "../api/client";
-import type { FileRecordResponse, FileRecord, MetadataEntry } from "../types/api";
+import type { AssetRecordResponse, AssetRecord, MetadataEntry } from "../types/api";
 import {
   SimpleTable,
   HeaderObject,
@@ -14,7 +14,7 @@ const headers: HeaderObject[] = [
   // Fixed width in pixels
   { accessor: "id", label: "ID", width: "1fr", type: "string", isSortable: true, filterable: true },
   {
-    accessor: "source_id",
+    accessor: "provider_id",
     label: "Source",
     width: "90px",
     type: "string",
@@ -81,10 +81,10 @@ const collectSearchableParts = (value: unknown, parts: string[]) => {
   }
 };
 
-const buildSearchString = (record: FileRecord): string => {
+const buildSearchString = (record: AssetRecord): string => {
   const parts: string[] = [
     record.id,
-    record.source_id,
+    record.provider_id,
     record.canonical_uri,
     record.created_snapshot_id,
     record.last_snapshot_id,
@@ -103,7 +103,7 @@ const buildSearchString = (record: FileRecord): string => {
 };
 
 function RecordsRoute() {
-  const [records, setRecords] = useState<FileRecord[]>([]);
+  const [records, setRecords] = useState<AssetRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [seenHeaders, setSeenHeaders] = useState<HeaderObject[]>([]);
@@ -127,7 +127,7 @@ function RecordsRoute() {
     setLoading(true);
     setError(null);
     try {
-      const response: FileRecordResponse = await fetchRecords();
+      const response: AssetRecordResponse = await fetchRecords();
       const fetchedRecords = response.records ?? [];
       setRecords(fetchedRecords);
       const schema = response.schema ?? {};

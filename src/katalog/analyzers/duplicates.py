@@ -28,9 +28,10 @@ class ExactDuplicateAnalyzer(Analyzer):
         return True
 
     async def run(self, *, snapshot: Snapshot, database: Database) -> AnalyzerResult:
+        provider_id = getattr(self, "provider_id", snapshot.provider_id)
         latest_hash_rows = database.get_latest_metadata_by_key(HASH_MD5)
         per_file_hashes: dict[str, set[str]] = defaultdict(set)
-        per_file_sources: dict[str, str] = {}
+        per_file_providers: dict[str, str] = {}
         issues: list[AnalyzerIssue] = []
 
         for file_id, metadata in latest_hash_rows:
@@ -38,7 +39,7 @@ class ExactDuplicateAnalyzer(Analyzer):
             if hash_value is None:
                 continue
             per_file_hashes[file_id].add(hash_value)
-            per_file_sources[file_id] = metadata.source_id or ""
+            per_file_providers[file_id] = metadata.provider_id or ""
 
         confirmed_hashes: dict[str, str] = {}
         for file_id, hash_values in per_file_hashes.items():
@@ -71,13 +72,13 @@ class ExactDuplicateAnalyzer(Analyzer):
             if len(file_ids) < 2:
                 continue
             sorted_members = sorted(file_ids)
-            member_sources = sorted(
+            member_providers = sorted(
                 {
-                    source_id
-                    for source_id in (
-                        per_file_sources.get(fid) for fid in sorted_members
+                    provider_id
+                    for provider_id in (
+                        per_file_providers.get(fid) for fid in sorted_members
                     )
-                    if source_id
+                    if provider_id
                 }
             )
             groups.append(
@@ -88,7 +89,7 @@ class ExactDuplicateAnalyzer(Analyzer):
                     attributes={
                         "hash": hash_value,
                         "file_count": len(sorted_members),
-                        "source_ids": member_sources,
+                        "provider_ids": member_providers,
                     },
                 )
             )
@@ -99,7 +100,7 @@ class ExactDuplicateAnalyzer(Analyzer):
                         from_file_id=anchor,
                         to_file_id=other,
                         relationship_type="exact_duplicate",
-                        plugin_id=self.PLUGIN_ID,
+                        provider_id=provider_id,
                         confidence=1.0,
                         description=f"Exact duplicate group for hash {hash_value}",
                         attributes={"hash": hash_value},

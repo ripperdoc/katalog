@@ -1,13 +1,14 @@
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict
+from urllib.parse import unquote, urlparse
 
 if os.name == "nt":
     import ctypes
 
 from loguru import logger
 
-from katalog.clients.base import SourceClient
+from katalog.sources.base import SourcePlugin
 from katalog.models import (
     FILE_ABSOLUTE_PATH,
     FILE_SIZE,
@@ -15,7 +16,7 @@ from katalog.models import (
     TIME_CREATED,
     TIME_MODIFIED,
     FileAccessor,
-    FileRecord,
+    AssetRecord,
     Metadata,
     make_metadata,
 )
@@ -41,7 +42,7 @@ class FilesystemAccessor(FileAccessor):
             return f.read(length) if length is not None else f.read()
 
 
-class FilesystemClient(SourceClient):
+class FilesystemClient(SourcePlugin):
     """
     Client for accessing and listing files in a local file system source.
     """
@@ -60,18 +61,18 @@ class FilesystemClient(SourceClient):
             "version": "0.1",
         }
 
-    def get_accessor(self, record: FileRecord) -> Any:
+    def get_accessor(self, record: AssetRecord) -> Any:
         """Return an accessor keyed off the canonical absolute path."""
         if not record.canonical_uri:
             return None
-        return FilesystemAccessor(record.canonical_uri)
+        return FilesystemAccessor(_canonical_uri_to_path(record.canonical_uri))
 
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
 
-    async def scan(self) -> AsyncIterator[tuple[FileRecord, list[Metadata]]]:
+    async def scan(self) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
         """
-        Recursively scan the directory and yield FileRecord objects.
+        Recursively scan the directory and yield AssetRecord objects.
         """
         count = 0
         for dirpath, dirnames, filenames in os.walk(self.root_path):
@@ -95,28 +96,24 @@ class FilesystemClient(SourceClient):
                         record_id = f"path:{full_path}"
 
                     abs_path = Path(full_path).resolve()
-                    record = FileRecord(
+                    record = AssetRecord(
                         id=record_id,
-                        source_id=self.id,
+                        provider_id=self.id,
                         canonical_uri=abs_path.as_uri(),
                     )
                     metadata = list()
                     metadata.append(
-                        make_metadata(self.PLUGIN_ID, FILE_ABSOLUTE_PATH, str(abs_path))
+                        make_metadata(self.id, FILE_ABSOLUTE_PATH, str(abs_path))
                     )
                     if modified:
-                        metadata.append(
-                            make_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified)
-                        )
+                        metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
                     if created:
-                        metadata.append(
-                            make_metadata(self.PLUGIN_ID, TIME_CREATED, created)
-                        )
+                        metadata.append(make_metadata(self.id, TIME_CREATED, created))
                     metadata.append(
-                        make_metadata(self.PLUGIN_ID, FILE_SIZE, int(stat.st_size))
+                        make_metadata(self.id, FILE_SIZE, int(stat.st_size))
                     )
                     if _looks_hidden(abs_path):
-                        metadata.append(make_metadata(self.PLUGIN_ID, FLAG_HIDDEN, 1))
+                        metadata.append(make_metadata(self.id, FLAG_HIDDEN, 1))
                 except Exception as e:
                     logger.warning(
                         "Failed to stat {} for source {}: {}",
@@ -146,3 +143,20 @@ def _looks_hidden(path: Path) -> bool:
             return False
         return bool(attrs & FILE_ATTRIBUTE_HIDDEN)
     return False
+
+
+def _canonical_uri_to_path(uri: str) -> str:
+    """Convert a stored canonical URI to a local filesystem path."""
+
+    if not uri:
+        return uri
+    if uri.startswith("file://"):
+        parsed = urlparse(uri)
+        if parsed.netloc not in ("", "localhost"):
+            raise ValueError(f"Unsupported file URI host '{parsed.netloc}'")
+        path = unquote(parsed.path or "")
+        if os.name == "nt" and path.startswith("/"):
+            # Drop the leading slash so paths like /C:/foo become C:/foo
+            path = path.lstrip("/")
+        return path or uri
+    return uri

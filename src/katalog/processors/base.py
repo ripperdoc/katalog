@@ -1,17 +1,18 @@
-from typing import ClassVar, FrozenSet, Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import Any, ClassVar, FrozenSet
+
 from katalog.models import (
     DATA_KEY,
     HASH_MD5,
     TIME_MODIFIED,
-    FileRecord,
+    AssetRecord,
     MetadataKey,
     Metadata,
 )
 from katalog.db import Database
 
 
-@runtime_checkable
-class Processor(Protocol):
+class Processor(ABC):
     """
     Defines the interface for a metadata processor.
     """
@@ -43,22 +44,33 @@ class Processor(Protocol):
             outs = frozenset(outs)
         cls.dependencies, cls.outputs = deps, outs
 
+    def __init__(
+        self, *, database: Database | None = None, **_: Any
+    ) -> None:  # pragma: no cover - convenience wiring only
+        # Store the database reference so subclasses that don't override __init__
+        # can still access it if needed.
+        self.database = database
+
+    @abstractmethod
     def should_run(
         self,
-        record: FileRecord,
+        record: AssetRecord,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
         """Return True if the processor needs to run based on record and the metadata fields that have changed in it."""
         raise NotImplementedError()
 
-    async def run(self, record: FileRecord, changes: set[str] | None) -> list[Metadata]:
+    @abstractmethod
+    async def run(
+        self, record: AssetRecord, changes: set[str] | None
+    ) -> list[Metadata]:
         """Run the processor logic and return Metadata entries to persist for the file."""
         raise NotImplementedError()
 
 
 def file_data_changed(
-    self, record: FileRecord, changes: set[str] | None, allow_weak_check: bool = True
+    self, record: AssetRecord, changes: set[str] | None, allow_weak_check: bool = True
 ) -> bool:
     """Helper to determine if data or relevant fields have changed. If allow_weak_check is True, also assume data has changed if TIME_MODIFIED has changed."""
     # TODO more hash types to check?

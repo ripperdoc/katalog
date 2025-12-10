@@ -12,7 +12,7 @@ from katalog.analyzers.base import (
     FileGroupFinding,
 )
 from katalog.db import Database, Snapshot
-from katalog.utils.utils import import_analyzer_class
+from katalog.utils.utils import import_plugin_class
 
 
 @dataclass(slots=True)
@@ -22,7 +22,7 @@ class AnalyzerEntry:
     name: str
     instance: Analyzer
     plugin_id: str
-    source_id: str
+    provider_id: str
     order: int = 0
 
 
@@ -46,7 +46,7 @@ async def run_analyzers(
     results: list[dict[str, Any]] = []
     for entry in analyzers:
         snapshot = database.begin_snapshot(
-            entry.source_id,
+            entry.provider_id,
             metadata={"analyzer": entry.name, "plugin_id": entry.plugin_id},
         )
         try:
@@ -61,7 +61,7 @@ async def run_analyzers(
                     {
                         "analyzer": entry.name,
                         "plugin_id": entry.plugin_id,
-                        "source_id": entry.source_id,
+                        "provider_id": entry.provider_id,
                         "status": "error",
                         "error": "should_run failed",
                     }
@@ -74,7 +74,7 @@ async def run_analyzers(
                     {
                         "analyzer": entry.name,
                         "plugin_id": entry.plugin_id,
-                        "source_id": entry.source_id,
+                        "provider_id": entry.provider_id,
                         "status": "skipped",
                     }
                 )
@@ -106,29 +106,32 @@ def _instantiate_analyzer(
     class_path = config.get("class")
     if not class_path:
         raise ValueError("Each analyzer config must include a 'class' field")
-    AnalyzerClass = import_analyzer_class(class_path)
+    AnalyzerClass = import_plugin_class(class_path)
     kwargs = {
         k: v
         for k, v in config.items()
-        if k not in {"class", "id", "order", "source_id", "title"}
+        if k not in {"class", "id", "order", "provider_id", "title"}
     }
     instance = AnalyzerClass(**kwargs)
     name = config.get("id") or f"{AnalyzerClass.__name__}:{index}"
-    source_id = config.get("source_id") or f"analyzer:{name}"
+    provider_id = config.get("provider_id") or f"analyzer:{name}"
     plugin_id = getattr(AnalyzerClass, "PLUGIN_ID", AnalyzerClass.__module__)
     database.ensure_source(
-        source_id,
+        provider_id,
         title=config.get("title") or f"Analyzer {name}",
         plugin_id=plugin_id,
         config=config,
+        provider_type="analyzer",
     )
+    if not hasattr(instance, "provider_id"):
+        setattr(instance, "provider_id", provider_id)
     order_value = config.get("order")
     order = int(order_value) if order_value is not None else 0
     return AnalyzerEntry(
         name=name,
         instance=instance,
         plugin_id=plugin_id,
-        source_id=source_id,
+        provider_id=provider_id,
         order=order,
     )
 
@@ -142,19 +145,26 @@ def _persist_analyzer_result(
 ) -> dict[str, Any]:
     metadata_count = 0
     if result.metadata:
-        metadata_count = database.insert_metadata_entries(
+        for item in result.metadata:
+            if item.provider_id is None:
+                item.provider_id = entry.provider_id
+        metadata_count = database.insert_metadata(
             result.metadata,
             snapshot=snapshot,
-            default_source_id=entry.source_id,
+            default_provider_id=entry.provider_id,
         )
+    if result.relationships:
+        for rel in result.relationships:
+            if rel.provider_id is None:
+                rel.provider_id = entry.provider_id
     relationship_count = database.replace_relationships(
-        plugin_id=entry.plugin_id,
+        provider_id=entry.provider_id,
         relationships=result.relationships,
     )
     summary = {
         "analyzer": entry.name,
         "plugin_id": entry.plugin_id,
-        "source_id": entry.source_id,
+        "provider_id": entry.provider_id,
         "status": "completed",
         "metadata_count": metadata_count,
         "relationship_count": relationship_count,

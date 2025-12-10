@@ -6,8 +6,8 @@ export type MetadataFlat = Record<string, MetadataValue>;
 
 export interface MetadataEntry {
   id: number;
-  file_record_id: string;
-  source_id: string;
+  asset_id: string;
+  provider_id: string;
   snapshot_id: number;
   plugin_id: string;
   metadata_key: string;
@@ -23,9 +23,9 @@ export interface MetadataDefinition {
   width: number | null;
 }
 
-export interface FileRecord extends Row {
+export interface AssetRecord extends Row {
   id: string;
-  source_id: string;
+  provider_id: string;
   canonical_uri: string;
   created_snapshot_id: number;
   last_snapshot_id: number;
@@ -33,8 +33,8 @@ export interface FileRecord extends Row {
   metadata: MetadataFlat;
 }
 
-export interface FileRecordResponse {
-  records: FileRecord[];
+export interface AssetRecordResponse {
+  records: AssetRecord[];
   schema: Record<string, MetadataDefinition>;
   stats: {
     records: number;
@@ -42,7 +42,7 @@ export interface FileRecordResponse {
   };
 }
 
-export interface FileRecordComplete extends Omit<FileRecord, "metadata"> {
+export interface AssetRecordComplete extends Omit<AssetRecord, "metadata"> {
   metadata: MetadataEntry[];
 }
 

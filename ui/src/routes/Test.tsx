@@ -4,14 +4,14 @@ import { SimpleTable, HeaderObject, Row } from "simple-table-core";
 const buildTestData = (count: number): Row[] =>
   Array.from({ length: count }, (_, index) => ({
     id: `file${index + 1}`,
-    source_id: "sourceA",
+    provider_id: "sourceA",
   }));
 
 function Test() {
   const rows = useMemo(() => buildTestData(60), []);
   const headers: HeaderObject[] = [
     { accessor: "id", label: "ID", width: "1fr", type: "string" },
-    { accessor: "source_id", label: "Source", width: "1fr", type: "string" },
+    { accessor: "provider_id", label: "Source", width: "1fr", type: "string" },
   ];
 
   return (

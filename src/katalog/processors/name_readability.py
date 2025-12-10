@@ -8,7 +8,7 @@ from katalog.db import Database
 from katalog.models import (
     FILE_NAME,
     WARNING_NAME_READABILITY,
-    FileRecord,
+    AssetRecord,
     Metadata,
     make_metadata,
 )
@@ -34,7 +34,7 @@ class NameReadabilityProcessor(Processor):
 
     def should_run(
         self,
-        record: FileRecord,
+        record: AssetRecord,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
@@ -45,12 +45,14 @@ class NameReadabilityProcessor(Processor):
             return False
         existing = db.get_metadata_for_file(
             record.id,
-            source_id=record.source_id,
+            provider_id=record.provider_id,
             metadata_key=WARNING_NAME_READABILITY,
         )
         return not existing
 
-    async def run(self, record: FileRecord, changes: set[str] | None) -> list[Metadata]:
+    async def run(
+        self, record: AssetRecord, changes: set[str] | None
+    ) -> list[Metadata]:
         name = self._resolve_file_name(record)
         if not name:
             return []
@@ -59,20 +61,20 @@ class NameReadabilityProcessor(Processor):
         if not signals:
             return []
         confidence = min(0.9, 0.4 + 0.1 * len(signals))
+        provider_id = getattr(self, "provider_id", record.provider_id)
         metadata = make_metadata(
-            self.PLUGIN_ID,
+            provider_id,
             WARNING_NAME_READABILITY,
             analysis,
             confidence=confidence,
-            source_id=record.source_id,
         )
         return [metadata]
 
-    def _resolve_file_name(self, record: FileRecord) -> str | None:
+    def _resolve_file_name(self, record: AssetRecord) -> str | None:
         if self.database:
             entries = self.database.get_metadata_for_file(
                 record.id,
-                source_id=record.source_id,
+                provider_id=record.provider_id,
                 metadata_key=FILE_NAME,
             )
             if entries:

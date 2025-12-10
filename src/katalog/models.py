@@ -80,7 +80,7 @@ def _ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
 
 # Special keys to signal changes
 DATA_KEY = define_metadata_key("data", "int")
-FILE_RECORD_KEY = define_metadata_key("file_record", "int")
+FILE_RECORD_KEY = define_metadata_key("asset", "int")
 
 # Built-in metadata
 FILE_ABSOLUTE_PATH = define_metadata_key(
@@ -89,30 +89,29 @@ FILE_ABSOLUTE_PATH = define_metadata_key(
 FILE_PATH = define_metadata_key("file/path", "string", "Path")
 FILE_ID_PATH = define_metadata_key("file/id_path", "string")
 FILE_NAME = define_metadata_key("file/filename", "string", "Filename")
-FILE_SIZE = define_metadata_key("file/size", "int", "Size (bytes)", width=100)
+FILE_SIZE = define_metadata_key("file/size", "int", "Size (bytes)", width=120)
 FILE_OWNER = define_metadata_key("file/owner", "string", "Owner")
 HASH_MD5 = define_metadata_key("hash/md5", "string", "MD5 Hash")
 MIME_TYPE = define_metadata_key("mime/type", "string", "MIME Type")
 TIME_CREATED = define_metadata_key("time/created", "datetime", "Created")
 TIME_MODIFIED = define_metadata_key("time/modified", "datetime", "Modified")
 WARNING_NAME_READABILITY = define_metadata_key("warning/name_readability", "json")
-FLAG_HIDDEN = define_metadata_key("flag/hidden", "int")
+FLAG_HIDDEN = define_metadata_key("flag/hidden", "int", "Hidden", width=100)
 
 
 @dataclass(slots=True)
 class Metadata:
-    plugin_id: str
+    provider_id: str | None
     key: MetadataKey
     value: MetadataScalar
     value_type: MetadataType
     confidence: float = 1.0
-    source_id: str | None = None
     id: int | None = None
-    file_record_id: str | None = None
+    asset_id: str | None = None
     snapshot_id: int | None = None
 
     def as_sql_columns(self) -> dict[str, Any]:
-        """Return a dict matching metadata_entries columns for insertion."""
+        """Return a dict matching metadata columns for insertion."""
         column_map = {
             "value_text": None,
             "value_int": None,
@@ -139,7 +138,7 @@ class Metadata:
 
     @classmethod
     def from_sql_row(cls, row: Mapping[str, Any]) -> Metadata:
-        """Instantiate Metadata from a metadata_entries SELECT row."""
+        """Instantiate Metadata from a metadata SELECT row."""
 
         if row.get("value_text") is not None:
             value: Any = row["value_text"]
@@ -163,10 +162,9 @@ class Metadata:
 
         return cls(
             id=row.get("id"),
-            file_record_id=row.get("file_record_id"),
-            source_id=row.get("source_id"),
+            asset_id=row.get("asset_id"),
+            provider_id=row.get("provider_id"),
             snapshot_id=row.get("snapshot_id"),
-            plugin_id=row["plugin_id"],
             key=MetadataKey(row["metadata_key"]),
             value=value,
             value_type=row["value_type"],
@@ -186,10 +184,9 @@ class Metadata:
 
         return {
             "id": self.id,
-            "file_record_id": self.file_record_id,
-            "source_id": self.source_id,
+            "asset_id": self.asset_id,
+            "provider_id": self.provider_id,
             "snapshot_id": self.snapshot_id,
-            "plugin_id": self.plugin_id,
             "metadata_key": str(self.key),
             "value_type": self.value_type,
             "value": self.value,
@@ -198,29 +195,27 @@ class Metadata:
 
 
 def make_metadata(
-    plugin_id: str,
+    provider_id: str,
     key: MetadataKey,
     value: MetadataScalar,
     *,
     confidence: float = 1.0,
-    source_id: str | None = None,
 ):
     metadata_def = get_metadata_def(key)
     _ensure_value_type(metadata_def.value_type, value)
     return Metadata(
-        plugin_id=plugin_id,
+        provider_id=provider_id,
         key=key,
         value=value,
         value_type=metadata_def.value_type,
         confidence=confidence,
-        source_id=source_id,
     )
 
 
 @dataclass(slots=True)
-class FileRecord:
+class AssetRecord:
     id: str
-    source_id: str
+    provider_id: str
     canonical_uri: str
     created_snapshot_id: int | None = None
     last_snapshot_id: int | None = None

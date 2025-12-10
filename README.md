@@ -22,7 +22,7 @@ should provide:
 - Ultimately, to also provide the ability to see where content has been published and make it easy
   to manage assets across all systems
 
-What it is not:
+## What it is not:
 
 - A new Spotlight. There are many great UIs for quickly finding and using files on an OS. These are
   better suited for quick access, and often also aim at finding all possible files and executables
@@ -31,12 +31,24 @@ What it is not:
   and cloning. Katalog does not aim to recreate these - but it might provide shortcuts or interfaces
   to such tools.
 
-Who is it for?
+## Who is it for?
 
 - Content creators who are losing overview of all their content, especially with cloud and remote
   storage becoming the norm
 - Archivists and data hoarders who want to manage their archives across many types of media
 - Small businesses needing a flexible Digital Asset Management solution
+
+## Principles for user experience
+
+- Performant
+- Don't load/process when not needed (e.g. cache)
+- Give full access to data, don't dumb down
+- Good default settings, but advanced customization possible
+- Feels and is safe to use:
+  - Can see in advance what large operations will do
+  - Can undo small and large operations
+
+# Usage
 
 ## Local UI
 
@@ -66,5 +78,5 @@ needed. 3. (Optional) When serving the built UI elsewhere, set `VITE_API_BASE_UR
 VITE_API_BASE_URL="http://localhost:8000" npm run build
 ```
 
-The UI currently lets you enter a source id, query `/files/{source_id}` with the `flat` or
+The UI currently lets you enter a source id, query `/files/{provider_id}` with the `flat` or
 `complete` view, and render each file record with its metadata payload.

@@ -9,12 +9,12 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from loguru import logger
 
-from katalog.clients.base import SourceClient
+from katalog.sources.base import SourcePlugin
 from katalog.config import WORKSPACE
 from katalog.models import (
     FILE_OWNER,
     FILE_PATH,
-    FileRecord,
+    AssetRecord,
     FILE_ID_PATH,
     FILE_NAME,
     FILE_SIZE,
@@ -31,7 +31,7 @@ from katalog.utils.utils import parse_google_drive_datetime
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
-class GoogleDriveClient(SourceClient):
+class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive."""
 
     PLUGIN_ID = "dev.katalog.client.googledrive"
@@ -73,12 +73,12 @@ class GoogleDriveClient(SourceClient):
             "version": "0.1",
         }
 
-    def get_accessor(self, record: FileRecord) -> Any:
+    def get_accessor(self, record: AssetRecord) -> Any:
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
-    async def scan(self) -> AsyncIterator[tuple[FileRecord, list[Metadata]]]:
-        """Asynchronously scan Google Drive and yield FileRecord objects."""
+    async def scan(self) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
+        """Asynchronously scan Google Drive and yield AssetRecord objects."""
         self._prime_folder_cache()
         page_token: Optional[str] = None
         count = 0
@@ -116,27 +116,27 @@ class GoogleDriveClient(SourceClient):
 
     def _build_record(
         self, file: Dict[str, Any]
-    ) -> tuple[FileRecord | None, list[Metadata] | None]:
-        """Transform a Drive file payload into a FileRecord, guarding errors."""
+    ) -> tuple[AssetRecord | None, list[Metadata] | None]:
+        """Transform a Drive file payload into a AssetRecord, guarding errors."""
         try:
             file_id = file.get("id", "")
             canonical_uri = f"https://drive.google.com/file/d/{file_id}"
 
-            record = FileRecord(
+            record = AssetRecord(
                 id=file_id,
-                source_id=self.id,
+                provider_id=self.id,
                 canonical_uri=canonical_uri,
             )
             metadata = list()
 
             name_paths, id_paths = self._resolve_paths(file)
             for path in name_paths:
-                metadata.append(make_metadata(self.PLUGIN_ID, FILE_PATH, path))
+                metadata.append(make_metadata(self.id, FILE_PATH, path))
             for path in id_paths:
-                metadata.append(make_metadata(self.PLUGIN_ID, FILE_ID_PATH, path))
+                metadata.append(make_metadata(self.id, FILE_ID_PATH, path))
             metadata.append(
                 make_metadata(
-                    self.PLUGIN_ID,
+                    self.id,
                     FILE_NAME,
                     file.get("originalFilename", file.get("name", "")),
                 ),
@@ -144,34 +144,34 @@ class GoogleDriveClient(SourceClient):
 
             created = parse_google_drive_datetime(file.get("createdTime"))
             if created:
-                metadata.append(make_metadata(self.PLUGIN_ID, TIME_CREATED, created))
+                metadata.append(make_metadata(self.id, TIME_CREATED, created))
 
             modified = parse_google_drive_datetime(file.get("modifiedTime"))
             if modified:
-                metadata.append(make_metadata(self.PLUGIN_ID, TIME_MODIFIED, modified))
+                metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
 
             mime_type = file.get("mimeType")
             if mime_type:
-                metadata.append(make_metadata(self.PLUGIN_ID, MIME_TYPE, mime_type))
+                metadata.append(make_metadata(self.id, MIME_TYPE, mime_type))
             checksum = file.get("md5Checksum")
             if checksum:
-                metadata.append(make_metadata(self.PLUGIN_ID, HASH_MD5, checksum))
+                metadata.append(make_metadata(self.id, HASH_MD5, checksum))
 
             raw_size = file.get("size")
             size = int(raw_size) if raw_size else None
             if size is not None:
-                metadata.append(make_metadata(self.PLUGIN_ID, FILE_SIZE, size))
+                metadata.append(make_metadata(self.id, FILE_SIZE, size))
 
             owners = file.get("owners") or []
             if owners:
                 for owner in owners:
                     metadata.append(
-                        make_metadata(self.PLUGIN_ID, FILE_OWNER, owner["emailAddress"])
+                        make_metadata(self.id, FILE_OWNER, owner["emailAddress"])
                     )
             starred = file.get("starred")
             if starred is not None:
                 metadata.append(
-                    make_metadata(self.PLUGIN_ID, self.STARRED, int(bool(starred)))
+                    make_metadata(self.id, self.STARRED, int(bool(starred)))
                 )
             return record, metadata
         except Exception as exc:  # pragma: no cover - defensive
