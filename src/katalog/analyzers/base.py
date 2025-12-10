@@ -31,12 +31,13 @@ class FileGroupFinding:
 class RelationshipRecord:
     """Records a relationship edge that can be persisted to asset_relationships."""
 
-    from_file_id: str
-    to_file_id: str
+    from_id: str
+    to_id: str
     relationship_type: str
     provider_id: str | None = None
     confidence: float | None = None
     description: str | None = None
+    removed: bool = False
     attributes: dict[str, Any] = field(default_factory=dict)
 
 

@@ -159,6 +159,7 @@ def _persist_analyzer_result(
                 rel.provider_id = entry.provider_id
     relationship_count = database.replace_relationships(
         provider_id=entry.provider_id,
+        snapshot=snapshot,
         relationships=result.relationships,
     )
     summary = {

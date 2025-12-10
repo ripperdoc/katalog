@@ -91,17 +91,21 @@ SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS asset_relationships (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-        from_file_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-        to_file_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        from_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        to_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
         relationship_type TEXT NOT NULL,
+        snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+        removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0,1)),
         confidence REAL,
         description TEXT,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (provider_id, from_file_id, to_file_id, relationship_type)
     );
     """,
     """-- sql
     CREATE INDEX IF NOT EXISTS idx_relationships_type ON asset_relationships (relationship_type);
+    """,
+    """-- sql
+    CREATE INDEX IF NOT EXISTS idx_relationships_identity
+        ON asset_relationships (provider_id, from_id, to_id, relationship_type, removed, snapshot_id);
     """,
 )
 
@@ -120,12 +124,13 @@ class Snapshot:
 class AssetRelationship:
     id: int
     provider_id: str
-    from_file_id: str
-    to_file_id: str
+    from_id: str
+    to_id: str
     relationship_type: str
+    snapshot_id: int
+    removed: bool
     confidence: float | None
     description: str | None
-    created_at: datetime
 
 
 class Database:
@@ -552,7 +557,9 @@ class Database:
         params.extend(ordered_providers)
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
-        current: dict[tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]] = {}
+        current: dict[
+            tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]
+        ] = {}
         seen: set[tuple[tuple[str, MetadataKey], tuple[str, Any]]] = set()
         for row in rows:
             provider_id = row["provider_id"]
@@ -597,6 +604,44 @@ class Database:
         if value_type == "json":
             return (value_type, columns.get("value_json"))
         raise ValueError(f"Unsupported metadata value_type: {value_type}")
+
+    def _load_relationship_state(
+        self, provider_ids: set[str]
+    ) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+        if not provider_ids:
+            return {}
+        ordered_providers = sorted(provider_ids)
+        placeholders = ",".join("?" for _ in ordered_providers)
+        query = f"""-- sql
+            SELECT
+                provider_id,
+                from_id,
+                to_id,
+                relationship_type,
+                removed,
+                snapshot_id
+            FROM asset_relationships
+            WHERE provider_id IN ({placeholders})
+            ORDER BY snapshot_id DESC, id DESC
+        """
+        params: list[Any] = ordered_providers
+        with self._lock:
+            rows = self.conn.execute(query, params).fetchall()
+        state: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for row in rows:
+            key = (
+                row["provider_id"],
+                row["from_id"],
+                row["to_id"],
+                row["relationship_type"],
+            )
+            if key in state:
+                continue
+            state[key] = {
+                "removed": bool(row["removed"]),
+                "snapshot_id": row["snapshot_id"],
+            }
+        return state
 
     # Metadata views
     # Complete: metadata dict, keyed by each unique metadata key, has values that contains all metadata entries in a list
@@ -786,48 +831,107 @@ class Database:
         self,
         *,
         provider_id: str,
+        snapshot: Snapshot,
         relationships: Iterable[RelationshipRecord],
     ) -> int:
-        """Replace all relationships for a source with the provided records."""
+        """Append relationship changes for the given snapshot."""
 
         if not provider_id:
             raise ValueError("provider_id is required to store relationships")
         rows = list(relationships)
-        with self._lock:
-            self.conn.execute(
-                """-- sql
-            DELETE FROM asset_relationships WHERE provider_id = ?
-            """,
-                (provider_id,),
+        if not rows:
+            return 0
+
+        normalized: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        provider_scope: set[str] = set()
+        for rel in rows:
+            rel_provider_id = rel.provider_id or provider_id
+            provider_scope.add(rel_provider_id)
+            identity = (
+                rel_provider_id,
+                rel.from_id,
+                rel.to_id,
+                rel.relationship_type,
             )
-            for rel in rows:
-                description = rel.description
-                if rel.attributes:
-                    payload = json.dumps(rel.attributes, default=str, sort_keys=True)
-                    description = description or payload
-                rel_provider_id = rel.provider_id or provider_id
-                self.conn.execute(
-                    """-- sql
-            INSERT OR REPLACE INTO asset_relationships (
+            description = rel.description
+            if rel.attributes:
+                payload = json.dumps(rel.attributes, default=str, sort_keys=True)
+                description = description or payload
+            normalized[identity] = {
+                "provider_id": rel_provider_id,
+                "from_id": rel.from_id,
+                "to_id": rel.to_id,
+                "relationship_type": rel.relationship_type,
+                "removed": bool(rel.removed),
+                "confidence": rel.confidence,
+                "description": description,
+            }
+
+        existing_state = self._load_relationship_state(provider_scope)
+        rows_to_insert: list[tuple[Any, ...]] = []
+
+        for identity, payload in normalized.items():
+            state = existing_state.get(identity)
+            currently_active = state is not None and not state["removed"]
+            desired_removed = payload["removed"]
+
+            if desired_removed:
+                if not currently_active:
+                    continue
+                rows_to_insert.append(
+                    (
+                        payload["provider_id"],
+                        payload["from_id"],
+                        payload["to_id"],
+                        payload["relationship_type"],
+                        snapshot.id,
+                        1,
+                        payload["confidence"],
+                        payload["description"],
+                    )
+                )
+                existing_state[identity] = {"removed": True, "snapshot_id": snapshot.id}
+            else:
+                if currently_active:
+                    continue
+                rows_to_insert.append(
+                    (
+                        payload["provider_id"],
+                        payload["from_id"],
+                        payload["to_id"],
+                        payload["relationship_type"],
+                        snapshot.id,
+                        0,
+                        payload["confidence"],
+                        payload["description"],
+                    )
+                )
+                existing_state[identity] = {
+                    "removed": False,
+                    "snapshot_id": snapshot.id,
+                }
+
+        if not rows_to_insert:
+            return 0
+
+        with self._lock:
+            self.conn.executemany(
+                """-- sql
+            INSERT INTO asset_relationships (
                 provider_id,
-                from_file_id,
-                to_file_id,
+                from_id,
+                to_id,
                 relationship_type,
+                snapshot_id,
+                removed,
                 confidence,
                 description
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                    (
-                        rel_provider_id,
-                        rel.from_file_id,
-                        rel.to_file_id,
-                        rel.relationship_type,
-                        rel.confidence,
-                        description,
-                    ),
-                )
+                rows_to_insert,
+            )
             self.conn.commit()
-        return len(rows)
+        return len(rows_to_insert)
 
     def get_latest_metadata_by_key(
         self, metadata_key: MetadataKey
@@ -888,44 +992,44 @@ class Database:
             SELECT
                 r.id,
                 r.provider_id,
-                r.from_file_id,
-                r.to_file_id,
+                r.from_id,
+                r.to_id,
                 r.relationship_type,
+                r.snapshot_id,
+                r.removed,
                 r.confidence,
                 r.description,
-                r.created_at
             FROM asset_relationships AS r
-            JOIN assets AS f_from ON f_from.id = r.from_file_id
-            JOIN assets AS f_to ON f_to.id = r.to_file_id
+            JOIN assets AS f_from ON f_from.id = r.from_id
+            JOIN assets AS f_to ON f_to.id = r.to_id
         """
         params: list[Any] = []
-        clauses: list[str] = []
+        clauses: list[str] = ["r.removed = 0"]
         if provider_id:
             clauses.append("(f_from.provider_id = ? OR f_to.provider_id = ?)")
             params.extend([provider_id, provider_id])
         if file_id:
-            clauses.append("(r.from_file_id = ? OR r.to_file_id = ?)")
+            clauses.append("(r.from_id = ? OR r.to_id = ?)")
             params.extend([file_id, file_id])
         if relationship_provider_id:
             clauses.append("r.provider_id = ?")
             params.append(relationship_provider_id)
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY r.created_at DESC, r.id DESC"
+        query += " ORDER BY r.snapshot_id DESC, r.id DESC"
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
         return [
             AssetRelationship(
                 id=row["id"],
                 provider_id=row["provider_id"],
-                from_file_id=row["from_file_id"],
-                to_file_id=row["to_file_id"],
+                from_id=row["from_id"],
+                to_id=row["to_id"],
                 relationship_type=row["relationship_type"],
+                snapshot_id=row["snapshot_id"],
+                removed=bool(row["removed"]),
                 confidence=row["confidence"],
                 description=row["description"],
-                created_at=datetime.fromisoformat(row["created_at"])
-                if isinstance(row["created_at"], str)
-                else row["created_at"],
             )
             for row in rows
         ]
@@ -936,9 +1040,7 @@ class Database:
         if entry_id is None:
             return None
         removed_value = (
-            row["metadata_removed"]
-            if "metadata_removed" in row.keys()
-            else 0
+            row["metadata_removed"] if "metadata_removed" in row.keys() else 0
         )
         payload = {
             "id": entry_id,

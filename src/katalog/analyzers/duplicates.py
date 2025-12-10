@@ -97,8 +97,8 @@ class ExactDuplicateAnalyzer(Analyzer):
             for other in sorted_members[1:]:
                 relationships.append(
                     RelationshipRecord(
-                        from_file_id=anchor,
-                        to_file_id=other,
+                        from_id=anchor,
+                        to_id=other,
                         relationship_type="exact_duplicate",
                         provider_id=provider_id,
                         confidence=1.0,
