@@ -1,5 +1,6 @@
 from typing import Any, AsyncIterator
 
+from katalog.db import Snapshot
 from katalog.models import AssetRecord, Metadata
 
 
@@ -23,7 +24,9 @@ class SourcePlugin:
         """Check if the client can connect to the given URI."""
         raise NotImplementedError()
 
-    async def scan(self) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
+    async def scan(
+        self, *, since_snapshot: Snapshot | None = None
+    ) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
         """
         Scan the source and yield AssetRecord objects with their metadata payloads.
         """

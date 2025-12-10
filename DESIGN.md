@@ -165,16 +165,21 @@ updated.
 When the processor has run, which may take some time, it outputs a list of new metadata that can be
 saved to the database using a new snapshot.
 
+Example processors: calculate file hash, flag a file based on naming patterns, extract binary inline
+metadata, generate a summary.
+
 ## Analyzers
 
-An analyzer is like a processor but for the whole set of data. This allows it to compare assets
-against eachother and create relationships between them, as well as suggest batch updates. The
-output of an analyzer can be large amount of changes across many assets, and should either be
-possible to review before applying, or it should be appended as a snapshot that isn't yet considered
-canonical, e.g. fully undoable.
+An analyzer is like a processor but for a set of assets - two all the way up to all assets together.
+This allows them to compare assets against each other and create relationships between them, as well
+as suggest batch updates. The output of an analyzer can be large amount of changes across many
+assets, and should either be possible to review before applying, or it should be appended as a
+snapshot that isn't yet considered canonical, e.g. fully undoable.
 
 Note that if we want an analyzer to apply something back to the source, e.g. things get more
 complicated and there may not be possible to fully capture the proposed edit.
+
+Example analyzers: mark duplicate files, find similar files, suggest re-organizations.
 
 ## Architecture
 

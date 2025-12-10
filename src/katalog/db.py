@@ -111,6 +111,8 @@ class Snapshot:
     provider_id: str
     started_at: datetime
     status: str
+    completed_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -241,10 +243,58 @@ class Database:
             provider_id=provider_id,
             started_at=started,
             status=status,
+            completed_at=None,
+            metadata=metadata,
+        )
+
+    def get_latest_snapshot(
+        self,
+        provider_id: str,
+        *,
+        statuses: tuple[str, ...] = ("full", "partial"),
+    ) -> Snapshot | None:
+        """Return the most recent completed snapshot for the provider."""
+
+        query = """-- sql
+            SELECT id, provider_id, started_at, completed_at, status, metadata
+            FROM snapshots
+            WHERE provider_id = ?
+              AND completed_at IS NOT NULL
+        """
+        params: list[Any] = [provider_id]
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            query += f" AND status IN ({placeholders})"
+            params.extend(statuses)
+        query += " ORDER BY completed_at DESC, id DESC LIMIT 1"
+        with self._lock:
+            row = self.conn.execute(query, params).fetchone()
+        if not row:
+            return None
+        started = datetime.fromisoformat(row["started_at"])
+        completed_raw = row["completed_at"]
+        completed = (
+            datetime.fromisoformat(completed_raw) if completed_raw is not None else None
+        )
+        metadata_raw = row["metadata"]
+        metadata = None
+        if metadata_raw:
+            try:
+                metadata = json.loads(metadata_raw)
+            except json.JSONDecodeError:
+                metadata = None
+        return Snapshot(
+            id=row["id"],
+            provider_id=row["provider_id"],
+            started_at=started,
+            status=row["status"],
+            completed_at=completed,
+            metadata=metadata,
         )
 
     def finalize_snapshot(self, snapshot: Snapshot, *, status: str) -> None:
-        completed_iso = datetime.now(timezone.utc).isoformat()
+        completed_at = datetime.now(timezone.utc)
+        completed_iso = completed_at.isoformat()
         with self._lock:
             self.conn.execute(
                 """-- sql
@@ -274,6 +324,7 @@ class Database:
             )
             self.conn.commit()
         snapshot.status = status
+        snapshot.completed_at = completed_at
 
     def upsert_asset(
         self, record: AssetRecord, metadata: list[Metadata], snapshot: Snapshot

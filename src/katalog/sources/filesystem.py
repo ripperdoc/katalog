@@ -8,6 +8,7 @@ if os.name == "nt":
 
 from loguru import logger
 
+from katalog.db import Snapshot
 from katalog.sources.base import SourcePlugin
 from katalog.models import (
     FILE_ABSOLUTE_PATH,
@@ -70,7 +71,9 @@ class FilesystemClient(SourcePlugin):
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
 
-    async def scan(self) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
+    async def scan(
+        self, *, since_snapshot: Snapshot | None = None
+    ) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
         """
         Recursively scan the directory and yield AssetRecord objects.
         """

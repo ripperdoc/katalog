@@ -9,6 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from loguru import logger
 
+from katalog.db import Snapshot
 from katalog.sources.base import SourcePlugin
 from katalog.config import WORKSPACE
 from katalog.models import (
@@ -66,6 +67,7 @@ def _coerce_int(value: Any) -> Optional[int]:
 
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+_PARSED_MODIFIED_FIELD = "__katalog_modified_dt"
 
 # Available metadata in Google drive API:
 # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
@@ -117,11 +119,24 @@ class GoogleDriveClient(SourcePlugin):
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
-    async def scan(self) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
+    async def scan(
+        self, *, since_snapshot: Snapshot | None = None
+    ) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
         """Asynchronously scan Google Drive and yield AssetRecord objects."""
         self._prime_folder_cache()
         page_token: Optional[str] = None
         count = 0
+        cutoff = None
+        if since_snapshot:
+            cutoff = since_snapshot.completed_at or since_snapshot.started_at
+            if cutoff:
+                logger.info(
+                    "Incremental scan for source {} — cutoff {}",
+                    self.id,
+                    cutoff,
+                )
+        cutoff_reached = False
+        limit_reached = False
         try:
             while True:
                 response = self._fetch_files_page(page_token)
@@ -129,26 +144,48 @@ class GoogleDriveClient(SourcePlugin):
                     break
 
                 files = response.get("files", [])
-                count += len(files)
+                for file in files:
+                    if self.max_files and count >= self.max_files:
+                        limit_reached = True
+                        logger.info(
+                            "Reached max files {} — stopping scan for source {}",
+                            self.max_files,
+                            self.id,
+                        )
+                        break
+
+                    if cutoff:
+                        modified_dt = parse_google_drive_datetime(
+                            file.get("modifiedTime")
+                        )
+                        if modified_dt:
+                            file[_PARSED_MODIFIED_FIELD] = modified_dt
+                            if modified_dt < cutoff:
+                                cutoff_reached = True
+                                logger.info(
+                                    "Stopping scan for source {} at cutoff {} (latest {})",
+                                    self.id,
+                                    cutoff,
+                                    modified_dt,
+                                )
+                                break
+
+                    record, metadata = self._build_record(file)
+                    if record and metadata:
+                        yield (record, metadata)
+                        count += 1
+
                 logger.info(
                     "Scanning Google Drive source {} — processed {} files so far",
                     self.id,
                     count,
                 )
-                for file in files:
-                    record, metadata = self._build_record(file)
-                    if record and metadata:
-                        yield (record, metadata)
+
+                if cutoff_reached or limit_reached:
+                    break
 
                 page_token = response.get("nextPageToken")
                 if not page_token:
-                    break
-                if count >= self.max_files:
-                    logger.info(
-                        "Reached max files {} — stopping scan for source {}",
-                        self.max_files,
-                        self.id,
-                    )
                     break
                 await asyncio.sleep(0)
         finally:
@@ -191,7 +228,9 @@ class GoogleDriveClient(SourcePlugin):
             if created:
                 metadata.append(make_metadata(self.id, TIME_CREATED, created))
 
-            modified = parse_google_drive_datetime(file.get("modifiedTime"))
+            modified = file.get(_PARSED_MODIFIED_FIELD)
+            if not modified:
+                modified = parse_google_drive_datetime(file.get("modifiedTime"))
             if modified:
                 metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
 

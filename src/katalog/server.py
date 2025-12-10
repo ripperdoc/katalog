@@ -101,6 +101,7 @@ async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, i
 async def snapshot_source(provider_id: str):
     source_cfg = _get_source_config_or_404(provider_id)
     source_plugin = _get_source_plugin(provider_id, source_cfg)
+    since_snapshot = database.get_latest_snapshot(provider_id)
     processor_pipeline = _get_processor_pipeline()
     logger.info("Snapshotting source: {}", provider_id)
     snapshot = database.begin_snapshot(provider_id)
@@ -111,7 +112,7 @@ async def snapshot_source(provider_id: str):
     processor_failed = 0
     processor_tasks: list[asyncio.Task[Any]] = []
     try:
-        async for record, metadata in source_plugin.scan():
+        async for record, metadata in source_plugin.scan(since_snapshot=since_snapshot):
             try:
                 record.attach_accessor(source_plugin.get_accessor(record))
             except Exception:
@@ -147,11 +148,13 @@ async def snapshot_source(provider_id: str):
     delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
     processor_modified += delta_modified
     processor_failed += delta_failed
-    database.finalize_snapshot(snapshot, status="full")
+    final_status = "partial" if since_snapshot else "full"
+    database.finalize_snapshot(snapshot, status=final_status)
     return {
         "status": "snapshot complete",
         "source": provider_id,
         "snapshot_id": snapshot.id,
+        "snapshot_status": final_status,
         "stats": {
             "seen": seen,
             "updated": updated,

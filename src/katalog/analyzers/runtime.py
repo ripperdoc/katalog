@@ -56,7 +56,7 @@ async def run_analyzers(
                 )
             except Exception:
                 logger.exception("Analyzer {}.should_run failed", entry.name)
-                database.finalize_snapshot(snapshot, partial=True)
+                database.finalize_snapshot(snapshot, status="partial")
                 results.append(
                     {
                         "analyzer": entry.name,
@@ -69,7 +69,7 @@ async def run_analyzers(
                 continue
 
             if not should_run:
-                database.finalize_snapshot(snapshot)
+                database.finalize_snapshot(snapshot, status="full")
                 results.append(
                     {
                         "analyzer": entry.name,
@@ -89,10 +89,10 @@ async def run_analyzers(
                 entry=entry,
                 result=analyzer_result,
             )
-            database.finalize_snapshot(snapshot)
+            database.finalize_snapshot(snapshot, status="full")
             results.append(persisted)
         except Exception:
-            database.finalize_snapshot(snapshot, partial=True)
+            database.finalize_snapshot(snapshot, status="partial")
             logger.exception("Analyzer {} failed", entry.name)
             raise
     return results
