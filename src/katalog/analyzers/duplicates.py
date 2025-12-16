@@ -47,10 +47,7 @@ class ExactDuplicateAnalyzer(Analyzer):
                 confirmed_hashes[file_id] = next(iter(hash_values))
                 continue
             conflict = sorted(hash_values)
-            message = "Multiple current hash/md5 values for file %s: %s" % (
-                file_id,
-                ", ".join(conflict),
-            )
+            message = f"Multiple current hash/md5 values for file {file_id}: {', '.join(conflict)}"
             logger.error(message)
             issues.append(
                 AnalyzerIssue(

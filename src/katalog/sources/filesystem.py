@@ -80,8 +80,7 @@ class FilesystemClient(SourcePlugin):
                 for filename in filenames:
                     if count >= self.max_files:
                         logger.info(
-                            "Reached max_files limit of {}, stopping scan.",
-                            self.max_files,
+                            f"Reached max_files limit of {self.max_files}, stopping scan."
                         )
                         # TODO mark scan result accordingly
                         return
@@ -114,10 +113,7 @@ class FilesystemClient(SourcePlugin):
                         )
                     except Exception as e:
                         logger.warning(
-                            "Failed to stat {} for source {}: {}",
-                            full_path,
-                            self.id,
-                            e,
+                            f"Failed to stat {full_path} for source {self.id}: {e}"
                         )
                         continue
                     yield result

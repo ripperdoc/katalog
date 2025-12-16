@@ -185,9 +185,7 @@ class GoogleDriveClient(SourcePlugin):
                 cutoff = since_snapshot.completed_at or since_snapshot.started_at
                 if cutoff:
                     logger.info(
-                        "Incremental scan for source {} — cutoff {}",
-                        self.id,
-                        cutoff,
+                        f"Incremental scan for source {self.id} — cutoff {cutoff}"
                     )
             try:
                 while True:
@@ -200,9 +198,7 @@ class GoogleDriveClient(SourcePlugin):
                         if self.max_files and count >= self.max_files:
                             limit_reached = True
                             logger.info(
-                                "Reached max files {} — stopping scan for source {}",
-                                self.max_files,
-                                self.id,
+                                f"Reached max files {self.max_files} — stopping scan for source {self.id}"
                             )
                             break
 
@@ -213,25 +209,18 @@ class GoogleDriveClient(SourcePlugin):
                                 if modified_dt and modified_dt < cutoff:
                                     cutoff_reached = True
                                     logger.info(
-                                        "Stopping scan for source {} at cutoff {} (latest {})",
-                                        self.id,
-                                        cutoff,
-                                        modified_dt,
+                                        f"Stopping scan for source {self.id} at cutoff {cutoff} (latest {modified_dt})"
                                     )
                                     break
                             yield result
                             count += 1
                         else:
                             logger.warning(
-                                "Skipping invalid file record in source {}: {}",
-                                self.id,
-                                file,
+                                f"Skipping invalid file record in source {self.id}: {file}"
                             )
 
                     logger.info(
-                        "Scanning Google Drive source {} — processed {} files so far",
-                        self.id,
-                        count,
+                        f"Scanning Google Drive source {self.id} — processed {count} files so far"
                     )
 
                     if cutoff_reached or limit_reached:
@@ -349,13 +338,18 @@ class GoogleDriveClient(SourcePlugin):
 
         return result
 
-    def _fetch_files_page(self, page_token: Optional[str]) -> Optional[Dict[str, Any]]:
+    def _fetch_files_page(
+        self,
+        page_token: Optional[str],
+        page_size: int = 500,
+    ) -> Optional[Dict[str, Any]]:
         try:
+            logger.debug(f"Google Drive API: listing next {page_size} files")
             return (
                 self.service.files()
                 .list(
                     corpora="user",
-                    pageSize=500,
+                    pageSize=page_size,
                     fields=(
                         "nextPageToken, files(" + ", ".join(sorted(_API_FIELDS)) + ")"
                     ),
@@ -365,11 +359,7 @@ class GoogleDriveClient(SourcePlugin):
                 .execute()
             )
         except HttpError as error:
-            logger.error(
-                "Google Drive API error for source {}: {}",
-                self.id,
-                error,
-            )
+            logger.error(f"Google Drive API error for source {self.id}: {error}")
             return None
 
     def _resolve_paths(self, file: Dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -436,9 +426,7 @@ class GoogleDriveClient(SourcePlugin):
         self._folder_page_token = page_token
         self._folders_exhausted = exhausted
         logger.info(
-            "Primed folder cache with {} entries (exhausted? {})",
-            len(self._folder_cache),
-            self._folders_exhausted,
+            f"Primed folder cache with {len(self._folder_cache)} entries (exhausted? {self._folders_exhausted})"
         )
 
     def _cache_file_path(self):
@@ -458,7 +446,7 @@ class GoogleDriveClient(SourcePlugin):
             exhausted = bool(data.get("exhausted", False))
             return folders, page_token, exhausted
         except Exception as exc:  # pragma: no cover - cache corruption is rare
-            logger.warning("Failed to load folder cache from {}: {}", path, exc)
+            logger.warning(f"Failed to load folder cache from {path}: {exc}")
             return {}, None, False
 
     def _persist_folder_cache(self) -> None:
@@ -472,23 +460,24 @@ class GoogleDriveClient(SourcePlugin):
             with path.open("wb") as fh:
                 pickle.dump(payload, fh)
         except Exception as exc:  # pragma: no cover - disk errors rare
-            logger.warning("Failed to persist folder cache to {}: {}", path, exc)
+            logger.warning(f"Failed to persist folder cache to {path}: {exc}")
 
-    def _fetch_next_folder_page(self) -> None:
+    def _fetch_next_folder_page(self, page_size: int = 500) -> None:
         if self._folders_exhausted:
             return
+        logger.info(f"Google Drive API: listing next {page_size} folders")
         response = (
             self.service.files()
             .list(
-                q="mimeType='application/vnd.google-apps.folder' and trashed=false",
+                q="mimeType='application/vnd.google-apps.folder'",
                 fields="nextPageToken, files(id, name, parents)",
                 corpora="user",
-                pageSize=500,
+                pageSize=page_size,
                 pageToken=self._folder_page_token,
             )
             .execute()
         )
-        logger.info("Fetched {} folders for cache", len(response))
+        logger.info(f"Fetched {len(response)} folders for cache")
         for folder in response.get("files", []):
             self._folder_cache[folder["id"]] = {
                 "name": folder.get("name") or folder["id"],
@@ -497,6 +486,7 @@ class GoogleDriveClient(SourcePlugin):
         self._folder_page_token = response.get("nextPageToken")
         if not self._folder_page_token:
             self._folders_exhausted = True
+        self._persist_folder_cache()
 
     def _ensure_folder_loaded(self, folder_id: str) -> Optional[Dict[str, Any]]:
         if not folder_id:

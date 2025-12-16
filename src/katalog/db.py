@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable, Literal, TYPE_CHECKING, Optional
+from time import perf_counter
+
+from loguru import logger
 
 if TYPE_CHECKING:
     from katalog.analyzers.base import RelationshipRecord
@@ -405,6 +408,7 @@ class Database:
         snapshot: Snapshot,
         stats: SnapshotStats | None = None,
     ) -> set[str]:
+        start_time = perf_counter()
         if not record.id:
             raise ValueError("file record requires a stable id")
         if not record.canonical_uri:
@@ -472,6 +476,14 @@ class Database:
                 stats.record_asset_change(record.id, added=True)
             elif changed_metadata:
                 stats.record_asset_change(record.id, added=False)
+        duration_ms = (perf_counter() - start_time) * 1000
+        logger.debug(
+            "Upserted asset {asset} with {metadata_count} metadata entries; {changed_count} keys changed in {duration:.2f} ms",
+            asset=record.id,
+            metadata_count=len(metadata),
+            changed_count=len(changed_metadata),
+            duration=duration_ms,
+        )
         return changed_metadata
 
     def _insert_metadata(

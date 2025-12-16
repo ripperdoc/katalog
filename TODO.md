@@ -3,6 +3,8 @@
 # Next up
 
 - [ ] Check asset identifiers, should we use prefix or an opaque internal ID
+- [ ] Fix slow saving of asset metadata to db
+- [ ] Stream progress events to HTTP caller or TQDM by reusing logger
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated

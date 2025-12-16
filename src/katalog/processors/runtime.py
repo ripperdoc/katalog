@@ -122,7 +122,7 @@ async def _run_processor(
     entry: ProcessorEntry, record: AssetRecord, changes: set[str]
 ) -> tuple[ProcessorResult, bool]:
     try:
-        logger.debug("Running processor {} for record {}", entry.name, record.id)
+        logger.debug(f"Running processor {entry.name} for record {record.id}")
         result = await entry.instance.run(record, changes)
         return result, False
     except Exception as e:
@@ -154,9 +154,7 @@ async def process(
                 should_run = entry.instance.should_run(record, changes, database)
             except Exception:
                 logger.exception(
-                    "Processor {}.should_run failed for record {}",
-                    entry.name,
-                    record.id,
+                    f"Processor {entry.name}.should_run failed for record {record.id}"
                 )
                 continue
             if not should_run:

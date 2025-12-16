@@ -104,7 +104,7 @@ async def snapshot_source(provider_id: str):
     source_plugin = _get_source_plugin(provider_id, source_cfg)
     since_snapshot = database.get_cutoff_snapshot(provider_id)
     processor_pipeline = _get_processor_pipeline()
-    logger.info("Snapshotting source: {}", provider_id)
+    logger.info(f"Snapshotting source: {provider_id}")
     snapshot = database.begin_snapshot(provider_id)
     stats = SnapshotStats()
     seen = 0
@@ -116,18 +116,18 @@ async def snapshot_source(provider_id: str):
     try:
         scan_handle = await source_plugin.scan(since_snapshot=since_snapshot)
         async for result in scan_handle.iterator:
+            # logger.debug(f"Seen asset {result.asset.id} from source {provider_id}")
             try:
                 result.asset.attach_accessor(source_plugin.get_accessor(result.asset))
             except Exception:
                 logger.exception(
-                    "Failed to attach accessor for record {} in source {}",
-                    result.asset.id,
-                    provider_id,
+                    f"Failed to attach accessor for record {result.asset.id} in source {provider_id}"
                 )
             stats.assets_seen += 1
             changes = database.upsert_asset(
                 result.asset, result.metadata, snapshot, stats=stats
             )
+
             if processor_pipeline:
                 stats.assets_processed += 1
                 processor_tasks.append(

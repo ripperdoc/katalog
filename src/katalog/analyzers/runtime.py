@@ -57,7 +57,7 @@ async def run_analyzers(
                     snapshot=snapshot, database=database
                 )
             except Exception:
-                logger.exception("Analyzer {}.should_run failed", entry.name)
+                logger.exception(f"Analyzer {entry.name}.should_run failed")
                 database.finalize_snapshot(snapshot, status="partial", stats=stats)
                 results.append(
                     {
@@ -96,7 +96,7 @@ async def run_analyzers(
             results.append(persisted)
         except Exception:
             database.finalize_snapshot(snapshot, status="partial", stats=stats)
-            logger.exception("Analyzer {} failed", entry.name)
+            logger.exception(f"Analyzer {entry.name} failed")
             raise
     return results
 

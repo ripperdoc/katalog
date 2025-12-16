@@ -92,11 +92,11 @@ def load_plugin_configs(
         raw_config = _read_katalog_config(config_path)
         records = _records_from_config(raw_config)
         if not records:
-            logger.info("No plugins defined in {}", config_path)
+            logger.info(f"No plugins defined in {config_path}")
         _persist_plugin_records(database, records)
         _validate_provider_alignment(database, records, config_path)
     else:
-        logger.info("Config file {} not found, relying on database only", config_path)
+        logger.info(f"Config file {config_path} not found, relying on database only")
     return _configs_from_database(database)
 
 

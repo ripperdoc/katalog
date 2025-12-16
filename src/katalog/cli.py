@@ -23,7 +23,7 @@ def main():
 
     ws = pathlib.Path(workspace_input).expanduser().resolve()
     if not ws.exists() or not ws.is_dir():
-        logger.error("Workspace '{}' does not exist or is not a directory", ws)
+        logger.error(f"Workspace '{ws}' does not exist or is not a directory")
         sys.exit(2)
 
     os.environ["KATALOG_WORKSPACE"] = str(ws)
