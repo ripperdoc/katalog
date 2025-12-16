@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter
 import json
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -17,6 +16,8 @@ from katalog.models import (
     Metadata,
     MetadataKey,
     get_metadata_schema,
+    AssetRelationship,
+    Snapshot,
 )
 
 
@@ -97,7 +98,7 @@ SCHEMA_STATEMENTS = (
         snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
         removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0,1)),
         confidence REAL,
-        description TEXT,
+        description TEXT
     );
     """,
     """-- sql
@@ -108,29 +109,6 @@ SCHEMA_STATEMENTS = (
         ON asset_relationships (provider_id, from_id, to_id, relationship_type, removed, snapshot_id);
     """,
 )
-
-
-@dataclass(slots=True)
-class Snapshot:
-    id: int
-    provider_id: str
-    started_at: datetime
-    status: str
-    completed_at: datetime | None = None
-    metadata: dict[str, Any] | None = None
-
-
-@dataclass(slots=True)
-class AssetRelationship:
-    id: int
-    provider_id: str
-    from_id: str
-    to_id: str
-    relationship_type: str
-    snapshot_id: int
-    removed: bool
-    confidence: float | None
-    description: str | None
 
 
 class Database:
@@ -153,18 +131,6 @@ class Database:
         with self._lock:
             for statement in SCHEMA_STATEMENTS:
                 self.conn.execute(statement)
-            self.conn.commit()
-        self._run_post_migrations()
-
-    def _run_post_migrations(self) -> None:
-        target_version = 1
-        with self._lock:
-            row = self.conn.execute("PRAGMA user_version").fetchone()
-            current_version = row[0] if row else 0
-            if current_version >= target_version:
-                return
-            self.conn.execute("UPDATE metadata SET removed = 0")
-            self.conn.execute(f"PRAGMA user_version = {target_version}")
             self.conn.commit()
 
     def ensure_source(
@@ -583,6 +549,7 @@ class Database:
                 "columns": columns,
                 "confidence": float(confidence if confidence is not None else 1.0),
                 "removed": bool(row["removed"]),
+                "snapshot_id": row["snapshot_id"],
             }
             current.setdefault(combo, {})[normalized_value] = payload
         return current
@@ -768,6 +735,57 @@ class Database:
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
         return [Metadata.from_sql_row(dict(row)) for row in rows]
+
+    def get_latest_metadata_for_file(
+        self,
+        asset_id: str,
+        *,
+        provider_id: str | None = None,
+        metadata_key: MetadataKey | None = None,
+    ) -> list[Metadata]:
+        """Return the latest metadata entry per provider/value for a file."""
+
+        provider_ids: set[str]
+        if provider_id:
+            provider_ids = {provider_id}
+        else:
+            with self._lock:
+                provider_rows = self.conn.execute(
+                    """-- sql
+                    SELECT DISTINCT provider_id
+                    FROM metadata
+                    WHERE asset_id = ?
+                    """,
+                    (asset_id,),
+                ).fetchall()
+            provider_ids = {row["provider_id"] for row in provider_rows}
+        if not provider_ids:
+            return []
+
+        state = self._load_current_metadata_state(asset_id, provider_ids)
+        results: list[Metadata] = []
+        for (state_provider, state_key), values in state.items():
+            if metadata_key is not None and state_key != metadata_key:
+                continue
+            for payload in values.values():
+                row_payload = {
+                    "id": None,
+                    "asset_id": asset_id,
+                    "provider_id": state_provider,
+                    "snapshot_id": payload.get("snapshot_id"),
+                    "metadata_key": str(state_key),
+                    "value_type": payload["value_type"],
+                    "value_text": payload["columns"].get("value_text"),
+                    "value_int": payload["columns"].get("value_int"),
+                    "value_real": payload["columns"].get("value_real"),
+                    "value_datetime": payload["columns"].get("value_datetime"),
+                    "value_json": payload["columns"].get("value_json"),
+                    "confidence": payload["confidence"],
+                    "removed": int(payload["removed"]),
+                }
+                results.append(Metadata.from_sql_row(row_payload))
+
+        return results
 
     def insert_metadata(
         self,

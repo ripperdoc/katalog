@@ -12,7 +12,7 @@ from katalog.models import (
     Metadata,
     make_metadata,
 )
-from katalog.processors.base import Processor
+from katalog.processors.base import Processor, ProcessorResult, ProcessorStatus
 
 
 class NameReadabilityProcessor(Processor):
@@ -52,14 +52,18 @@ class NameReadabilityProcessor(Processor):
 
     async def run(
         self, record: AssetRecord, changes: set[str] | None
-    ) -> list[Metadata]:
+    ) -> ProcessorResult:
         name = self._resolve_file_name(record)
         if not name:
-            return []
+            return ProcessorResult(
+                status=ProcessorStatus.SKIPPED, message="No filename found"
+            )
         analysis = self._analyze_name(name)
         signals = analysis["signals"]
         if not signals:
-            return []
+            return ProcessorResult(
+                status=ProcessorStatus.COMPLETED, message="No signals from analysis"
+            )
         confidence = min(0.9, 0.4 + 0.1 * len(signals))
         provider_id = getattr(self, "provider_id", record.provider_id)
         metadata = make_metadata(
@@ -68,7 +72,7 @@ class NameReadabilityProcessor(Processor):
             analysis,
             confidence=confidence,
         )
-        return [metadata]
+        return ProcessorResult(metadata=[metadata])
 
     def _resolve_file_name(self, record: AssetRecord) -> str | None:
         if self.database:

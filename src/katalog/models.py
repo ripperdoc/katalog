@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime as _dt
+from datetime import datetime
 from abc import ABC, abstractmethod
 import json
 from dataclasses import asdict, dataclass, field
@@ -15,7 +15,9 @@ class FileAccessor(ABC):
         """Fetch up to `length` bytes starting at `offset`."""
 
 
-MetadataScalar = str | int | float | bool | _dt.datetime | Mapping[str, Any] | list[Any]
+MetadataScalar = (
+    str | int | float | bool | datetime | Mapping[str, Any] | list[Any] | None
+)
 MetadataType = Literal["string", "int", "float", "datetime", "json"]
 MetadataKey = NewType("MetadataKey", str)
 
@@ -71,7 +73,7 @@ def _ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
         and not isinstance(value, bool)
     ):
         return
-    if expected == "datetime" and isinstance(value, _dt.datetime):
+    if expected == "datetime" and isinstance(value, datetime):
         return
     if expected == "json":  # accept Mapping/list primitives
         return
@@ -152,7 +154,7 @@ class Metadata:
         elif self.value_type == "float":
             column_map["value_real"] = float(self.value)  # type: ignore
         elif self.value_type == "datetime":
-            if isinstance(self.value, _dt.datetime):
+            if isinstance(self.value, datetime):
                 column_map["value_datetime"] = self.value.isoformat()  # type: ignore
             else:
                 column_map["value_datetime"] = str(self.value)  # type: ignore
@@ -257,6 +259,29 @@ class AssetRecord:
 
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
+
+
+@dataclass(slots=True)
+class AssetRelationship:
+    id: int
+    provider_id: str
+    from_id: str
+    to_id: str
+    relationship_type: str
+    snapshot_id: int
+    removed: bool
+    confidence: float | None
+    description: str | None
+
+
+@dataclass(slots=True)
+class Snapshot:
+    id: int
+    provider_id: str
+    started_at: datetime
+    status: str
+    completed_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
 
 # version_of

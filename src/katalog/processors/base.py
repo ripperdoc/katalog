@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, FrozenSet
 
 from katalog.models import (
@@ -6,10 +7,30 @@ from katalog.models import (
     HASH_MD5,
     TIME_MODIFIED,
     AssetRecord,
+    AssetRelationship,
     MetadataKey,
     Metadata,
 )
 from katalog.db import Database
+
+from enum import Enum
+
+
+class ProcessorStatus(Enum):
+    SKIPPED = 0
+    PARTIAL = 1
+    COMPLETED = 2
+    CANCELLED = 3
+    ERROR = 4
+
+
+@dataclass(slots=True)
+class ProcessorResult:
+    metadata: list[Metadata] = field(default_factory=list)
+    relationships: list[AssetRelationship] = field(default_factory=list)
+    assets: list[AssetRecord] = field(default_factory=list)
+    status: ProcessorStatus = ProcessorStatus.COMPLETED
+    message: str | None = None
 
 
 class Processor(ABC):
@@ -19,10 +40,10 @@ class Processor(ABC):
 
     PLUGIN_ID: ClassVar[str]
 
-    # List of meteadata keys that this processor consumes
+    # List of metadata keys that this processor consumes
     dependencies: ClassVar[FrozenSet[MetadataKey]] = frozenset()
 
-    # List of meteadata keys that this processor changes/produces
+    # List of metadata keys that this processor changes/produces
     outputs: ClassVar[FrozenSet[MetadataKey]] = frozenset()
 
     def __init_subclass__(cls, **kwargs):
@@ -64,8 +85,8 @@ class Processor(ABC):
     @abstractmethod
     async def run(
         self, record: AssetRecord, changes: set[str] | None
-    ) -> list[Metadata]:
-        """Run the processor logic and return Metadata entries to persist for the file."""
+    ) -> ProcessorResult:
+        """Run the processor logic and return a result class with changes to persist."""
         raise NotImplementedError()
 
 

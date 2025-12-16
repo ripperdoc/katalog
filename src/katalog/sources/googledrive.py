@@ -20,7 +20,6 @@ from katalog.models import (
     FILE_ID_PATH,
     FILE_LAST_MODIFYING_USER,
     FILE_NAME,
-    FILE_ORIGINAL_NAME,
     FILE_PATH,
     FILE_QUOTA_BYTES_USED,
     FILE_SIZE,
@@ -37,9 +36,8 @@ from katalog.models import (
     AssetRecord,
     Metadata,
     define_metadata_key,
-    make_metadata,
 )
-from katalog.sources.base import SourcePlugin
+from katalog.sources.base import AssetRecordResult, ScanResult, SourcePlugin
 from katalog.utils.utils import parse_google_drive_datetime
 
 
@@ -53,15 +51,15 @@ def get_user_email(user_like_object: Any) -> Optional[str]:
     return None
 
 
-def get_many_user_emails(user_like_objects: Any) -> List[str]:
+def get_many_user_emails(user_like_objects: Any) -> set[str]:
     """Extract multiple user email addresses from a list of Google user or permission info payloads."""
-    emails: List[str] = []
+    emails: set[str] = set()
     if not isinstance(user_like_objects, list):
         return emails
     for user_like_object in user_like_objects:
         email = get_user_email(user_like_object)
         if email:
-            emails.append(email)
+            emails.add(email)
     return emails
 
 
@@ -166,210 +164,176 @@ class GoogleDriveClient(SourcePlugin):
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
-    async def scan(
-        self, *, since_snapshot: Snapshot | None = None
-    ) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
+    async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
         """Asynchronously scan Google Drive and yield AssetRecord objects."""
-        self._prime_folder_cache()
-        page_token: Optional[str] = None
-        count = 0
-        cutoff = None
-        if since_snapshot:
-            cutoff = since_snapshot.completed_at or since_snapshot.started_at
-            if cutoff:
-                logger.info(
-                    "Incremental scan for source {} — cutoff {}",
-                    self.id,
-                    cutoff,
-                )
-        cutoff_reached = False
-        limit_reached = False
-        try:
-            while True:
-                response = self._fetch_files_page(page_token)
-                if response is None:
-                    break
 
-                files = response.get("files", [])
-                for file in files:
-                    if self.max_files and count >= self.max_files:
-                        limit_reached = True
-                        logger.info(
-                            "Reached max files {} — stopping scan for source {}",
-                            self.max_files,
-                            self.id,
-                        )
+        async def inner():
+            self._prime_folder_cache()
+            page_token: Optional[str] = None
+            count = 0
+            cutoff = None
+            if since_snapshot:
+                cutoff = since_snapshot.completed_at or since_snapshot.started_at
+                if cutoff:
+                    logger.info(
+                        "Incremental scan for source {} — cutoff {}",
+                        self.id,
+                        cutoff,
+                    )
+            cutoff_reached = False
+            limit_reached = False
+            try:
+                while True:
+                    response = self._fetch_files_page(page_token)
+                    if response is None:
                         break
 
-                    record, metadata = self._build_record(file)
-                    if record and metadata:
-                        if cutoff:
-                            modified_dt = _extract_modified(metadata)
-                            if modified_dt and modified_dt < cutoff:
-                                cutoff_reached = True
-                                logger.info(
-                                    "Stopping scan for source {} at cutoff {} (latest {})",
-                                    self.id,
-                                    cutoff,
-                                    modified_dt,
-                                )
-                                break
-                        yield (record, metadata)
-                        count += 1
+                    files = response.get("files", [])
+                    for file in files:
+                        if self.max_files and count >= self.max_files:
+                            limit_reached = True
+                            logger.info(
+                                "Reached max files {} — stopping scan for source {}",
+                                self.max_files,
+                                self.id,
+                            )
+                            break
 
-                logger.info(
-                    "Scanning Google Drive source {} — processed {} files so far",
-                    self.id,
-                    count,
-                )
+                        result = self._build_result(file)
+                        if result.asset and result.metadata:
+                            if cutoff:
+                                modified_dt = _extract_modified(result.metadata)
+                                if modified_dt and modified_dt < cutoff:
+                                    cutoff_reached = True
+                                    logger.info(
+                                        "Stopping scan for source {} at cutoff {} (latest {})",
+                                        self.id,
+                                        cutoff,
+                                        modified_dt,
+                                    )
+                                    break
+                            yield result
+                            count += 1
+                        else:
+                            logger.warning(
+                                "Skipping invalid file record in source {}: {}",
+                                self.id,
+                                file,
+                            )
 
-                if cutoff_reached or limit_reached:
-                    break
-
-                page_token = response.get("nextPageToken")
-                if not page_token:
-                    break
-                await asyncio.sleep(0)
-        finally:
-            self._persist_folder_cache()
-
-    def _build_record(
-        self, file: Dict[str, Any]
-    ) -> tuple[AssetRecord | None, list[Metadata] | None]:
-        """Transform a Drive file payload into a AssetRecord, guarding errors."""
-        try:
-            file_id = file.get("id", "")
-            canonical_uri = f"https://drive.google.com/file/d/{file_id}"
-
-            record = AssetRecord(
-                id=file_id,
-                provider_id=self.id,
-                canonical_uri=canonical_uri,
-            )
-            metadata = list()
-
-            name_paths, id_paths = self._resolve_paths(file)
-            for path in name_paths:
-                metadata.append(make_metadata(self.id, FILE_PATH, path))
-            for path in id_paths:
-                metadata.append(make_metadata(self.id, FILE_ID_PATH, path))
-            metadata.append(
-                make_metadata(
-                    self.id,
-                    FILE_NAME,
-                    file.get("originalFilename", file.get("name", "")),
-                ),
-            )
-            original_filename = file.get("originalFilename")
-            if original_filename:
-                metadata.append(
-                    make_metadata(self.id, FILE_ORIGINAL_NAME, original_filename)
-                )
-
-            created = parse_google_drive_datetime(file.get("createdTime"))
-            if created:
-                metadata.append(make_metadata(self.id, TIME_CREATED, created))
-
-            modified = parse_google_drive_datetime(file.get("modifiedTime"))
-            if modified:
-                metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
-
-            modified_by_me = parse_google_drive_datetime(file.get("modifiedByMeTime"))
-            if modified_by_me:
-                metadata.append(
-                    make_metadata(self.id, TIME_MODIFIED_BY_ME, modified_by_me)
-                )
-
-            viewed_by_me = parse_google_drive_datetime(file.get("viewedByMeTime"))
-            if viewed_by_me:
-                metadata.append(make_metadata(self.id, TIME_VIEWED_BY_ME, viewed_by_me))
-
-            shared_with_me = parse_google_drive_datetime(file.get("sharedWithMeTime"))
-            if shared_with_me:
-                metadata.append(
-                    make_metadata(self.id, TIME_SHARED_WITH_ME, shared_with_me)
-                )
-
-            mime_type = file.get("mimeType")
-            if mime_type:
-                metadata.append(make_metadata(self.id, MIME_TYPE, mime_type))
-            checksum = file.get("md5Checksum")
-            if checksum:
-                metadata.append(make_metadata(self.id, HASH_MD5, checksum))
-
-            raw_size = file.get("size")
-            size = int(raw_size) if raw_size else None
-            if size is not None:
-                metadata.append(make_metadata(self.id, FILE_SIZE, size))
-
-            description = file.get("description")
-            if description:
-                metadata.append(make_metadata(self.id, FILE_DESCRIPTION, description))
-
-            # web_view_link = file.get("webViewLink")
-            # if web_view_link:
-            #     metadata.append(
-            #         make_metadata(self.id, self.FILE_WEB_VIEW_LINK, web_view_link)
-            #     )
-
-            shared_flag = file.get("shared")
-            if shared_flag is not None:
-                metadata.append(
-                    make_metadata(self.id, ACCESS_SHARED, int(bool(shared_flag)))
-                )
-
-            last_modifying_user = get_user_email(file.get("lastModifyingUser"))
-            if last_modifying_user:
-                metadata.append(
-                    make_metadata(
-                        self.id, FILE_LAST_MODIFYING_USER, last_modifying_user
+                    logger.info(
+                        "Scanning Google Drive source {} — processed {} files so far",
+                        self.id,
+                        count,
                     )
-                )
 
-            sharing_user = get_user_email(file.get("sharingUser"))
-            if sharing_user:
-                metadata.append(
-                    make_metadata(self.id, ACCESS_SHARING_USER, sharing_user)
-                )
+                    if cutoff_reached or limit_reached:
+                        break
 
-            trashed_time = parse_google_drive_datetime(file.get("trashedTime"))
-            if trashed_time:
-                metadata.append(make_metadata(self.id, TIME_TRASHED, trashed_time))
+                    page_token = response.get("nextPageToken")
+                    if not page_token:
+                        break
+                    await asyncio.sleep(0)
+            finally:
+                self._persist_folder_cache()
 
-            quota_bytes_used = _coerce_int(file.get("quotaBytesUsed"))
-            if quota_bytes_used is not None:
-                metadata.append(
-                    make_metadata(self.id, FILE_QUOTA_BYTES_USED, quota_bytes_used)
-                )
+        return ScanResult(iterator=inner())
 
-            version_value = _coerce_int(file.get("version"))
-            if version_value is not None:
-                metadata.append(make_metadata(self.id, FILE_VERSION, version_value))
+    def _build_result(self, file: Dict[str, Any]) -> AssetRecordResult:
+        """Transform a Drive file payload into a AssetRecord and metadata, guarding errors."""
+        file_id = file.get("id", "")
+        canonical_uri = f"https://drive.google.com/file/d/{file_id}"
 
-            owners = get_many_user_emails(file.get("owners"))
-            for owner_email in owners:
-                metadata.append(make_metadata(self.id, ACCESS_OWNER, owner_email))
+        asset = AssetRecord(
+            id=file_id,
+            provider_id=self.id,
+            canonical_uri=canonical_uri,
+        )
+        result = AssetRecordResult(asset=asset)
 
-            shared_with = get_many_user_emails(file.get("permissions"))
-            for shared_email in shared_with:
-                metadata.append(
-                    make_metadata(self.id, ACCESS_SHARED_WITH, shared_email)
-                )
+        name_paths, id_paths = self._resolve_paths(file)
+        result.add_metadata_set(self.id, FILE_ID_PATH, id_paths)
+        result.add_metadata_set(self.id, FILE_PATH, name_paths)
 
-            starred = file.get("starred")
-            if starred is not None:
-                metadata.append(make_metadata(self.id, STARRED, int(bool(starred))))
+        result.add_metadata(
+            self.id, FILE_NAME, file.get("originalFilename", file.get("name", ""))
+        )
 
-            return record, metadata
-        except Exception as exc:
-            file_id = file.get("id", "error")
-            logger.warning(
-                "Failed to transform Google Drive file {} ({}): {}",
-                file.get("name"),
-                file_id,
-                exc,
-            )
-            return None, None
+        result.add_metadata(
+            self.id,
+            TIME_CREATED,
+            parse_google_drive_datetime(file.get("createdTime")),
+        )
+
+        result.add_metadata(
+            self.id,
+            TIME_MODIFIED,
+            parse_google_drive_datetime(file.get("modifiedTime")),
+        )
+
+        result.add_metadata(
+            self.id,
+            TIME_MODIFIED_BY_ME,
+            parse_google_drive_datetime(file.get("modifiedByMeTime")),
+        )
+
+        result.add_metadata(
+            self.id,
+            TIME_VIEWED_BY_ME,
+            parse_google_drive_datetime(file.get("viewedByMeTime")),
+        )
+
+        result.add_metadata(
+            self.id,
+            TIME_SHARED_WITH_ME,
+            parse_google_drive_datetime(file.get("viewedByMesharedWithMeTimeTime")),
+        )
+
+        result.add_metadata(self.id, MIME_TYPE, file.get("mimeType"))
+
+        result.add_metadata(self.id, HASH_MD5, file.get("md5Checksum"))
+
+        result.add_metadata(self.id, FILE_SIZE, _coerce_int(file.get("size")))
+
+        result.add_metadata(self.id, FILE_DESCRIPTION, file.get("description"))
+
+        # web_view_link = file.get("webViewLink")
+        # if web_view_link:
+        #     metadata.append(
+        #         make_metadata(self.id, self.FILE_WEB_VIEW_LINK, web_view_link)
+        #     )
+
+        result.add_metadata(self.id, ACCESS_SHARED, int(bool(file.get("shared"))))
+
+        result.add_metadata(
+            self.id,
+            FILE_LAST_MODIFYING_USER,
+            get_user_email(file.get("lastModifyingUser")),
+        )
+
+        result.add_metadata(self.id, ACCESS_SHARING_USER, file.get("sharingUser"))
+
+        result.add_metadata(
+            self.id,
+            TIME_TRASHED,
+            parse_google_drive_datetime(file.get("trashedTime")),
+        )
+
+        result.add_metadata(
+            self.id, FILE_QUOTA_BYTES_USED, _coerce_int(file.get("quotaBytesUsed"))
+        )
+
+        result.add_metadata(self.id, FILE_VERSION, _coerce_int(file.get("version")))
+
+        result.add_metadata(self.id, STARRED, int(bool(file.get("starred"))))
+
+        owners = get_many_user_emails(file.get("owners"))
+        result.add_metadata_set(self.id, ACCESS_OWNER, owners)
+
+        shared_with = get_many_user_emails(file.get("permissions"))
+        result.add_metadata_set(self.id, ACCESS_SHARED_WITH, shared_with)
+
+        return result
 
     def _fetch_files_page(self, page_token: Optional[str]) -> Optional[Dict[str, Any]]:
         try:

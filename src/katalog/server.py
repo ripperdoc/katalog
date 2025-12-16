@@ -112,16 +112,17 @@ async def snapshot_source(provider_id: str):
     processor_failed = 0
     processor_tasks: list[asyncio.Task[Any]] = []
     try:
-        async for record, metadata in source_plugin.scan(since_snapshot=since_snapshot):
+        scan_handle = await source_plugin.scan(since_snapshot=since_snapshot)
+        async for result in scan_handle.iterator:
             try:
-                record.attach_accessor(source_plugin.get_accessor(record))
+                result.asset.attach_accessor(source_plugin.get_accessor(result.asset))
             except Exception:
                 logger.exception(
                     "Failed to attach accessor for record {} in source {}",
-                    record.id,
+                    result.asset.id,
                     provider_id,
                 )
-            changes = database.upsert_asset(record, metadata, snapshot)
+            changes = database.upsert_asset(result.asset, result.metadata, snapshot)
             seen += 1
             if "asset" in changes:
                 added += 1
@@ -131,7 +132,7 @@ async def snapshot_source(provider_id: str):
                 processor_tasks.append(
                     asyncio.create_task(
                         run_processors(
-                            record=record,
+                            record=result.asset,
                             snapshot=snapshot,
                             database=database,
                             stages=processor_pipeline,

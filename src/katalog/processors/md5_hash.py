@@ -4,7 +4,7 @@ import hashlib
 from typing import Any, Optional
 
 from katalog.db import Database
-from katalog.processors.base import Processor, file_data_changed
+from katalog.processors.base import Processor, ProcessorResult, file_data_changed
 from katalog.models import HASH_MD5, AssetRecord, Metadata, make_metadata
 
 
@@ -39,7 +39,7 @@ class MD5HashProcessor(Processor):
 
     async def run(
         self, record: AssetRecord, changes: set[str] | None
-    ) -> list[Metadata]:
+    ) -> ProcessorResult:
         d = record.data
         if d is None:
             raise ValueError("AssetRecord does not have a data accessor")
@@ -55,4 +55,7 @@ class MD5HashProcessor(Processor):
             hash_md5.update(chunk)
             offset += len(chunk)
         provider_id = getattr(self, "provider_id", record.provider_id)
-        return [make_metadata(provider_id, HASH_MD5, hash_md5.hexdigest())]
+
+        return ProcessorResult(
+            metadata=[make_metadata(provider_id, HASH_MD5, hash_md5.hexdigest())]
+        )

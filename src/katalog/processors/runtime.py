@@ -8,7 +8,7 @@ from loguru import logger
 
 from katalog.db import Database, Snapshot
 from katalog.models import AssetRecord, Metadata, MetadataKey
-from katalog.processors.base import Processor
+from katalog.processors.base import Processor, ProcessorResult, ProcessorStatus
 from katalog.utils.utils import import_plugin_class
 
 
@@ -120,14 +120,15 @@ def sort_processors(
 
 async def _run_processor(
     entry: ProcessorEntry, record: AssetRecord, changes: set[str]
-) -> tuple[list[Metadata], bool]:
+) -> tuple[ProcessorResult, bool]:
     try:
         logger.debug("Running processor {} for record {}", entry.name, record.id)
-        produced = await entry.instance.run(record, changes)
-        return produced, False
-    except Exception:
-        logger.exception("Processor {} failed for record {}", entry.name, record.id)
-        return [], True
+        result = await entry.instance.run(record, changes)
+        return result, False
+    except Exception as e:
+        msg = f"Processor {entry.name} failed for record {record.id}: {e}"
+        logger.exception(msg)
+        return ProcessorResult(status=ProcessorStatus.ERROR, message=msg), True
 
 
 async def process(
@@ -169,13 +170,17 @@ async def process(
             if failed:
                 failed_runs += 1
                 continue
-            if produced:
-                for meta in produced:
-                    if meta.provider_id is None:
-                        meta.provider_id = getattr(
-                            entry.instance, "provider_id", entry.provider_id
-                        )
-                    stage_metadata.append(meta)
+            if produced.status in (ProcessorStatus.CANCELLED, ProcessorStatus.ERROR):
+                failed_runs += 1
+                continue
+            if produced.status == ProcessorStatus.SKIPPED:
+                continue
+            for meta in produced.metadata:
+                if meta.provider_id is None:
+                    meta.provider_id = getattr(
+                        entry.instance, "provider_id", entry.provider_id
+                    )
+                stage_metadata.append(meta)
         if not stage_metadata:
             continue
         stage_changes = database.upsert_asset(record, stage_metadata, snapshot)

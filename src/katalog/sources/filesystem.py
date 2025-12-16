@@ -9,7 +9,7 @@ if os.name == "nt":
 from loguru import logger
 
 from katalog.db import Snapshot
-from katalog.sources.base import SourcePlugin
+from katalog.sources.base import AssetRecordResult, ScanResult, SourcePlugin
 from katalog.models import (
     FILE_ABSOLUTE_PATH,
     FILE_SIZE,
@@ -18,8 +18,6 @@ from katalog.models import (
     TIME_MODIFIED,
     FileAccessor,
     AssetRecord,
-    Metadata,
-    make_metadata,
 )
 from katalog.utils.utils import timestamp_to_utc
 
@@ -71,62 +69,61 @@ class FilesystemClient(SourcePlugin):
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
 
-    async def scan(
-        self, *, since_snapshot: Snapshot | None = None
-    ) -> AsyncIterator[tuple[AssetRecord, list[Metadata]]]:
+    async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
         """
         Recursively scan the directory and yield AssetRecord objects.
         """
-        count = 0
-        for dirpath, dirnames, filenames in os.walk(self.root_path):
-            for filename in filenames:
-                if count >= self.max_files:
-                    logger.info(
-                        "Reached max_files limit of {}, stopping scan.", self.max_files
-                    )
-                    return
-                full_path = os.path.join(dirpath, filename)
-                try:
-                    stat = os.stat(full_path)
-                    modified = timestamp_to_utc(stat.st_mtime)
-                    created = timestamp_to_utc(stat.st_ctime)
-                    inode = getattr(stat, "st_ino", None)
-                    device = getattr(stat, "st_dev", None)
-                    if inode and device:
-                        # POSIX st_ino/st_dev survive renames on macOS/Linux; Windows often reports 0 so we fall back to the path identifier there.
-                        record_id = f"inode:{device}:{inode}"
-                    else:
-                        record_id = f"path:{full_path}"
 
-                    abs_path = Path(full_path).resolve()
-                    record = AssetRecord(
-                        id=record_id,
-                        provider_id=self.id,
-                        canonical_uri=abs_path.as_uri(),
-                    )
-                    metadata = list()
-                    metadata.append(
-                        make_metadata(self.id, FILE_ABSOLUTE_PATH, str(abs_path))
-                    )
-                    if modified:
-                        metadata.append(make_metadata(self.id, TIME_MODIFIED, modified))
-                    if created:
-                        metadata.append(make_metadata(self.id, TIME_CREATED, created))
-                    metadata.append(
-                        make_metadata(self.id, FILE_SIZE, int(stat.st_size))
-                    )
-                    if _looks_hidden(abs_path):
-                        metadata.append(make_metadata(self.id, FLAG_HIDDEN, 1))
-                except Exception as e:
-                    logger.warning(
-                        "Failed to stat {} for source {}: {}",
-                        full_path,
-                        self.id,
-                        e,
-                    )
-                    continue
-                yield record, metadata
-                count += 1
+        async def inner():
+            count = 0
+            for dirpath, dirnames, filenames in os.walk(self.root_path):
+                for filename in filenames:
+                    if count >= self.max_files:
+                        logger.info(
+                            "Reached max_files limit of {}, stopping scan.",
+                            self.max_files,
+                        )
+                        # TODO mark scan result accordingly
+                        return
+                    full_path = os.path.join(dirpath, filename)
+                    try:
+                        stat = os.stat(full_path)
+                        modified = timestamp_to_utc(stat.st_mtime)
+                        created = timestamp_to_utc(stat.st_ctime)
+                        inode = getattr(stat, "st_ino", None)
+                        device = getattr(stat, "st_dev", None)
+                        if inode and device:
+                            # POSIX st_ino/st_dev survive renames on macOS/Linux; Windows often reports 0 so we fall back to the path identifier there.
+                            asset_id = f"inode:{device}:{inode}"
+                        else:
+                            asset_id = f"path:{full_path}"
+
+                        abs_path = Path(full_path).resolve()
+                        asset = AssetRecord(
+                            id=asset_id,
+                            provider_id=self.id,
+                            canonical_uri=abs_path.as_uri(),
+                        )
+                        result = AssetRecordResult(asset=asset)
+                        result.add_metadata(self.id, FILE_ABSOLUTE_PATH, str(abs_path))
+                        result.add_metadata(self.id, TIME_MODIFIED, modified)
+                        result.add_metadata(self.id, TIME_CREATED, created)
+                        result.add_metadata(self.id, FILE_SIZE, int(stat.st_size))
+                        result.add_metadata(
+                            self.id, FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to stat {} for source {}: {}",
+                            full_path,
+                            self.id,
+                            e,
+                        )
+                        continue
+                    yield result
+                    count += 1
+
+        return ScanResult(iterator=inner())
 
 
 def _looks_hidden(path: Path) -> bool:

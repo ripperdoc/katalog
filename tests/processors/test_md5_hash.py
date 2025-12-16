@@ -42,8 +42,8 @@ async def test_run_computes_expected_hash():
 
     result = await processor.run(record, changes=None)
 
-    assert len(result) == 1
-    metadata = result[0]
+    assert len(result.metadata) == 1
+    metadata = result.metadata[0]
     assert metadata.key == HASH_MD5
     assert metadata.value == hashlib.md5(payload).hexdigest()
     assert metadata.provider_id == record.provider_id

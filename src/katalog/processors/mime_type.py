@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import magic
-from typing import Any
 
 from katalog.db import Database
 from katalog.processors.base import (
     Processor,
+    ProcessorResult,
     file_data_changed,
     file_data_change_dependencies,
 )
-from katalog.models import MIME_TYPE, AssetRecord, Metadata, make_metadata
+from katalog.models import MIME_TYPE, AssetRecord, make_metadata
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic
@@ -33,7 +33,7 @@ class MimeTypeProcessor(Processor):
 
     async def run(
         self, record: AssetRecord, changes: set[str] | None
-    ) -> list[Metadata]:
+    ) -> ProcessorResult:
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
         if not record.data:
@@ -42,4 +42,4 @@ class MimeTypeProcessor(Processor):
         buf = await record.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)
         provider_id = getattr(self, "provider_id", record.provider_id)
-        return [make_metadata(provider_id, MIME_TYPE, mt)]
+        return ProcessorResult(metadata=[make_metadata(provider_id, MIME_TYPE, mt)])
