@@ -18,6 +18,7 @@ from katalog.models import (
     get_metadata_schema,
     AssetRelationship,
     Snapshot,
+    SnapshotStats,
 )
 
 
@@ -276,17 +277,104 @@ class Database:
             metadata=metadata,
         )
 
-    def finalize_snapshot(self, snapshot: Snapshot, *, status: str) -> None:
+    def list_snapshots(
+        self,
+        provider_id: str,
+        *,
+        statuses: tuple[str, ...] | None = None,
+        order: Literal["asc", "desc"] = "asc",
+    ) -> list[Snapshot]:
+        """Return all snapshots for a provider ordered by snapshot id."""
+
+        query = """-- sql
+            SELECT id, provider_id, started_at, completed_at, status, metadata
+            FROM snapshots
+            WHERE provider_id = ?
+        """
+        params: list[Any] = [provider_id]
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            query += f" AND status IN ({placeholders})"
+            params.extend(statuses)
+        direction = "ASC" if order == "asc" else "DESC"
+        query += f" ORDER BY id {direction}"
+        with self._lock:
+            rows = self.conn.execute(query, params).fetchall()
+        snapshots: list[Snapshot] = []
+        for row in rows:
+            started = datetime.fromisoformat(row["started_at"])
+            completed_raw = row["completed_at"]
+            completed = (
+                datetime.fromisoformat(completed_raw)
+                if completed_raw is not None
+                else None
+            )
+            metadata_raw = row["metadata"]
+            metadata = None
+            if metadata_raw:
+                try:
+                    metadata = json.loads(metadata_raw)
+                except json.JSONDecodeError:
+                    metadata = None
+            snapshots.append(
+                Snapshot(
+                    id=row["id"],
+                    provider_id=row["provider_id"],
+                    started_at=started,
+                    status=row["status"],
+                    completed_at=completed,
+                    metadata=metadata,
+                )
+            )
+        return snapshots
+
+    def get_cutoff_snapshot(self, provider_id: str) -> Snapshot | None:
+        """Return the latest snapshot usable as an incremental cutoff.
+
+        Requires at least one full snapshot; once a full has been seen, partial
+        snapshots that follow it are also eligible. Canceled/failed snapshots are
+        ignored.
+        """
+
+        snapshots = self.list_snapshots(
+            provider_id, statuses=("full", "partial"), order="asc"
+        )
+        full_seen = False
+        candidate: Snapshot | None = None
+        for snapshot in snapshots:
+            if snapshot.status == "full":
+                full_seen = True
+                candidate = snapshot
+            elif snapshot.status == "partial" and full_seen:
+                candidate = snapshot
+        return candidate
+
+    def finalize_snapshot(
+        self, snapshot: Snapshot, *, status: str, stats: SnapshotStats | None = None
+    ) -> None:
         completed_at = datetime.now(timezone.utc)
         completed_iso = completed_at.isoformat()
+        metadata_payload: str | None = None
+        if stats is not None or snapshot.metadata is not None:
+            merged_metadata = dict(snapshot.metadata or {})
+            if stats is not None:
+                merged_metadata["stats"] = stats.to_dict()
+            metadata_payload = json.dumps(merged_metadata, default=str)
+            snapshot.metadata = merged_metadata
         with self._lock:
+            params: list[Any] = [completed_iso, status]
+            set_clause = "completed_at = ?, status = ?"
+            if metadata_payload is not None:
+                set_clause += ", metadata = ?"
+                params.append(metadata_payload)
+            params.append(snapshot.id)
             self.conn.execute(
-                """-- sql
+                f"""-- sql
             UPDATE snapshots
-            SET completed_at = ?, status = ?
+            SET {set_clause}
             WHERE id = ?
             """,
-                (completed_iso, status, snapshot.id),
+                params,
             )
             self.conn.execute(
                 """-- sql
@@ -311,7 +399,11 @@ class Database:
         snapshot.completed_at = completed_at
 
     def upsert_asset(
-        self, record: AssetRecord, metadata: list[Metadata], snapshot: Snapshot
+        self,
+        record: AssetRecord,
+        metadata: list[Metadata],
+        snapshot: Snapshot,
+        stats: SnapshotStats | None = None,
     ) -> set[str]:
         if not record.id:
             raise ValueError("file record requires a stable id")
@@ -368,13 +460,18 @@ class Database:
 
         if metadata:
             changed_metadata = self._insert_metadata(
-                snapshot.id, record.id, record, metadata
+                snapshot.id, record.id, record, metadata, stats=stats
             )
         else:
             changed_metadata: set[str] = set()
         if inserted:
             # Signals that the file record itself was created
             changed_metadata.add("asset")
+        if stats:
+            if inserted:
+                stats.record_asset_change(record.id, added=True)
+            elif changed_metadata:
+                stats.record_asset_change(record.id, added=False)
         return changed_metadata
 
     def _insert_metadata(
@@ -383,12 +480,16 @@ class Database:
         asset_id: str,
         record: AssetRecord,
         metadata: Iterable[Metadata],
+        *,
+        stats: SnapshotStats | None = None,
     ) -> set[str]:
         grouped_values: dict[
             tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]
         ] = {}
         provider_scope: set[str] = set()
         cleared_combos: set[tuple[str, MetadataKey]] = set()
+        total_additions = 0
+        total_removals = 0
         for entry in metadata:
             entry_provider_id = entry.provider_id or record.provider_id
             provider_scope.add(entry_provider_id)
@@ -443,6 +544,8 @@ class Database:
 
             if additions or removals:
                 changed_ids.add(str(metadata_key))
+                total_additions += len(additions)
+                total_removals += len(removals)
 
             for normalized_value in additions:
                 payload = incoming_values[normalized_value]
@@ -483,6 +586,8 @@ class Database:
                 )
 
         if not rows_to_insert:
+            if stats and (total_additions or total_removals):
+                stats.record_metadata_diff(total_additions, total_removals)
             return changed_ids
 
         with self._lock:
@@ -506,6 +611,8 @@ class Database:
                 rows_to_insert,
             )
             self.conn.commit()
+        if stats and (total_additions or total_removals):
+            stats.record_metadata_diff(total_additions, total_removals)
         return changed_ids
 
     def _load_current_metadata_state(
@@ -808,6 +915,7 @@ class Database:
         *,
         snapshot: Snapshot,
         default_provider_id: str | None = None,
+        stats: SnapshotStats | None = None,
     ) -> int:
         """Insert metadata rows that were produced outside of a source scan."""
 
@@ -862,6 +970,8 @@ class Database:
                 )
                 inserted += 1
             self.conn.commit()
+        if stats and inserted:
+            stats.record_metadata_diff(inserted, 0)
         return inserted
 
     def replace_relationships(
@@ -870,6 +980,7 @@ class Database:
         provider_id: str,
         snapshot: Snapshot,
         relationships: Iterable[RelationshipRecord],
+        stats: SnapshotStats | None = None,
     ) -> int:
         """Append relationship changes for the given snapshot."""
 
@@ -881,6 +992,8 @@ class Database:
 
         normalized: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         provider_scope: set[str] = set()
+        added_relationships = 0
+        removed_relationships = 0
         for rel in rows:
             rel_provider_id = rel.provider_id or provider_id
             provider_scope.add(rel_provider_id)
@@ -927,6 +1040,7 @@ class Database:
                         payload["description"],
                     )
                 )
+                removed_relationships += 1
                 existing_state[identity] = {"removed": True, "snapshot_id": snapshot.id}
             else:
                 if currently_active:
@@ -943,6 +1057,7 @@ class Database:
                         payload["description"],
                     )
                 )
+                added_relationships += 1
                 existing_state[identity] = {
                     "removed": False,
                     "snapshot_id": snapshot.id,
@@ -968,6 +1083,8 @@ class Database:
                 rows_to_insert,
             )
             self.conn.commit()
+        if stats and (added_relationships or removed_relationships):
+            stats.record_relationship_diff(added_relationships, removed_relationships)
         return len(rows_to_insert)
 
     def get_latest_metadata_by_key(

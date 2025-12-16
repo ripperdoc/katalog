@@ -12,6 +12,7 @@ from katalog.analyzers.base import (
     FileGroupFinding,
 )
 from katalog.db import Database, Snapshot
+from katalog.models import SnapshotStats
 from katalog.utils.utils import import_plugin_class
 
 
@@ -49,6 +50,7 @@ async def run_analyzers(
             entry.provider_id,
             metadata={"analyzer": entry.name, "plugin_id": entry.plugin_id},
         )
+        stats = SnapshotStats()
         try:
             try:
                 should_run = entry.instance.should_run(
@@ -56,7 +58,7 @@ async def run_analyzers(
                 )
             except Exception:
                 logger.exception("Analyzer {}.should_run failed", entry.name)
-                database.finalize_snapshot(snapshot, status="partial")
+                database.finalize_snapshot(snapshot, status="partial", stats=stats)
                 results.append(
                     {
                         "analyzer": entry.name,
@@ -69,7 +71,7 @@ async def run_analyzers(
                 continue
 
             if not should_run:
-                database.finalize_snapshot(snapshot, status="full")
+                database.finalize_snapshot(snapshot, status="full", stats=stats)
                 results.append(
                     {
                         "analyzer": entry.name,
@@ -88,11 +90,12 @@ async def run_analyzers(
                 snapshot=snapshot,
                 entry=entry,
                 result=analyzer_result,
+                stats=stats,
             )
-            database.finalize_snapshot(snapshot, status="full")
+            database.finalize_snapshot(snapshot, status="full", stats=stats)
             results.append(persisted)
         except Exception:
-            database.finalize_snapshot(snapshot, status="partial")
+            database.finalize_snapshot(snapshot, status="partial", stats=stats)
             logger.exception("Analyzer {} failed", entry.name)
             raise
     return results
@@ -142,6 +145,7 @@ def _persist_analyzer_result(
     snapshot: Snapshot,
     entry: AnalyzerEntry,
     result: AnalyzerResult,
+    stats: SnapshotStats | None = None,
 ) -> dict[str, Any]:
     metadata_count = 0
     if result.metadata:
@@ -152,6 +156,7 @@ def _persist_analyzer_result(
             result.metadata,
             snapshot=snapshot,
             default_provider_id=entry.provider_id,
+            stats=stats,
         )
     if result.relationships:
         for rel in result.relationships:
@@ -161,6 +166,7 @@ def _persist_analyzer_result(
         provider_id=entry.provider_id,
         snapshot=snapshot,
         relationships=result.relationships,
+        stats=stats,
     )
     summary = {
         "analyzer": entry.name,

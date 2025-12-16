@@ -5,7 +5,8 @@ from fastapi import FastAPI, HTTPException
 from typing import Any, Literal, Optional
 
 from katalog.analyzers.runtime import AnalyzerEntry, load_analyzers, run_analyzers
-from katalog.sources.base import SourcePlugin
+from katalog.sources.base import ScanStatus, SourcePlugin
+from katalog.models import SnapshotStats
 from katalog.config import WORKSPACE
 from katalog.db import Database
 from katalog.processors.runtime import (
@@ -101,10 +102,11 @@ async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, i
 async def snapshot_source(provider_id: str):
     source_cfg = _get_source_config_or_404(provider_id)
     source_plugin = _get_source_plugin(provider_id, source_cfg)
-    since_snapshot = database.get_latest_snapshot(provider_id)
+    since_snapshot = database.get_cutoff_snapshot(provider_id)
     processor_pipeline = _get_processor_pipeline()
     logger.info("Snapshotting source: {}", provider_id)
     snapshot = database.begin_snapshot(provider_id)
+    stats = SnapshotStats()
     seen = 0
     added = 0
     updated = 0
@@ -122,13 +124,12 @@ async def snapshot_source(provider_id: str):
                     result.asset.id,
                     provider_id,
                 )
-            changes = database.upsert_asset(result.asset, result.metadata, snapshot)
-            seen += 1
-            if "asset" in changes:
-                added += 1
-            if changes:
-                updated += 1
+            stats.assets_seen += 1
+            changes = database.upsert_asset(
+                result.asset, result.metadata, snapshot, stats=stats
+            )
             if processor_pipeline:
+                stats.assets_processed += 1
                 processor_tasks.append(
                     asyncio.create_task(
                         run_processors(
@@ -137,6 +138,7 @@ async def snapshot_source(provider_id: str):
                             database=database,
                             stages=processor_pipeline,
                             initial_changes=changes,
+                            stats=stats,
                         )
                     )
                 )
@@ -144,13 +146,22 @@ async def snapshot_source(provider_id: str):
         delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
         processor_modified += delta_modified
         processor_failed += delta_failed
-        database.finalize_snapshot(snapshot, status="failed")
+        database.finalize_snapshot(snapshot, status="failed", stats=stats)
         raise
     delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
     processor_modified += delta_modified
     processor_failed += delta_failed
-    final_status = "partial" if since_snapshot else "full"
-    database.finalize_snapshot(snapshot, status=final_status)
+    status_map = {
+        ScanStatus.FULL: "full",
+        ScanStatus.PARTIAL: "partial",
+        ScanStatus.CANCELED: "canceled",
+        ScanStatus.ERROR: "failed",
+    }
+    final_status = status_map.get(scan_handle.status, "full")
+    database.finalize_snapshot(snapshot, status=final_status, stats=stats)
+    seen = stats.assets_seen
+    added = stats.assets_added
+    updated = stats.assets_changed
     return {
         "status": "snapshot complete",
         "source": provider_id,
@@ -163,6 +174,7 @@ async def snapshot_source(provider_id: str):
             "processor_modified": processor_modified,
             "processor_failed": processor_failed,
         },
+        "snapshot_stats": stats.to_dict(),
     }
 
 

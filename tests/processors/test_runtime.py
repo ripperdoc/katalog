@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from katalog.db import Database
-from katalog.models import FILE_NAME, AssetRecord, make_metadata
+from katalog.models import FILE_NAME, AssetRecord, SnapshotStats, make_metadata
 from katalog.processors import runtime
 from katalog.processors.base import Processor, ProcessorResult
 
@@ -49,6 +49,7 @@ async def test_runtime_process_handles_processor_result_metadata():
         canonical_uri="test://asset-1",
     )
     snapshot = db.begin_snapshot("source:test")
+    stats = SnapshotStats()
 
     configs = [
         {
@@ -65,9 +66,12 @@ async def test_runtime_process_handles_processor_result_metadata():
         database=db,
         stages=stages,
         initial_changes=None,
+        stats=stats,
     )
     assert str(FILE_NAME) in task_result.changes
     entries = db.get_latest_metadata_for_file(record.id, metadata_key=FILE_NAME)
     assert [entry.value for entry in entries if not entry.removed] == ["dummy.txt"]
-    db.finalize_snapshot(snapshot, status="full")
+    assert stats.processings_started == 1
+    assert stats.processings_completed == 1
+    db.finalize_snapshot(snapshot, status="full", stats=stats)
     db.close()

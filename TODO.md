@@ -2,18 +2,11 @@
 
 # Next up
 
-- [ ] Correctly set status for snapshots, e.g. partial due to date, partial due to max files,
-      cancelled, etc.
-- [ ] Snapshot stats
-- [ ] If the first scan results in a metadata value for an asset, and the next scan doesn't have a
-      value for it - we must treat it as setting that value to None. That also means we can't have
-      conditional setting of metadata.
+- [ ] Check asset identifiers, should we use prefix or an opaque internal ID
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
-- [ ] How to handle metadata being nulled. E.g. I might have a value that is first a string and then
-      in a new snapshot is empty. Should the empty value replace the old value or be ignored?
 
 # Backlog
 
@@ -30,10 +23,10 @@
 
 E.g. what do I need `katalog` to do now for White Wolf?
 
-- Search the WW Google Drive and find duplicates and "badly named files" for manual fixing
-- Search the WW Google Drive and propose new folder organization (how?)
-- Search the WW Google and summarize stats for it
-- Quickly search and filter through files and metadata e.g. to find all PDFs and images to put in
-  library
-- Automatically move files to Shared Drive but keeping owners? (Seems too hard or risky to do with
-  my code?)
+- [ ] Search the WW Google Drive and find duplicates and "badly named files" for manual fixing
+- [ ] Search the WW Google Drive and propose new folder organization (how?)
+- [ ] Search the WW Google and summarize stats for it
+- [ ] Quickly search and filter through files and metadata e.g. to find all PDFs and images to put
+      in library
+- [ ] Automatically move files to Shared Drive but keeping owners? (Seems too hard or risky to do
+      with my code?)

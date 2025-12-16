@@ -1,6 +1,6 @@
 import asyncio
 import pickle
-from typing import Any, AsyncIterator, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -37,7 +37,12 @@ from katalog.models import (
     Metadata,
     define_metadata_key,
 )
-from katalog.sources.base import AssetRecordResult, ScanResult, SourcePlugin
+from katalog.sources.base import (
+    AssetRecordResult,
+    ScanResult,
+    ScanStatus,
+    SourcePlugin,
+)
 from katalog.utils.utils import parse_google_drive_datetime
 
 
@@ -167,7 +172,11 @@ class GoogleDriveClient(SourcePlugin):
     async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
         """Asynchronously scan Google Drive and yield AssetRecord objects."""
 
+        limit_reached = False
+        cutoff_reached = False
+
         async def inner():
+            nonlocal limit_reached, cutoff_reached
             self._prime_folder_cache()
             page_token: Optional[str] = None
             count = 0
@@ -180,8 +189,6 @@ class GoogleDriveClient(SourcePlugin):
                         self.id,
                         cutoff,
                     )
-            cutoff_reached = False
-            limit_reached = False
             try:
                 while True:
                     response = self._fetch_files_page(page_token)
@@ -235,9 +242,16 @@ class GoogleDriveClient(SourcePlugin):
                         break
                     await asyncio.sleep(0)
             finally:
+                if limit_reached:
+                    scan_result.status = ScanStatus.CANCELED
+                elif cutoff_reached:
+                    scan_result.status = ScanStatus.PARTIAL
+                else:
+                    scan_result.status = ScanStatus.FULL
                 self._persist_folder_cache()
 
-        return ScanResult(iterator=inner())
+        scan_result = ScanResult(iterator=inner())
+        return scan_result
 
     def _build_result(self, file: Dict[str, Any]) -> AssetRecordResult:
         """Transform a Drive file payload into a AssetRecord and metadata, guarding errors."""

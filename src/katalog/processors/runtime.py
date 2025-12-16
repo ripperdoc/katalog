@@ -7,7 +7,7 @@ from typing import Any, Iterable, Sequence
 from loguru import logger
 
 from katalog.db import Database, Snapshot
-from katalog.models import AssetRecord, Metadata, MetadataKey
+from katalog.models import AssetRecord, Metadata, MetadataKey, SnapshotStats
 from katalog.processors.base import Processor, ProcessorResult, ProcessorStatus
 from katalog.utils.utils import import_plugin_class
 
@@ -138,6 +138,7 @@ async def process(
     database: Database,
     stages: Sequence[ProcessorStage],
     initial_changes: Iterable[str] | None = None,
+    stats: SnapshotStats | None = None,
 ) -> ProcessorTaskResult:
     """Run processors per stage, returning the union of all observed changes."""
 
@@ -161,6 +162,8 @@ async def process(
             if not should_run:
                 continue
             coros.append((entry, _run_processor(entry, record, changes)))
+            if stats:
+                stats.processings_started += 1
         if not coros:
             continue
         results = await asyncio.gather(*(coro for _, coro in coros))
@@ -169,11 +172,25 @@ async def process(
             produced, failed = outcome
             if failed:
                 failed_runs += 1
+                if stats:
+                    stats.processings_error += 1
                 continue
-            if produced.status in (ProcessorStatus.CANCELLED, ProcessorStatus.ERROR):
+            status = produced.status
+            if stats:
+                if status == ProcessorStatus.COMPLETED:
+                    stats.processings_completed += 1
+                elif status == ProcessorStatus.PARTIAL:
+                    stats.processings_partial += 1
+                elif status == ProcessorStatus.CANCELLED:
+                    stats.processings_cancelled += 1
+                elif status == ProcessorStatus.SKIPPED:
+                    stats.processings_skipped += 1
+                elif status == ProcessorStatus.ERROR:
+                    stats.processings_error += 1
+            if status in (ProcessorStatus.CANCELLED, ProcessorStatus.ERROR):
                 failed_runs += 1
                 continue
-            if produced.status == ProcessorStatus.SKIPPED:
+            if status == ProcessorStatus.SKIPPED:
                 continue
             for meta in produced.metadata:
                 if meta.provider_id is None:
@@ -183,7 +200,9 @@ async def process(
                 stage_metadata.append(meta)
         if not stage_metadata:
             continue
-        stage_changes = database.upsert_asset(record, stage_metadata, snapshot)
+        stage_changes = database.upsert_asset(
+            record, stage_metadata, snapshot, stats=stats
+        )
         if stage_changes:
             changes.update(stage_changes)
     return ProcessorTaskResult(changes=changes, failures=failed_runs)

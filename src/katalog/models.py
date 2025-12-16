@@ -286,6 +286,109 @@ class Snapshot:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass(slots=True)
+class SnapshotStats:
+    assets_seen: int = 0
+    assets_changed: int = 0
+    assets_added: int = 0
+    assets_modified: int = 0
+    assets_deleted: int = 0
+    assets_ignored: int = 0
+    assets_processed: int = 0
+
+    metadata_values_affected: int = 0
+    metadata_values_added: int = 0
+    metadata_values_removed: int = 0
+
+    relations_affected: int = 0
+    relations_added: int = 0
+    relations_removed: int = 0
+
+    processings_started: int = 0
+    processings_completed: int = 0
+    processings_partial: int = 0
+    processings_cancelled: int = 0
+    processings_skipped: int = 0
+    processings_error: int = 0
+
+    _changed_assets: set[str] = field(default_factory=set, init=False, repr=False)
+    _added_assets: set[str] = field(default_factory=set, init=False, repr=False)
+    _modified_assets: set[str] = field(default_factory=set, init=False, repr=False)
+
+    def record_asset_change(self, asset_id: str, *, added: bool) -> None:
+        if added:
+            if asset_id not in self._added_assets:
+                self.assets_added += 1
+                self._added_assets.add(asset_id)
+        else:
+            if (
+                asset_id not in self._added_assets
+                and asset_id not in self._modified_assets
+            ):
+                self.assets_modified += 1
+                self._modified_assets.add(asset_id)
+        if asset_id not in self._changed_assets:
+            self.assets_changed += 1
+            self._changed_assets.add(asset_id)
+
+    def record_metadata_diff(self, added: int, removed: int) -> None:
+        if not added and not removed:
+            return
+        self.metadata_values_added += added
+        self.metadata_values_removed += removed
+        self.metadata_values_affected += added + removed
+
+    def record_relationship_diff(self, added: int, removed: int) -> None:
+        if not added and not removed:
+            return
+        self.relations_added += added
+        self.relations_removed += removed
+        self.relations_affected += added + removed
+
+    def to_dict(self) -> dict[str, Any]:
+        assets_not_changed = max(
+            self.assets_seen - self.assets_changed - self.assets_ignored, 0
+        )
+        assets_not_processed = max(
+            self.assets_seen - self.assets_processed - self.assets_ignored, 0
+        )
+        return {
+            "assets": {
+                "seen": self.assets_seen,
+                "changed": {
+                    "total": self.assets_changed,
+                    "added": self.assets_added,
+                    "modified": self.assets_modified,
+                    "deleted": self.assets_deleted,
+                },
+                "not_changed": assets_not_changed,
+                "ignored": self.assets_ignored,
+                "processed": {
+                    "processed": self.assets_processed,
+                    "not_processed": assets_not_processed,
+                },
+            },
+            "metadata": {
+                "values_affected": self.metadata_values_affected,
+                "added": self.metadata_values_added,
+                "removed": self.metadata_values_removed,
+            },
+            "relationships": {
+                "affected": self.relations_affected,
+                "added": self.relations_added,
+                "removed": self.relations_removed,
+            },
+            "processors": {
+                "started": self.processings_started,
+                "completed": self.processings_completed,
+                "partial": self.processings_partial,
+                "cancelled": self.processings_cancelled,
+                "skipped": self.processings_skipped,
+                "error": self.processings_error,
+            },
+        }
+
+
 # version_of
 # variant_of
 

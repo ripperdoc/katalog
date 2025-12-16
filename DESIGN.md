@@ -264,6 +264,45 @@ most data and subsequent ones will only contain changes. We could concatenate sn
 effectively only saves space if values have been changing back and forth many times, to only contain
 the last written value, e.g. a type of compression.
 
+#### Snapshot stats
+
+A snapshot can modify several things: assets, metadata associated with assets and relationships
+between assets. It's very useful to gather some structured statistics for each snapshot, which can
+be logged or displayed in UI. Each stat is a number, and some of those numbers can be broken down
+into smaller numbers, allowing us to render it as e.g. a chart. It's important that when a number is
+broken down, it creates a complete breakdown, e.g. we need to return all parts not just some. Here
+is the current assumption:
+
+- Snapshot stats
+  - Assets seen
+    - Assets changed
+      - Breakdown A
+        - Assets added
+        - Assets modified
+        - Assets deleted
+      - Breakdown B
+        - Assets processed
+        - Assets not processed
+    - Assets not changed
+    - Assets ignored (e.g. through blacklisting)
+  - Subassets seen (assets found within other assets)
+    - Ass
+    - Subassets ignored
+  - Processings started
+    - Partial
+    - Completed
+    - Cancelled
+    - Skipped
+    - Error
+  - Metadata values affected
+    - Metadata values added
+    - Metadata values removed
+    - Metadata values changed
+  - Relations affected
+    - Relations added
+    - Relations removed
+    - Relations changed
+
 ### Main server
 
 The main module is implemented as a FastAPI server. It initializes the system, manages providers and

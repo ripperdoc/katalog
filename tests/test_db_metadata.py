@@ -4,7 +4,7 @@ from typing import Any, cast
 import pytest
 
 from katalog.db import Database
-from katalog.models import ACCESS_OWNER, AssetRecord, make_metadata
+from katalog.models import ACCESS_OWNER, AssetRecord, SnapshotStats, make_metadata
 
 
 PROVIDER_ID = "test-provider"
@@ -118,4 +118,32 @@ def test_metadata_value_cleared_by_none():
 
     assert not active
     assert [cast(str, entry.value) for entry in removed] == ["alice"]
+    db.close()
+
+
+def test_snapshot_stats_capture_metadata_and_assets():
+    db = _make_database()
+    record = _make_asset_record()
+    stats = SnapshotStats()
+
+    snapshot = db.begin_snapshot(PROVIDER_ID)
+    db.upsert_asset(
+        record,
+        _metadata_values(PROVIDER_ID, ["alice", "bob"]),
+        snapshot,
+        stats=stats,
+    )
+    db.finalize_snapshot(snapshot, status="full", stats=stats)
+
+    assert stats.assets_added == 1
+    assert stats.assets_changed == 1
+    assert stats.metadata_values_added == 2
+    assert stats.metadata_values_removed == 0
+
+    latest = db.get_latest_snapshot(PROVIDER_ID)
+    assert latest is not None
+    assert latest.metadata is not None
+    stats_blob = latest.metadata.get("stats")
+    assert stats_blob["metadata"]["added"] == 2
+    assert stats_blob["assets"]["changed"]["added"] == 1
     db.close()
