@@ -322,6 +322,8 @@ class Database:
                 "file record source mismatch: %s vs %s"
                 % (record.provider_id, snapshot.provider_id)
             )
+        if not metadata:
+            raise ValueError("upsert_asset requires at least one metadata entry")
         created_snapshot_id = record.created_snapshot_id or snapshot.id
         last_snapshot_id = snapshot.id
         inserted = False
@@ -386,14 +388,27 @@ class Database:
             tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]
         ] = {}
         provider_scope: set[str] = set()
+        cleared_combos: set[tuple[str, MetadataKey]] = set()
         for entry in metadata:
+            entry_provider_id = entry.provider_id or record.provider_id
+            provider_scope.add(entry_provider_id)
+            combo = (entry_provider_id, entry.key)
+
+            if entry.value is None:
+                grouped_values.setdefault(combo, {})
+                cleared_combos.add(combo)
+                continue
+
+            if combo in cleared_combos:
+                raise ValueError(
+                    "Cannot set metadata values for %s after requesting a clear"
+                    % str(entry.key)
+                )
+
             columns = entry.as_sql_columns()
             value_json = columns["value_json"]
             if value_json is not None and not isinstance(value_json, str):
                 columns["value_json"] = json.dumps(value_json, sort_keys=True)
-            entry_provider_id = entry.provider_id or record.provider_id
-            provider_scope.add(entry_provider_id)
-            combo = (entry_provider_id, entry.key)
             normalized_value = self._normalize_value(entry.value_type, columns)
             bucket = grouped_values.setdefault(combo, {})
             if normalized_value in bucket:
@@ -804,6 +819,10 @@ class Database:
             for entry in entries:
                 if not entry.asset_id:
                     raise ValueError("Metadata entry missing asset_id")
+                if entry.value is None:
+                    raise ValueError(
+                        "Cannot insert metadata entries with value=None; use upsert_asset to clear keys"
+                    )
                 entry_provider_id = entry.provider_id or source_fallback
                 columns = entry.as_sql_columns()
                 value_json = columns["value_json"]

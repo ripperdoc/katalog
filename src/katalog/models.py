@@ -233,7 +233,9 @@ def make_metadata(
     confidence: float = 1.0,
 ):
     metadata_def = get_metadata_def(key)
-    _ensure_value_type(metadata_def.value_type, value)
+    # Treat None as a request to clear the metadata key rather than an actual value.
+    if value is not None:
+        _ensure_value_type(metadata_def.value_type, value)
     return Metadata(
         provider_id=provider_id,
         key=key,

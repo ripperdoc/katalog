@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -32,7 +32,7 @@ def _make_asset_record() -> AssetRecord:
     )
 
 
-def _metadata_values(provider_id: str, values: list[str]):
+def _metadata_values(provider_id: str, values: list[Any]):
     return [make_metadata(provider_id, ACCESS_OWNER, value) for value in values]
 
 
@@ -95,4 +95,27 @@ def test_no_changes_when_values_identical():
         cast(str, entry.value) for entry in entries if not entry.removed
     )
     assert active_values == sorted(values)
+    db.close()
+
+
+def test_metadata_value_cleared_by_none():
+    db = _make_database()
+    record = _make_asset_record()
+
+    snapshot1 = db.begin_snapshot(PROVIDER_ID)
+    db.upsert_asset(record, _metadata_values(PROVIDER_ID, ["alice"]), snapshot1)
+    db.finalize_snapshot(snapshot1, status="full")
+
+    snapshot2 = db.begin_snapshot(PROVIDER_ID)
+    changed = db.upsert_asset(record, _metadata_values(PROVIDER_ID, [None]), snapshot2)
+    db.finalize_snapshot(snapshot2, status="full")
+
+    assert str(ACCESS_OWNER) in changed
+
+    entries = db.get_latest_metadata_for_file(record.id, metadata_key=ACCESS_OWNER)
+    active = [entry for entry in entries if not entry.removed]
+    removed = [entry for entry in entries if entry.removed]
+
+    assert not active
+    assert [cast(str, entry.value) for entry in removed] == ["alice"]
     db.close()
