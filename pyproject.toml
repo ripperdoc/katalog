@@ -20,7 +20,7 @@ dependencies = [
 package = true
 
 [dependency-groups]
-dev = ["pip", "pytest", "pytest-asyncio"]
+dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler"]
 
 [project.scripts]
 # Installable console script: runs katalog.cli:main as `katalog`

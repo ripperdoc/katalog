@@ -194,6 +194,7 @@ class GoogleDriveClient(SourcePlugin):
                         break
 
                     files = response.get("files", [])
+                    logger.info(f"Fetched {len(files)} files from Google Drive API")
                     for file in files:
                         if self.max_files and count >= self.max_files:
                             limit_reached = True
@@ -344,8 +345,7 @@ class GoogleDriveClient(SourcePlugin):
         page_size: int = 500,
     ) -> Optional[Dict[str, Any]]:
         try:
-            logger.debug(f"Google Drive API: listing next {page_size} files")
-            return (
+            response = (
                 self.service.files()
                 .list(
                     corpora="user",
@@ -358,6 +358,7 @@ class GoogleDriveClient(SourcePlugin):
                 )
                 .execute()
             )
+            return response
         except HttpError as error:
             logger.error(f"Google Drive API error for source {self.id}: {error}")
             return None

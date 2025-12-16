@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable, Literal, TYPE_CHECKING, Optional
 from time import perf_counter
+import line_profiler
 
 from loguru import logger
 
@@ -91,6 +92,12 @@ SCHEMA_STATEMENTS = (
     """,
     """-- sql
     CREATE INDEX IF NOT EXISTS idx_metadata_lookup ON metadata (metadata_key, value_type);
+    """,
+    # Supports _load_current_metadata_state by letting SQLite seek on asset/provider and reuse
+    # the ordering needed for metadata comparisons.
+    """-- sql
+    CREATE INDEX IF NOT EXISTS idx_metadata_asset_provider
+        ON metadata (asset_id, provider_id, metadata_key, snapshot_id DESC, id DESC);
     """,
     """-- sql
     CREATE TABLE IF NOT EXISTS asset_relationships (
@@ -627,6 +634,7 @@ class Database:
             stats.record_metadata_diff(total_additions, total_removals)
         return changed_ids
 
+    @line_profiler.profile
     def _load_current_metadata_state(
         self, asset_id: str, provider_ids: set[str]
     ) -> dict[tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]]:
@@ -655,7 +663,11 @@ class Database:
         """
         params: list[Any] = [asset_id]
         params.extend(ordered_providers)
+
         with self._lock:
+            # plan = self.conn.execute("EXPLAIN QUERY PLAN " + query, params).fetchall()
+            # for row in plan:
+            #     logger.debug(f"plan row: {dict(row)}")
             rows = self.conn.execute(query, params).fetchall()
         current: dict[
             tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]

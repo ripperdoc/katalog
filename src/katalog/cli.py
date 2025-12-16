@@ -45,15 +45,16 @@ def main():
     try:
         import uvicorn
 
-        # Run uvicorn by import string so `reload=True` works (reload requires import string)
-        # Pass `reload_dirs` to watch the repository `src/` directory for changes
+        # Run uvicorn by import string so reload stays disabled by default
         uvicorn.run(
             "katalog.server:app",
             host="127.0.0.1",
             port=8000,
-            reload=True,
-            reload_dirs=[str(src_dir)],
+            reload=False,
         )
+    except KeyboardInterrupt:  # pragma: no cover - user initiated shutdown
+        logger.info("Received interrupt signal, shutting down")
+        sys.exit(0)
     except Exception:  # pragma: no cover - runtime errors
         logger.exception("Failed to start server")
         sys.exit(1)

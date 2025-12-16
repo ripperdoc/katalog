@@ -113,6 +113,7 @@ async def snapshot_source(provider_id: str):
     processor_modified = 0
     processor_failed = 0
     processor_tasks: list[asyncio.Task[Any]] = []
+    scan_handle = None
     try:
         scan_handle = await source_plugin.scan(since_snapshot=since_snapshot)
         async for result in scan_handle.iterator:
@@ -142,6 +143,17 @@ async def snapshot_source(provider_id: str):
                         )
                     )
                 )
+    except asyncio.CancelledError:
+        logger.info(
+            f"Snapshot {snapshot.id} for source {provider_id} canceled by client"
+        )
+        for task in processor_tasks:
+            task.cancel()
+        delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
+        processor_modified += delta_modified
+        processor_failed += delta_failed
+        database.finalize_snapshot(snapshot, status="canceled", stats=stats)
+        raise
     except Exception:
         delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
         processor_modified += delta_modified
@@ -157,7 +169,7 @@ async def snapshot_source(provider_id: str):
         ScanStatus.CANCELED: "canceled",
         ScanStatus.ERROR: "failed",
     }
-    final_status = status_map.get(scan_handle.status, "full")
+    final_status = status_map.get(scan_handle.status, "full") if scan_handle else "full"
     database.finalize_snapshot(snapshot, status=final_status, stats=stats)
     seen = stats.assets_seen
     added = stats.assets_added
