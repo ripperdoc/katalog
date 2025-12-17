@@ -6,7 +6,6 @@ from typing import Any, Iterable, Sequence
 
 from loguru import logger
 
-from katalog.db import Database, Snapshot
 from katalog.models import (
     Asset,
     Metadata,
@@ -14,6 +13,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
+    Snapshot,
     SnapshotStats,
 )
 from katalog.processors.base import (
@@ -120,7 +120,7 @@ async def process_asset(
         coros: list[tuple[Processor, Any]] = []
         for processor in stage:
             try:
-                should_run = processor.should_run(asset, changes, database)
+                should_run = processor.should_run(asset, changes)
             except Exception:
                 logger.exception(
                     f"Processor {processor}.should_run failed for record {asset.id}"
@@ -173,3 +173,25 @@ async def process_asset(
         if stage_changes:
             changes.update(stage_changes)
     return ProcessorTaskResult(changes=changes, failures=failed_runs)
+
+
+async def drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
+    if not tasks:
+        return 0, 0
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    modified = 0
+    failures = 0
+    for result in results:
+        if isinstance(result, Exception):
+            logger.opt(exception=result).error("Processor task failed")
+            failures += 1
+            continue
+        if isinstance(result, ProcessorTaskResult):
+            if result.changes:
+                modified += 1
+            failures += result.failures
+            continue
+        if result:
+            modified += 1
+    tasks.clear()
+    return modified, failures

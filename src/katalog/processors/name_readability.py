@@ -4,15 +4,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from katalog.db import Database
+from katalog.metadata import FILE_NAME, WARNING_NAME_READABILITY
 from katalog.models import (
-    FILE_NAME,
-    WARNING_NAME_READABILITY,
     Asset,
-    Metadata,
+    OpStatus,
     make_metadata,
 )
-from katalog.processors.base import Processor, ProcessorResult, ProcessorStatus
+from katalog.processors.base import Processor, ProcessorResult
 
 
 class NameReadabilityProcessor(Processor):
@@ -29,20 +27,13 @@ class NameReadabilityProcessor(Processor):
     )
     _DIGIT_RUN = re.compile(r"\d{5,}")
 
-    def __init__(self, *, database: Database | None = None, **_: Any) -> None:
-        self.database = database
-
     def should_run(
         self,
         asset: Asset,
         changes: set[str] | None,
-        database: Database | None = None,
     ) -> bool:
         if changes and FILE_NAME in changes:
             return True
-        db = database or self.database
-        if not db:
-            return False
         existing = db.get_metadata_for_file(
             asset.id,
             provider_id=asset.provider_id,
@@ -53,14 +44,12 @@ class NameReadabilityProcessor(Processor):
     async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
         name = self._resolve_file_name(asset)
         if not name:
-            return ProcessorResult(
-                status=ProcessorStatus.SKIPPED, message="No filename found"
-            )
+            return ProcessorResult(status=OpStatus.SKIPPED, message="No filename found")
         analysis = self._analyze_name(name)
         signals = analysis["signals"]
         if not signals:
             return ProcessorResult(
-                status=ProcessorStatus.COMPLETED, message="No signals from analysis"
+                status=OpStatus.COMPLETED, message="No signals from analysis"
             )
         confidence = min(0.9, 0.4 + 0.1 * len(signals))
         provider_id = getattr(self, "provider_id", asset.provider_id)

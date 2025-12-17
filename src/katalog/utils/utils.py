@@ -1,6 +1,11 @@
+import asyncio
+import base64
 import importlib
 from datetime import datetime, timezone
-from typing import Any, Optional
+import json
+from typing import Any, Mapping, Optional
+
+from loguru import logger
 
 
 def import_plugin_class(
@@ -60,3 +65,17 @@ def parse_google_drive_datetime(dt_str: Optional[str]) -> Optional[datetime]:
             )
         except Exception:
             return None
+
+
+def _encode_cursor(payload: Mapping[str, Any]) -> str:
+    raw = json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> dict[str, Any]:
+    padding = "=" * (-len(cursor) % 4)
+    raw = base64.urlsafe_b64decode(f"{cursor}{padding}")
+    decoded = json.loads(raw)
+    if not isinstance(decoded, dict):
+        raise ValueError("cursor must decode to an object")
+    return decoded

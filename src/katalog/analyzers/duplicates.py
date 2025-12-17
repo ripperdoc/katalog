@@ -11,8 +11,8 @@ from katalog.analyzers.base import (
     FileGroupFinding,
     RelationshipRecord,
 )
-from katalog.db import Database, Snapshot
-from katalog.models import HASH_MD5, Metadata
+from katalog.models import Metadata, Snapshot
+from katalog.metadata import HASH_MD5
 
 
 class ExactDuplicateAnalyzer(Analyzer):
@@ -22,12 +22,12 @@ class ExactDuplicateAnalyzer(Analyzer):
     dependencies = frozenset({HASH_MD5})
     outputs = frozenset()
 
-    def should_run(self, *, snapshot: Snapshot, database: Database) -> bool:  # noqa: D401
+    def should_run(self, *, snapshot: Snapshot) -> bool:  # noqa: D401
         """Currently always runs; future versions may add change detection."""
 
         return True
 
-    async def run(self, *, snapshot: Snapshot, database: Database) -> AnalyzerResult:
+    async def run(self, *, snapshot: Snapshot) -> AnalyzerResult:
         provider_id = getattr(self, "provider_id", snapshot.provider_id)
         latest_hash_rows = database.get_latest_metadata_by_key(HASH_MD5)
         per_file_hashes: dict[str, set[str]] = defaultdict(set)

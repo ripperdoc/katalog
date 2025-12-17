@@ -10,8 +10,14 @@ from googleapiclient.errors import HttpError
 from loguru import logger
 
 from katalog.config import WORKSPACE
-from katalog.db import Snapshot
 from katalog.models import (
+    Asset,
+    OpStatus,
+    Metadata,
+    MetadataType,
+    Snapshot,
+)
+from katalog.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED,
     ACCESS_SHARED_WITH,
@@ -33,11 +39,7 @@ from katalog.models import (
     TIME_SHARED_WITH_ME,
     TIME_TRASHED,
     TIME_VIEWED_BY_ME,
-    Asset,
-    OpStatus,
-    Metadata,
-    MetadataType,
-    define_metadata_key,
+    define_metadata,
 )
 from katalog.sources.base import (
     AssetRecordResult,
@@ -128,7 +130,7 @@ class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive."""
 
     PLUGIN_ID = "dev.katalog.client.googledrive"
-    FILE_WEB_VIEW_LINK = define_metadata_key(
+    FILE_WEB_VIEW_LINK = define_metadata(
         "file/web_view_link", MetadataType.STRING, "Web link"
     )
 

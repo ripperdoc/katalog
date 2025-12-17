@@ -3,9 +3,6 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, FrozenSet, cast
 
 from katalog.models import (
-    DATA_KEY,
-    HASH_MD5,
-    TIME_MODIFIED,
     Asset,
     AssetRelationship,
     MetadataKey,
@@ -13,7 +10,7 @@ from katalog.models import (
     OpStatus,
     Provider,
 )
-from katalog.db import Database
+from katalog.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 
 from katalog.utils.utils import import_plugin_class
 
@@ -59,19 +56,11 @@ class Processor(ABC):
             outs = frozenset(outs)
         cls.dependencies, cls.outputs = deps, outs
 
-    def __init__(
-        self, *, database: Database | None = None, **_: Any
-    ) -> None:  # pragma: no cover - convenience wiring only
-        # Store the database reference so subclasses that don't override __init__
-        # can still access it if needed.
-        self.database = database
-
     @abstractmethod
     def should_run(
         self,
         asset: Asset,
         changes: set[str] | None,
-        database: Database | None = None,
     ) -> bool:
         """Return True if the processor needs to run based on record and the metadata fields that have changed in it."""
         raise NotImplementedError()

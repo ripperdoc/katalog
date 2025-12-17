@@ -1,57 +1,129 @@
 import asyncio
-from loguru import logger
-
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+import json
 from typing import Any, Literal, Optional
 
+from fastapi import FastAPI, HTTPException, Request
+from loguru import logger
+from tortoise import Tortoise
+
 from katalog.analyzers.runtime import run_analyzers
-from katalog.sources.base import make_source_instance
-from katalog.models import OpStatus, Provider, ProviderType, SnapshotStats, Snapshot
 from katalog.config import WORKSPACE
+from katalog.models import (
+    OpStatus,
+    Provider,
+    ProviderType,
+    Snapshot,
+    SnapshotStats,
+    list_assets_with_metadata,
+    setup,
+)
 from katalog.processors.runtime import (
-    ProcessorTaskResult,
+    drain_processor_tasks,
     process_asset,
     sort_processors,
 )
+from katalog.sources.base import make_source_instance
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app):
+    # run startup logic
+    await setup(db_path)
+    try:
+        yield
+    finally:
+        # run shutdown logic
+        await Tortoise.close_connections()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 db_path = WORKSPACE / "katalog.db"
 DATABASE_URL = f"sqlite:///{db_path}"
 
-# Configure basic logging and report which database file is being used
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DATABASE_URL}")
 
 
-async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
-    if not tasks:
-        return 0, 0
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    modified = 0
-    failures = 0
-    for result in results:
-        if isinstance(result, Exception):
-            logger.opt(exception=result).error("Processor task failed")
-            failures += 1
-            continue
-        if isinstance(result, ProcessorTaskResult):
-            if result.changes:
-                modified += 1
-            failures += result.failures
-            continue
-        if result:
-            modified += 1
-    tasks.clear()
-    return modified, failures
+# region ASSETS
 
 
-@app.post("/snapshot/{provider_id}")
-async def snapshot_source(provider_id: int):
-    source_record = await Provider.get_or_none(id=provider_id)
+@app.get("/assets")
+async def list_assets(
+    provider_id: Optional[int] = None,
+    limit: int = 100,
+    cursor: Optional[str] = None,
+    order_by: str = "id",
+    order_dir: Literal["asc", "desc"] = "asc",
+    include_deleted: bool = False,
+    include_removed_metadata: bool = False,
+    metadata_filters: Optional[str] = None,
+    relationship_filters: Optional[str] = None,
+):
+    # Filters are JSON-encoded lists (AND semantics), kept as a string so clients can
+    # send arbitrary combinations without multiplying query parameters.
+    def _parse_filter_list(raw: Optional[str], *, param_name: str):
+        if raw is None:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{param_name} must be valid JSON: {e}",
+            )
+        if not isinstance(parsed, list):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{param_name} must be a JSON array",
+            )
+        return parsed
+
+    return await list_assets_with_metadata(
+        provider_id=provider_id,
+        limit=limit,
+        cursor=cursor,
+        order_by=order_by,
+        order_dir=order_dir,
+        include_deleted=include_deleted,
+        include_removed_metadata=include_removed_metadata,
+        metadata_filters=_parse_filter_list(
+            metadata_filters, param_name="metadata_filters"
+        ),
+        relationship_filters=_parse_filter_list(
+            relationship_filters, param_name="relationship_filters"
+        ),
+    )
+
+
+@app.post("/assets")
+async def create_asset(request: Request):
+    raise NotImplementedError("Direct asset creation is not supported")
+
+
+@app.get("/assets/{asset_id}")
+async def get_asset(asset_id: int):
+    raise NotImplementedError()
+
+
+@app.patch("/assets/{asset_id}")
+async def update_asset(asset_id: int):
+    raise NotImplementedError()
+
+
+# endregion
+
+# region PROVIDER OPERATIONS
+
+
+@app.post("/sources/run")
+@app.post("/sources/{id}/run")
+async def do_run_sources(id: Optional[int] = None):
+    source_record = await Provider.get_or_none(id=id)
     if not source_record or source_record.type != ProviderType.SOURCE:
-        raise HTTPException(status_code=404, detail=f"Unknown source '{provider_id}'")
+        raise HTTPException(status_code=404, detail=f"Unknown source '{id}'")
 
     source_plugin = make_source_instance(source_record)
     # since_snapshot = database.get_cutoff_snapshot(provider_id)
@@ -60,27 +132,20 @@ async def snapshot_source(provider_id: int):
     logger.info(f"Snapshotting source: {source_record}")
     snapshot = await Snapshot.begin(source_record)
     stats = SnapshotStats()
-    seen = 0
-    added = 0
-    updated = 0
-    processor_modified = 0
-    processor_failed = 0
     processor_tasks: list[asyncio.Task[Any]] = []
-    scan_handle = None
+    scan_result = None
     try:
-        scan_handle = await source_plugin.scan(since_snapshot=since_snapshot)
-        async for result in scan_handle.iterator:
+        scan_result = await source_plugin.scan(since_snapshot=since_snapshot)
+        async for result in scan_result.iterator:
             # logger.debug(f"Seen asset {result.asset.id} from source {provider_id}")
             try:
                 result.asset.attach_accessor(source_plugin.get_accessor(result.asset))
             except Exception:
                 logger.exception(
-                    f"Failed to attach accessor for record {result.asset.id} in source {provider_id}"
+                    f"Failed to attach accessor for record {result.asset.id} in source {id}"
                 )
             stats.assets_seen += 1
-            changes = database.upsert_asset(
-                result.asset, result.metadata, snapshot, stats=stats
-            )
+            changes = await result.asset.upsert(result, snapshot, stats)
 
             if processor_pipeline:
                 stats.assets_processed += 1
@@ -101,54 +166,79 @@ async def snapshot_source(provider_id: int):
         )
         for task in processor_tasks:
             task.cancel()
-        delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
-        processor_modified += delta_modified
-        processor_failed += delta_failed
+        await drain_processor_tasks(processor_tasks)
         await snapshot.finalize(status=OpStatus.CANCELED, stats=stats)
         raise
     except Exception:
-        delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
-        processor_modified += delta_modified
-        processor_failed += delta_failed
+        await drain_processor_tasks(processor_tasks)
         await snapshot.finalize(status=OpStatus.ERROR, stats=stats)
         raise
-    delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
-    processor_modified += delta_modified
-    processor_failed += delta_failed
-    await snapshot.finalize(status=scan_handle.status, stats=stats)
-    seen = stats.assets_seen
-    added = stats.assets_added
-    updated = stats.assets_changed
+    await drain_processor_tasks(processor_tasks)
+    await snapshot.finalize(status=scan_result.status, stats=stats)
     return {
-        "status": "snapshot complete",
-        "source": provider_id,
-        "snapshot_id": snapshot.id,
-        "snapshot_status": scan_handle.status,
-        "stats": {
-            "seen": seen,
-            "updated": updated,
-            "added": added,
-            "processor_modified": processor_modified,
-            "processor_failed": processor_failed,
-        },
-        "snapshot_stats": stats.to_dict(),
+        "snapshot": snapshot,
+        "stats": stats.to_dict(),
     }
-
-
-@app.get("/assets")
-def list_assets(provider_id: Optional[int] = None):
-    return database.list_records_with_metadata(
-        provider_id=provider_id, view=selected_view
-    )
 
 
 @app.post("/analyzers/run")
-async def run_all_analyzers():
-    analyzers = _get_analyzers()
-    if not analyzers:
-        return {"status": "no analyzers configured"}
-    results = await run_analyzers(database=database, analyzers=analyzers)
-    return {
-        "status": "analysis complete",
-        "results": results,
-    }
+@app.post("/analyzers/{id}/run")
+async def do_run_analyzers(id: Optional[int] = None):
+    if id is None:
+        result = await run_analyzers(None)
+    else:
+        result = await run_analyzers([int(id)])
+    return result
+
+
+# endregion
+
+# region SNAPSHOTS
+
+
+@app.post("/snapshots")
+async def create_snapshot(request: Request):
+    raise NotImplementedError("Not supported to create snapshots directly")
+
+
+@app.get("/snapshots")
+async def list_snapshots():
+    raise NotImplementedError()
+
+
+@app.get("/snapshots/{snapshot_id}")
+async def get_snapshot(snapshot_id: int):
+    raise NotImplementedError()
+
+
+@app.patch("/snapshots/{snapshot_id}")
+async def update_snapshot(snapshot_id: int):
+    raise NotImplementedError()
+
+
+# endregion
+
+# region PROVIDERS
+
+
+@app.post("/providers")
+async def create_provider(request: Request):
+    raise NotImplementedError()
+
+
+@app.get("/providers")
+async def list_providers():
+    raise NotImplementedError()
+
+
+@app.get("/providers/{provider_id}")
+async def get_provider(provider_id: int):
+    raise NotImplementedError()
+
+
+@app.patch("/providers/{provider_id}")
+async def update_provider(provider_id: int):
+    raise NotImplementedError()
+
+
+# endregion

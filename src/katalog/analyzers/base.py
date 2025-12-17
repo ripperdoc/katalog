@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, FrozenSet, Protocol, cast, runtime_checkable
 
-from katalog.db import Database, Snapshot
-from katalog.models import Metadata, MetadataKey, Provider
+from katalog.models import Metadata, MetadataKey, Provider, Snapshot
 from katalog.utils.utils import import_plugin_class
 
 
@@ -82,12 +81,12 @@ class Analyzer(Protocol):
             outs = frozenset(outs)
         cls.dependencies, cls.outputs = deps, outs
 
-    def should_run(self, *, snapshot: Snapshot, database: Database) -> bool:
+    def should_run(self, *, snapshot: Snapshot) -> bool:
         """Return True if the analyzer needs to execute for the given snapshot."""
 
         raise NotImplementedError()
 
-    async def run(self, *, snapshot: Snapshot, database: Database) -> AnalyzerResult:
+    async def run(self, *, snapshot: Snapshot) -> AnalyzerResult:
         """Execute the analyzer and return the metadata mutations to persist."""
 
         raise NotImplementedError()

@@ -3,14 +3,12 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Optional
 
-from katalog.db import Database
+from katalog.metadata import HASH_MD5
 from katalog.processors.base import Processor, ProcessorResult, file_data_changed
-from katalog.models import HASH_MD5, Asset, Metadata, make_metadata
+from katalog.models import Asset, make_metadata
 
 
-def _has_existing_hash(database: Optional[Database], asset: Asset) -> bool:
-    if not database:
-        return False
+def _has_existing_hash(asset: Asset) -> bool:
     existing = database.get_metadata_for_file(
         asset.id,
         provider_id=asset.provider_id,
@@ -28,14 +26,13 @@ class MD5HashProcessor(Processor):
         self,
         asset: Asset,
         changes: set[str] | None,
-        database: Database | None = None,
     ) -> bool:
         if changes and HASH_MD5 in changes:
             # Source already supplied the hash during this snapshot.
             return False
         if file_data_changed(self, asset, changes):
             return True
-        return not _has_existing_hash(database, asset)
+        return not _has_existing_hash(asset)
 
     async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
         d = asset.data

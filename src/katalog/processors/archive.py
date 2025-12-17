@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from katalog.db import Database
 from katalog.processors.base import Processor
-from katalog.models import MIME_TYPE
+from katalog.metadata import MIME_TYPE
 
 
 class ArchiveProcess(Processor):
@@ -12,9 +11,6 @@ class ArchiveProcess(Processor):
 
     dependencies = frozenset({MIME_TYPE})
     outputs = frozenset({})  # TODO
-
-    def __init__(self, *, database: Database | None = None, **_: Any) -> None:
-        self.database = database
 
     # def should_run(self, record: AssetRecord, prev_cache: str | None) -> bool:
     #     return record.provider_id == "downloads" and prev_cache != self.cache_key(record)

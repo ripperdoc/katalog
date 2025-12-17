@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import magic
 
-from katalog.db import Database
+from katalog.metadata import MIME_TYPE
 from katalog.processors.base import (
     Processor,
     ProcessorResult,
     file_data_changed,
     file_data_change_dependencies,
 )
-from katalog.models import MIME_TYPE, Asset, make_metadata
+from katalog.models import Asset, make_metadata
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic
@@ -25,7 +25,6 @@ class MimeTypeProcessor(Processor):
         self,
         asset: Asset,
         changes: set[str] | None,
-        database: Database | None = None,
     ) -> bool:
         # TODO, some services report application/octet-stream but there is probably a better mime type to find
         # Is there a logic where we can check for that, without having to recheck every time?

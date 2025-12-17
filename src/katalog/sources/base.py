@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Collection, cast
 
-from katalog.db import Snapshot
 from katalog.models import (
     Asset,
     AssetRelationship,
@@ -10,6 +9,7 @@ from katalog.models import (
     MetadataScalar,
     OpStatus,
     Provider,
+    Snapshot,
     make_metadata,
 )
 from katalog.utils.utils import import_plugin_class

@@ -5,9 +5,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, UTC
 from enum import Enum, IntEnum
 from pathlib import Path
+
 from typing import Any, Mapping, NewType, Sequence
 
-from tortoise import Tortoise
+from tortoise import Tortoise, connections
 from tortoise.transactions import in_transaction
 from tortoise.fields import (
     BigIntField,
@@ -28,6 +29,18 @@ from tortoise.fields import (
 from tortoise.models import Model
 
 from katalog.config import config_file
+from katalog.metadata import (
+    METADATA_REGISTRY,
+    METADATA_REGISTRY_BY_ID,
+    MetadataDef,
+    MetadataKey,
+    MetadataScalar,
+    ensure_value_type,
+    get_metadata_def,
+    get_metadata_def_by_registry_id,
+    get_metadata_registry_id,
+)
+from katalog.utils.utils import _decode_cursor, _encode_cursor
 
 """Data usage notes
 - The target profile for this system is to handle metadata for 1 million files. Actual file contents is not to be stored in the DB.
@@ -187,6 +200,9 @@ class Asset(Model):
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
 
+    async def upsert(*args, **kwargs):
+        raise NotImplementedError()
+
     class Meta(Model.Meta):
         indexes = (("provider", "last_snapshot"),)
 
@@ -295,6 +311,85 @@ class Metadata(Model):
         return await query.order_by("metadata_key_id", "id")
 
 
+def make_metadata(*args, **kwargs) -> Metadata:
+    """Create a Metadata instance, ensuring the value type matches the key definition."""
+    # Signature is intentionally flexible because call sites differ (sources/processors/tests).
+    # Preferred usage:
+    #   make_metadata(provider_id, key, value, asset_id=..., snapshot_id=...)
+    provider_id: int | None = None
+    key: MetadataKey | None = None
+    value: MetadataScalar | None = None
+
+    if len(args) >= 1:
+        provider_id = args[0]
+    if len(args) >= 2:
+        key = args[1]
+    if len(args) >= 3:
+        value = args[2]
+    if len(args) > 3:
+        raise TypeError(
+            "make_metadata(provider_id, key, value, ...) takes at most 3 positional arguments"
+        )
+
+    provider_id = kwargs.pop("provider_id", provider_id)
+    key = kwargs.pop("key", key)
+    value = kwargs.pop("value", value)
+
+    asset = kwargs.pop("asset", None)
+    asset_id = kwargs.pop("asset_id", None)
+    snapshot = kwargs.pop("snapshot", None)
+    snapshot_id = kwargs.pop("snapshot_id", None)
+    removed = kwargs.pop("removed", False)
+    confidence = kwargs.pop("confidence", None)
+
+    if kwargs:
+        unknown = ", ".join(sorted(kwargs.keys()))
+        raise TypeError(f"Unknown make_metadata() kwargs: {unknown}")
+
+    if provider_id is None:
+        raise TypeError("make_metadata requires provider_id")
+    if key is None:
+        raise TypeError("make_metadata requires key")
+    if value is None:
+        raise TypeError("make_metadata requires value")
+
+    definition = get_metadata_def(key)
+    ensure_value_type(definition.value_type, value)
+
+    entry = Metadata(
+        provider_id=int(provider_id),
+        metadata_key_id=get_metadata_registry_id(key),
+        value_type=definition.value_type,
+        removed=bool(removed),
+        confidence=confidence,
+    )
+    if asset is not None:
+        entry.asset = asset
+    elif asset_id is not None:
+        entry.asset_id = int(asset_id)
+
+    if snapshot is not None:
+        entry.snapshot = snapshot
+    elif snapshot_id is not None:
+        entry.snapshot_id = int(snapshot_id)
+
+    if definition.value_type == MetadataType.STRING:
+        entry.value_text = str(value)
+    elif definition.value_type == MetadataType.INT:
+        # bool is rejected by _ensure_value_type
+        entry.value_int = int(value)  # type: ignore[arg-type]
+    elif definition.value_type == MetadataType.FLOAT:
+        entry.value_real = float(value)  # type: ignore[arg-type]
+    elif definition.value_type == MetadataType.DATETIME:
+        entry.value_datetime = value  # type: ignore[assignment]
+    elif definition.value_type == MetadataType.JSON:
+        entry.value_json = value  # type: ignore[assignment]
+    else:  # pragma: no cover
+        raise ValueError(f"Unsupported metadata value type {definition.value_type}")
+
+    return entry
+
+
 class AssetRelationship(Model):
     id = IntField(pk=True)
     provider = ForeignKeyField(
@@ -316,6 +411,337 @@ class AssetRelationship(Model):
         indexes = (("provider", "from_asset", "to_asset", "relationship_type"),)
 
 
+async def list_assets_with_metadata(
+    *,
+    provider_id: int | None = None,
+    limit: int = 100,
+    cursor: str | None = None,
+    order_by: str = "id",
+    order_dir: str = "asc",
+    include_deleted: bool = False,
+    include_removed_metadata: bool = False,
+    metadata_filters: Sequence[Mapping[str, Any]] | None = None,
+    relationship_filters: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """List assets with their metadata for UI consumption.
+
+    Returns one JSON object per asset (Asset fields at root), plus a `metadata`
+    property containing a list of Metadata rows.
+
+    Minimal raw-SQL implementation (avoids ORM row hydration):
+    - fetch one page of assets with keyset pagination
+    - fetch all metadata for those asset ids
+    - stitch results in Python
+    """
+
+    if limit <= 0:
+        limit = 1
+    if limit > 1000:
+        limit = 1000
+
+    direction = order_dir.lower()
+    if direction not in {"asc", "desc"}:
+        raise ValueError("order_dir must be 'asc' or 'desc'")
+
+    allowed_order_fields = {
+        "id",
+        "canonical_id",
+        "canonical_uri",
+        "created_snapshot_id",
+        "last_snapshot_id",
+        "deleted_snapshot_id",
+        "provider_id",
+    }
+    if order_by not in allowed_order_fields:
+        raise ValueError(f"Unsupported order_by={order_by!s}")
+
+    conn = connections.get("default")
+
+    asset_cols = [
+        "id",
+        "provider_id",
+        "canonical_id",
+        "canonical_uri",
+        "created_snapshot_id",
+        "last_snapshot_id",
+        "deleted_snapshot_id",
+    ]
+
+    meta_cols = [
+        "id",
+        "asset_id",
+        "provider_id",
+        "snapshot_id",
+        "metadata_key_id",
+        "value_type",
+        "value_text",
+        "value_int",
+        "value_real",
+        "value_datetime",
+        "value_json",
+        "confidence",
+        "removed",
+    ]
+
+    def _metadata_value_selector(value_type: MetadataType) -> tuple[str, int]:
+        if value_type == MetadataType.STRING:
+            return "value_text", int(MetadataType.STRING)
+        if value_type == MetadataType.INT:
+            return "value_int", int(MetadataType.INT)
+        if value_type == MetadataType.FLOAT:
+            return "value_real", int(MetadataType.FLOAT)
+        if value_type == MetadataType.DATETIME:
+            return "value_datetime", int(MetadataType.DATETIME)
+        if value_type == MetadataType.JSON:
+            return "value_json", int(MetadataType.JSON)
+        raise ValueError(f"Unsupported metadata value_type={value_type!s}")
+
+    async def _resolve_metadata_key_id(
+        *,
+        key: str,
+        plugin_id: str | None,
+    ) -> int | None:
+        sql = "SELECT id FROM metadataregistry WHERE key = ?"
+        params: list[Any] = [key]
+        if plugin_id is not None:
+            sql += " AND plugin_id = ?"
+            params.append(plugin_id)
+        sql += " LIMIT 1"
+        rows = await conn.execute_query_dict(sql, params)
+        if not rows:
+            return None
+        return int(rows[0]["id"])
+
+    where_parts: list[str] = ["1=1"]
+    params: list[Any] = []
+
+    if provider_id is not None:
+        where_parts.append("a.provider_id = ?")
+        params.append(int(provider_id))
+    if not include_deleted:
+        where_parts.append("a.deleted_snapshot_id IS NULL")
+
+    # Keyset pagination.
+    if cursor:
+        state = _decode_cursor(cursor)
+        if "id" not in state or "v" not in state:
+            raise ValueError("cursor must contain 'v' and 'id'")
+        last_id = int(state["id"])
+        last_v = state["v"]
+        if order_by == "id":
+            where_parts.append("a.id > ?" if direction == "asc" else "a.id < ?")
+            params.append(last_id)
+        else:
+            op = ">" if direction == "asc" else "<"
+            where_parts.append(
+                f"(a.{order_by} {op} ? OR (a.{order_by} = ? AND a.id {op} ?))"
+            )
+            params.extend([last_v, last_v, last_id])
+
+    # Metadata filters (AND semantics across filters).
+    if metadata_filters:
+        for idx, raw in enumerate(metadata_filters):
+            if not isinstance(raw, Mapping):
+                raise ValueError(f"metadata_filters[{idx}] must be an object")
+            key = raw.get("key")
+            if not isinstance(key, str) or not key:
+                raise ValueError(
+                    f"metadata_filters[{idx}].key must be a non-empty string"
+                )
+            plugin_id = raw.get("plugin_id")
+            if plugin_id is not None and (
+                not isinstance(plugin_id, str) or not plugin_id
+            ):
+                raise ValueError(
+                    f"metadata_filters[{idx}].plugin_id must be a non-empty string"
+                )
+
+            op = raw.get("op", "eq")
+            if op != "eq":
+                raise ValueError(
+                    f"metadata_filters[{idx}].op only supports 'eq' for now"
+                )
+
+            if "value" not in raw:
+                raise ValueError(f"metadata_filters[{idx}].value is required")
+            value = raw.get("value")
+
+            # Minimal type support: string/int/float/bool only.
+            if isinstance(value, bool):
+                inferred_type = MetadataType.INT
+                value = int(value)
+            elif isinstance(value, int):
+                inferred_type = MetadataType.INT
+            elif isinstance(value, float):
+                inferred_type = MetadataType.FLOAT
+            elif isinstance(value, str):
+                inferred_type = MetadataType.STRING
+            else:
+                raise ValueError(
+                    f"metadata_filters[{idx}].value must be string/int/float/bool for now"
+                )
+
+            value_type_raw = raw.get("value_type")
+            if value_type_raw is None:
+                value_type = inferred_type
+            elif isinstance(value_type_raw, int):
+                value_type = MetadataType(int(value_type_raw))
+            elif isinstance(value_type_raw, str):
+                normalized = value_type_raw.strip().lower()
+                mapping = {
+                    "string": MetadataType.STRING,
+                    "text": MetadataType.STRING,
+                    "int": MetadataType.INT,
+                    "integer": MetadataType.INT,
+                    "float": MetadataType.FLOAT,
+                    "real": MetadataType.FLOAT,
+                    "datetime": MetadataType.DATETIME,
+                    "json": MetadataType.JSON,
+                }
+                if normalized not in mapping:
+                    raise ValueError(
+                        f"metadata_filters[{idx}].value_type must be one of {sorted(mapping.keys())}"
+                    )
+                value_type = mapping[normalized]
+            else:
+                raise ValueError(
+                    f"metadata_filters[{idx}].value_type must be a string or int if provided"
+                )
+
+            key_id = await _resolve_metadata_key_id(key=key, plugin_id=plugin_id)
+            if key_id is None:
+                return {"records": [], "next_cursor": None}
+
+            col, vt_int = _metadata_value_selector(value_type)
+            exists_parts = [
+                "SELECT 1 FROM metadata m",
+                "WHERE m.asset_id = a.id",
+                "AND m.metadata_key_id = ?",
+                "AND m.value_type = ?",
+                f"AND m.{col} = ?",
+            ]
+            exists_params: list[Any] = [key_id, vt_int, value]
+            if not include_removed_metadata:
+                exists_parts.insert(3, "AND m.removed = 0")
+            where_parts.append("EXISTS (" + " ".join(exists_parts) + ")")
+            params.extend(exists_params)
+
+    # Relationship filters (AND semantics across filters).
+    if relationship_filters:
+        for idx, raw in enumerate(relationship_filters):
+            if not isinstance(raw, Mapping):
+                raise ValueError(f"relationship_filters[{idx}] must be an object")
+            relationship_type = raw.get("relationship_type")
+            if not isinstance(relationship_type, str) or not relationship_type:
+                raise ValueError(
+                    f"relationship_filters[{idx}].relationship_type must be a non-empty string"
+                )
+            direction_raw = raw.get("direction", "outgoing")
+            if not isinstance(direction_raw, str):
+                raise ValueError(
+                    f"relationship_filters[{idx}].direction must be a string"
+                )
+            direction_norm = direction_raw.strip().lower()
+            if direction_norm not in {"outgoing", "incoming"}:
+                raise ValueError(
+                    f"relationship_filters[{idx}].direction must be 'outgoing' or 'incoming'"
+                )
+
+            peer_asset_id = raw.get("peer_asset_id")
+            if peer_asset_id is not None and not isinstance(peer_asset_id, int):
+                raise ValueError(
+                    f"relationship_filters[{idx}].peer_asset_id must be an int if provided"
+                )
+
+            rel_provider_id = raw.get("provider_id")
+            if rel_provider_id is not None and not isinstance(rel_provider_id, int):
+                raise ValueError(
+                    f"relationship_filters[{idx}].provider_id must be an int if provided"
+                )
+
+            if direction_norm == "outgoing":
+                anchor_col = "from_asset_id"
+                peer_col = "to_asset_id"
+            else:
+                anchor_col = "to_asset_id"
+                peer_col = "from_asset_id"
+
+            exists_sql = [
+                "SELECT 1 FROM assetrelationship r",
+                f"WHERE r.{anchor_col} = a.id",
+                "AND r.relationship_type = ?",
+                "AND r.removed = 0",
+            ]
+            exists_params = [relationship_type]
+            if rel_provider_id is not None:
+                exists_sql.append("AND r.provider_id = ?")
+                exists_params.append(int(rel_provider_id))
+            if peer_asset_id is not None:
+                exists_sql.append(f"AND r.{peer_col} = ?")
+                exists_params.append(int(peer_asset_id))
+
+            where_parts.append("EXISTS (" + " ".join(exists_sql) + ")")
+            params.extend(exists_params)
+
+    order_prefix = "" if direction == "asc" else "DESC"
+    if order_by == "id":
+        order_sql = f"a.id {order_prefix}".strip()
+    else:
+        order_sql = f"a.{order_by} {order_prefix}, a.id {order_prefix}".strip()
+
+    asset_select = ", ".join([f"a.{c}" for c in asset_cols])
+    sql = (
+        f"SELECT {asset_select} "
+        "FROM asset a "
+        f"WHERE {' AND '.join(where_parts)} "
+        f"ORDER BY {order_sql} "
+        "LIMIT ?"
+    )
+    asset_rows = await conn.execute_query_dict(sql, [*params, int(limit) + 1])
+    has_more = len(asset_rows) > limit
+    asset_rows = asset_rows[:limit]
+
+    if not asset_rows:
+        return {"records": [], "next_cursor": None}
+
+    asset_ids = [int(r["id"]) for r in asset_rows]
+    placeholders = ",".join(["?"] * len(asset_ids))
+    meta_select = ", ".join(meta_cols)
+    meta_sql = f"SELECT {meta_select} FROM metadata WHERE asset_id IN ({placeholders}) "
+    meta_params: list[Any] = list(asset_ids)
+    if not include_removed_metadata:
+        meta_sql += " AND removed = 0"
+    meta_sql += " ORDER BY asset_id, metadata_key_id, id"
+    meta_rows = await conn.execute_query_dict(meta_sql, meta_params)
+
+    meta_by_asset: dict[int, list[dict[str, Any]]] = {aid: [] for aid in asset_ids}
+    for m in meta_rows:
+        key_id = m.get("metadata_key_id")
+        if key_id is not None:
+            try:
+                m["key"] = str(get_metadata_def_by_registry_id(int(key_id)).key)
+            except KeyError:
+                # Registry may be out of date for this process; keep id-only.
+                pass
+        meta_by_asset[int(m["asset_id"])].append(m)
+
+    records: list[dict[str, Any]] = []
+    for asset_row in asset_rows:
+        aid = int(asset_row["id"])
+        asset_row["metadata"] = meta_by_asset.get(aid, [])
+        records.append(asset_row)
+
+    next_cursor: str | None = None
+    if has_more:
+        last = records[-1]
+        next_cursor = _encode_cursor({"v": last.get(order_by), "id": last["id"]})
+
+    return {
+        "records": records,
+        "next_cursor": next_cursor,
+    }
+
+
 async def setup(db_path: Path) -> Path:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite://{db_path}"
@@ -325,6 +751,52 @@ async def setup(db_path: Path) -> Path:
     await Tortoise.generate_schemas()
     await sync_metadata_registry()
     return db_path
+
+
+async def sync_metadata_registry() -> None:
+    """Ensure DB registry contains the import-time declared keys.
+
+    DB remains the source of truth: this only INSERTs missing keys; it does not
+    update existing rows.
+    """
+
+    # Insert missing rows, then record the integer IDs locally for fast queries.
+    for meta_key, definition in list(METADATA_REGISTRY.items()):
+        row, _created = await MetadataRegistry.get_or_create(
+            plugin_id=definition.plugin_id,
+            key=str(definition.key),
+            defaults={
+                "value_type": definition.value_type,
+                "title": definition.title,
+                "description": definition.description,
+                "width": definition.width,
+            },
+        )
+        METADATA_REGISTRY[meta_key] = MetadataDef(
+            plugin_id=definition.plugin_id,
+            key=definition.key,
+            registry_id=row.id,
+            value_type=definition.value_type,
+            title=definition.title,
+            description=definition.description,
+            width=definition.width,
+        )
+
+    # Rebuild the reverse mapping (id -> definition) for O(1) lookups.
+    # Read the DB registry once at startup so `Metadata.key` never needs to touch
+    # `MetadataRegistry` at runtime (and so it still works for keys that exist in
+    # the DB but weren't imported/defined in this process).
+    METADATA_REGISTRY_BY_ID.clear()
+    for row in await MetadataRegistry.all():
+        METADATA_REGISTRY_BY_ID[int(row.id)] = MetadataDef(
+            plugin_id=row.plugin_id,
+            key=MetadataKey(row.key),
+            registry_id=int(row.id),
+            value_type=row.value_type,
+            title=row.title,
+            description=row.description,
+            width=row.width,
+        )
 
 
 @dataclass(slots=True)
@@ -428,392 +900,3 @@ class SnapshotStats:
                 "error": self.processings_error,
             },
         }
-
-
-MetadataScalar = (
-    str | int | float | bool | datetime | Mapping[str, Any] | list[Any] | None
-)
-MetadataKey = NewType("MetadataKey", str)
-
-
-CORE_PLUGIN_ID = "katalog"
-
-
-@dataclass(frozen=True)
-class MetadataDef:
-    plugin_id: str
-    key: MetadataKey
-    registry_id: int | None
-    value_type: MetadataType
-    title: str = ""
-    description: str = ""
-    width: int | None = None  # For UI display purposes
-
-
-# Central registry of built-in keys
-METADATA_REGISTRY: dict[MetadataKey, MetadataDef] = {}
-
-# Fast lookup from DB integer id -> definition. Populated by `sync_metadata_registry()`.
-METADATA_REGISTRY_BY_ID: dict[int, MetadataDef] = {}
-
-
-def define_metadata_key(
-    name: str,
-    value_type: MetadataType,
-    title: str = "",
-    description: str = "",
-    width: int | None = None,
-    *,
-    plugin_id: str = CORE_PLUGIN_ID,
-) -> MetadataKey:
-    key = MetadataKey(name)
-    METADATA_REGISTRY[key] = MetadataDef(
-        plugin_id, key, None, value_type, title, description, width
-    )
-    return key
-
-
-async def sync_metadata_registry() -> None:
-    """Ensure DB registry contains the import-time declared keys.
-
-    DB remains the source of truth: this only INSERTs missing keys; it does not
-    update existing rows.
-    """
-
-    # Insert missing rows, then record the integer IDs locally for fast queries.
-    for meta_key, definition in list(METADATA_REGISTRY.items()):
-        row, _created = await MetadataRegistry.get_or_create(
-            plugin_id=definition.plugin_id,
-            key=str(definition.key),
-            defaults={
-                "value_type": definition.value_type,
-                "title": definition.title,
-                "description": definition.description,
-                "width": definition.width,
-            },
-        )
-        METADATA_REGISTRY[meta_key] = MetadataDef(
-            plugin_id=definition.plugin_id,
-            key=definition.key,
-            registry_id=row.id,
-            value_type=definition.value_type,
-            title=definition.title,
-            description=definition.description,
-            width=definition.width,
-        )
-
-    # Rebuild the reverse mapping (id -> definition) for O(1) lookups.
-    # Read the DB registry once at startup so `Metadata.key` never needs to touch
-    # `MetadataRegistry` at runtime (and so it still works for keys that exist in
-    # the DB but weren't imported/defined in this process).
-    METADATA_REGISTRY_BY_ID.clear()
-    for row in await MetadataRegistry.all():
-        METADATA_REGISTRY_BY_ID[int(row.id)] = MetadataDef(
-            plugin_id=row.plugin_id,
-            key=MetadataKey(row.key),
-            registry_id=int(row.id),
-            value_type=row.value_type,
-            title=row.title,
-            description=row.description,
-            width=row.width,
-        )
-
-
-def get_metadata_registry_id(key: MetadataKey) -> int:
-    definition = get_metadata_def(key)
-    if definition.registry_id is None:
-        raise RuntimeError(
-            f"Metadata key {key!s} has no registry_id; did you call setup()/sync_metadata_registry()?"
-        )
-    return definition.registry_id
-
-
-def get_metadata_def_by_registry_id(registry_id: int) -> MetadataDef:
-    try:
-        return METADATA_REGISTRY_BY_ID[registry_id]
-    except KeyError:  # pragma: no cover
-        raise KeyError(
-            f"Unknown metadata registry_id={registry_id}. "
-            "Did you import all plugins and call setup()/sync_metadata_registry()?"
-        )
-
-
-def get_metadata_schema(key: MetadataKey) -> dict:
-    definition = METADATA_REGISTRY.get(key)
-    if definition is None:
-        return {}
-    else:
-        return asdict(definition)
-
-
-def get_metadata_def(key: MetadataKey) -> MetadataDef:
-    try:
-        return METADATA_REGISTRY[key]
-    except KeyError:  # pragma: no cover
-        raise ValueError(f"Unknown metadata key {key!s}")
-
-
-def make_metadata(*args, **kwargs) -> Metadata:
-    """Create a Metadata instance, ensuring the value type matches the key definition."""
-    # Signature is intentionally flexible because call sites differ (sources/processors/tests).
-    # Preferred usage:
-    #   make_metadata(provider_id, key, value, asset_id=..., snapshot_id=...)
-    provider_id: int | None = None
-    key: MetadataKey | None = None
-    value: MetadataScalar | None = None
-
-    if len(args) >= 1:
-        provider_id = args[0]
-    if len(args) >= 2:
-        key = args[1]
-    if len(args) >= 3:
-        value = args[2]
-    if len(args) > 3:
-        raise TypeError(
-            "make_metadata(provider_id, key, value, ...) takes at most 3 positional arguments"
-        )
-
-    provider_id = kwargs.pop("provider_id", provider_id)
-    key = kwargs.pop("key", key)
-    value = kwargs.pop("value", value)
-
-    asset = kwargs.pop("asset", None)
-    asset_id = kwargs.pop("asset_id", None)
-    snapshot = kwargs.pop("snapshot", None)
-    snapshot_id = kwargs.pop("snapshot_id", None)
-    removed = kwargs.pop("removed", False)
-    confidence = kwargs.pop("confidence", None)
-
-    if kwargs:
-        unknown = ", ".join(sorted(kwargs.keys()))
-        raise TypeError(f"Unknown make_metadata() kwargs: {unknown}")
-
-    if provider_id is None:
-        raise TypeError("make_metadata requires provider_id")
-    if key is None:
-        raise TypeError("make_metadata requires key")
-    if value is None:
-        raise TypeError("make_metadata requires value")
-
-    definition = get_metadata_def(key)
-    _ensure_value_type(definition.value_type, value)
-
-    entry = Metadata(
-        provider_id=int(provider_id),
-        metadata_key_id=get_metadata_registry_id(key),
-        value_type=definition.value_type,
-        removed=bool(removed),
-        confidence=confidence,
-    )
-    if asset is not None:
-        entry.asset = asset
-    elif asset_id is not None:
-        entry.asset_id = int(asset_id)
-
-    if snapshot is not None:
-        entry.snapshot = snapshot
-    elif snapshot_id is not None:
-        entry.snapshot_id = int(snapshot_id)
-
-    if definition.value_type == MetadataType.STRING:
-        entry.value_text = str(value)
-    elif definition.value_type == MetadataType.INT:
-        # bool is rejected by _ensure_value_type
-        entry.value_int = int(value)  # type: ignore[arg-type]
-    elif definition.value_type == MetadataType.FLOAT:
-        entry.value_real = float(value)  # type: ignore[arg-type]
-    elif definition.value_type == MetadataType.DATETIME:
-        entry.value_datetime = value  # type: ignore[assignment]
-    elif definition.value_type == MetadataType.JSON:
-        entry.value_json = value  # type: ignore[assignment]
-    else:  # pragma: no cover
-        raise ValueError(f"Unsupported metadata value type {definition.value_type}")
-
-    return entry
-
-
-def _ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
-    if expected == MetadataType.STRING and isinstance(value, str):
-        return
-    if (
-        expected == MetadataType.INT
-        and isinstance(value, int)
-        and not isinstance(value, bool)
-    ):
-        return
-    if (
-        expected == MetadataType.FLOAT
-        and isinstance(value, (int, float))
-        and not isinstance(value, bool)
-    ):
-        return
-    if expected == MetadataType.DATETIME and isinstance(value, datetime):
-        return
-    if expected == MetadataType.JSON:  # accept Mapping/list primitives
-        return
-    raise TypeError(f"Expected {expected}, got {type(value).__name__}")
-
-
-# Special keys to signal changes
-DATA_KEY = define_metadata_key("data", MetadataType.INT)
-FILE_RECORD_KEY = define_metadata_key("asset", MetadataType.INT)
-
-# Built-in metadata
-FILE_ABSOLUTE_PATH = define_metadata_key(
-    "file/absolute_path", MetadataType.STRING, "Absolute path"
-)
-FILE_DESCRIPTION = define_metadata_key(
-    "file/description", MetadataType.STRING, "Description"
-)
-FILE_ID_PATH = define_metadata_key("file/id_path", MetadataType.STRING)
-FILE_LAST_MODIFYING_USER = define_metadata_key(
-    "file/last_modifying_user", MetadataType.STRING, "Last modifying user"
-)
-FILE_NAME = define_metadata_key("file/filename", MetadataType.STRING, "Filename")
-FILE_ORIGINAL_NAME = define_metadata_key(
-    "file/original_filename", MetadataType.STRING, "Original filename"
-)
-FILE_PATH = define_metadata_key("file/path", MetadataType.STRING, "Path")
-FILE_QUOTA_BYTES_USED = define_metadata_key(
-    "file/quota_bytes_used", MetadataType.INT, "Quota bytes used"
-)
-
-ACCESS_OWNER = define_metadata_key("access/owner", MetadataType.STRING, "Owner")
-ACCESS_SHARED = define_metadata_key(
-    "access/shared", MetadataType.INT, "Shared", width=100
-)
-ACCESS_SHARED_WITH = define_metadata_key(
-    "access/shared_with", MetadataType.STRING, "Shared with"
-)
-ACCESS_SHARING_USER = define_metadata_key(
-    "access/sharing_user", MetadataType.JSON, "Sharing user"
-)
-
-FILE_SIZE = define_metadata_key(
-    "file/size", MetadataType.INT, "Size (bytes)", width=120
-)
-FILE_VERSION = define_metadata_key("file/version", MetadataType.INT, "Version")
-FLAG_HIDDEN = define_metadata_key("flag/hidden", MetadataType.INT, "Hidden", width=100)
-HASH_MD5 = define_metadata_key("hash/md5", MetadataType.STRING, "MD5 Hash")
-MIME_TYPE = define_metadata_key("mime/type", MetadataType.STRING, "MIME Type")
-STARRED = define_metadata_key("file/starred", MetadataType.INT, "Starred", width=100)
-TIME_CREATED = define_metadata_key("time/created", MetadataType.DATETIME, "Created")
-TIME_MODIFIED = define_metadata_key("time/modified", MetadataType.DATETIME, "Modified")
-TIME_MODIFIED_BY_ME = define_metadata_key(
-    "time/modified_by_me", MetadataType.DATETIME, "Modified by me"
-)
-TIME_SHARED_WITH_ME = define_metadata_key(
-    "time/shared_with_me", MetadataType.DATETIME, "Shared with me"
-)
-TIME_TRASHED = define_metadata_key("time/trashed", MetadataType.DATETIME, "Trashed")
-TIME_VIEWED_BY_ME = define_metadata_key(
-    "time/viewed_by_me", MetadataType.DATETIME, "Viewed by me"
-)
-WARNING_NAME_READABILITY = define_metadata_key(
-    "warning/name_readability", MetadataType.JSON
-)
-
-
-# version_of
-# variant_of
-
-# source_status: found, error, missing, new, deleted, moved
-# flag_review, flag_delete, flag_favorite, flag_hide
-
-# Content fingerprints
-# Used for similarity and deduplication
-# MinHash (LSH), SimHash for text
-# pHash, aHash, dHash for images
-# Chromaprint / AcoustID, dejavu for audio
-# ssdeep, tlsh, sdhash for general binary content
-
-# Filename (derived?)
-# Extension (derived?)
-# Parent folder (derived)
-# Tags
-# Access time (st_atime, in most filesystems)
-# Birth time (st_birthtime, in APFS, NTFS, FAT)
-# Downloaded time: MacOS extended attributes
-
-# Document related metadata
-# original_uri: str | None = None
-# download_uri: str | None = None # If given, a special URL that can be used to download the document but not used as ID
-# uri: str
-# title: str | None = None
-# summary: str | None = None
-# description: str | None = None
-# byline: str | None = None
-# lang: str | None = None
-# authors: list[str] = []
-# keywords: list[str] = []
-# characters: int = 0 - generated
-
-
-# Extended attributes
-# Access using Python xattr library
-# Available mostly in MacOS and Linux. Namespaces like user., system., security.
-# Example: user.downloaded, system.metadata, security.label
-# macOS (APFS, HFS+)
-# com.apple.quarantine — Quarantine flag for downloaded files
-# com.apple.metadata:kMDItemWhereFroms — Download source URLs (plist)
-# com.apple.metadata:kMDItemDownloadedDate — Downloaded date (plist)
-# com.apple.metadata:_kMDItemUserTags — Finder tags
-# com.apple.FinderInfo — Finder metadata
-# com.apple.ResourceFork — Classic Mac resource fork
-# com.apple.lastuseddate#PS — Last used date (plist)
-
-# Linux (ext4, XFS, etc.)
-# user.comment — User comment
-# user.xdg.origin.url — Download source URL (used by some apps)
-
-# Image metadata standards
-# EXIF: Exchangeable Image File Format (JPEG, TIFF, some PNG, WebP)
-# IPTC: International Press Telecommunications Council (news/photo metadata, often embedded in JPEG)
-# XMP: Extensible Metadata Platform (Adobe, can be embedded in many formats, including JPEG, TIFF, PNG, PDF)
-# JFIF: JPEG File Interchange Format (basic metadata for JPEG)
-
-# Audio metadata standards
-# ID3: Used in MP3 files (ID3v1, ID3v2) for title, artist, album, etc.
-# Vorbis Comments: Used in OGG, FLAC, Opus, and others
-# APE tags: Used in Monkey’s Audio and some other formats
-# RIFF INFO: Used in WAV and AVI files
-
-# Video metadata standards
-# RIFF INFO: Used in AVI, WAV
-# QuickTime/MP4 atoms: Metadata in MOV/MP4 files
-# Matroska tags: Used in MKV files
-# XMP: Can be embedded in some video formats
-
-# Documents
-# PDF:
-# Document Info Dictionary: Title, Author, Subject, etc.
-# XMP: Embedded for richer metadata
-# Microsoft Office (DOCX, XLSX, PPTX):
-# Core Properties: Title, Author, Created, Modified, etc. (stored as XML in the ZIP container)
-# Custom Properties: User-defined fields
-# OpenDocument (ODT, ODS, ODP):
-# Meta.xml: Contains document metadata
-# EPUB:
-# OPF file: Metadata in XML
-# Plain text/Markdown:
-# Sometimes a YAML front matter block is used for metadata
-
-# Sidecar files:
-# .xmp files (for images, video, audio)
-# .cue files (for audio CDs)
-
-# Websites, HTML
-# HTML meta tags: <meta name="description" content="...">
-# Open Graph tags: <meta property="og:title" content="...">
-# Dublin Core: <meta name="DC.title" content="...">
-# RDFa: <div vocab="http://schema.org/" typeof="Article">
-# JSON-LD: <script type="application/ld+json">{"@context": "http://schema.org", "@type": "Article", "headline": "..."}</script>
-
-# Tools/Libraries for Reading Metadata:
-
-# Images: Pillow, piexif, exiftool, pyexiv2
-# Audio: mutagen, eyed3, tinytag
-# Video: ffmpeg, hachoir, mediainfo
-# PDF: PyPDF2, pdfminer, exiftool
-# Office: python-docx, python-pptx, openpyxl, olefile
-# General: exiftool (command-line, supports almost everything)

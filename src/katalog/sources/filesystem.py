@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict
+from typing import Any, Dict
 from urllib.parse import unquote, urlparse
 
 if os.name == "nt":
@@ -8,16 +8,18 @@ if os.name == "nt":
 
 from loguru import logger
 
-from katalog.db import Snapshot
 from katalog.sources.base import AssetRecordResult, ScanResult, SourcePlugin
 from katalog.models import (
+    FileAccessor,
+    Asset,
+    Snapshot,
+)
+from katalog.metadata import (
     FILE_ABSOLUTE_PATH,
     FILE_SIZE,
     FLAG_HIDDEN,
     TIME_CREATED,
     TIME_MODIFIED,
-    FileAccessor,
-    Asset,
 )
 from katalog.utils.utils import timestamp_to_utc
 
