@@ -160,34 +160,97 @@ WARNING_NAME_READABILITY = define_metadata(
 
 # flag_review, flag_delete, flag_favorite, flag_hide
 
-# Content fingerprints
-# Used for similarity and deduplication
-# MinHash (LSH), SimHash for text
-# pHash, aHash, dHash for images
-# Chromaprint / AcoustID, dejavu for audio
-# ssdeep, tlsh, sdhash for general binary content
+# Content fingerprints (used for similarity / deduplication)
+# Hashes often represented as strings; some fingerprints are lists/maps
+FINGERPRINT_MINHASH = define_metadata(
+    "fingerprint/minhash", MetadataType.JSON, "MinHash fingerprint"
+)
+FINGERPRINT_SIMHASH = define_metadata(
+    "fingerprint/simhash", MetadataType.STRING, "SimHash (text)"
+)
+FINGERPRINT_PHASH = define_metadata(
+    "fingerprint/phash", MetadataType.STRING, "Perceptual hash (images)"
+)
+FINGERPRINT_AHASH = define_metadata(
+    "fingerprint/ahash", MetadataType.STRING, "Average hash (images)"
+)
+FINGERPRINT_DHASH = define_metadata(
+    "fingerprint/dhash", MetadataType.STRING, "Difference hash (images)"
+)
+FINGERPRINT_AUDIO_CHROMAPRINT = define_metadata(
+    "fingerprint/chromaprint", MetadataType.STRING, "Chromaprint (audio)"
+)
+FINGERPRINT_SSDEEP = define_metadata(
+    "fingerprint/ssdeep", MetadataType.STRING, "ssdeep fuzzy hash"
+)
 
-# Filename (derived?)
-# Extension (derived?)
-# Parent folder (derived)
-# Tags
-# Access time (st_atime, in most filesystems)
-# Birth time (st_birthtime, in APFS, NTFS, FAT)
+# Derived / filesystem values
+FILE_EXTENSION = define_metadata(
+    "file/extension", MetadataType.STRING, "File extension"
+)
+FILE_PARENT = define_metadata("file/parent", MetadataType.STRING, "Parent folder path")
+FILE_ATIME = define_metadata("file/atime", MetadataType.DATETIME, "Access time")
+FILE_BIRTHTIME = define_metadata(
+    "file/birthtime", MetadataType.DATETIME, "Birth/creation time (fs)"
+)
+
 # Downloaded time: MacOS extended attributes
 
-# Document related metadata
-# original_uri: str | None = None
-# download_uri: str | None = None # If given, a special URL that can be used to download the document but not used as ID
-# uri: str
-# title: str | None = None
-# summary: str | None = None
-# description: str | None = None
-# byline: str | None = None
-# lang: str | None = None
-# authors: list[str] = []
-# keywords: list[str] = []
-# characters: int = 0 - generated
+# Tags and simple collections
+TAGS = define_metadata("file/tags", MetadataType.JSON, "Tags")
 
+# Document related metadata
+DOC_ORIGINAL_URI = define_metadata(
+    "document/original_uri", MetadataType.STRING, "Original document URI"
+)
+DOC_DOWNLOAD_URI = define_metadata(
+    "document/download_uri", MetadataType.STRING, "Download URI"
+)
+DOC_URI = define_metadata("document/uri", MetadataType.STRING, "Document canonical URI")
+DOC_TITLE = define_metadata("document/title", MetadataType.STRING, "Document title")
+DOC_SUMMARY = define_metadata(
+    "document/summary", MetadataType.STRING, "Document summary"
+)
+DOC_BYLINE = define_metadata(
+    "document/byline", MetadataType.STRING, "Byline / author string"
+)
+DOC_LANG = define_metadata("document/lang", MetadataType.STRING, "Document language")
+DOC_AUTHOR = define_metadata("document/author", MetadataType.JSON, "Document author")
+DOC_KEYWORD = define_metadata(
+    "document/keywords", MetadataType.JSON, "Document keyword"
+)
+DOC_CHARACTERS = define_metadata("document/chars", MetadataType.INT, "Character count")
+DOC_WORDS = define_metadata("document/words", MetadataType.INT, "Word count")
+DOC_PAGES = define_metadata("document/pages", MetadataType.INT, "Page count")
+
+# Image / Audio / Video specific metadata containers (structured JSON)
+IMAGE_EXIF = define_metadata("image/exif", MetadataType.JSON, "Image EXIF metadata")
+IMAGE_IPTC = define_metadata("image/iptc", MetadataType.JSON, "Image IPTC metadata")
+IMAGE_XMP = define_metadata("image/xmp", MetadataType.JSON, "Image XMP metadata")
+
+AUDIO_TAGS = define_metadata("audio/tags", MetadataType.JSON, "Audio tags (ID3/Vorbis)")
+VIDEO_ATOMS = define_metadata(
+    "video/atoms", MetadataType.JSON, "QuickTime/MP4 atoms or similar"
+)
+
+# Sidecar / external metadata
+SIDECAR_XMP = define_metadata("sidecar/xmp", MetadataType.JSON, "Sidecar XMP data")
+SIDECAR_CUE = define_metadata(
+    "sidecar/cue", MetadataType.JSON, "Sidecar CUE data (audio)"
+)
+
+# Extended attributes (OS-specific). These are intentionally generic JSON
+# because xattrs can contain platform-specific formats (plist, binary).
+# Examples: macOS `com.apple.metadata:kMDItemWhereFroms`, `com.apple.metadata:_kMDItemUserTags`.
+XATTR = define_metadata("xattr/all", MetadataType.JSON, "All extended attributes")
+XATTR_DOWNLOADED_DATE = define_metadata(
+    "xattr/downloaded_date",
+    MetadataType.DATETIME,
+    "Downloaded date from xattr (if available)",
+)
+XATTR_FINDER_TAGS = define_metadata(
+    "xattr/finder_tags", MetadataType.JSON, "Finder tags / user tags from xattr"
+)
 
 # Extended attributes
 # Access using Python xattr library
@@ -201,53 +264,135 @@ WARNING_NAME_READABILITY = define_metadata(
 # com.apple.FinderInfo — Finder metadata
 # com.apple.ResourceFork — Classic Mac resource fork
 # com.apple.lastuseddate#PS — Last used date (plist)
-
 # Linux (ext4, XFS, etc.)
 # user.comment — User comment
 # user.xdg.origin.url — Download source URL (used by some apps)
 
-# Image metadata standards
-# EXIF: Exchangeable Image File Format (JPEG, TIFF, some PNG, WebP)
-# IPTC: International Press Telecommunications Council (news/photo metadata, often embedded in JPEG)
-# XMP: Extensible Metadata Platform (Adobe, can be embedded in many formats, including JPEG, TIFF, PNG, PDF)
-# JFIF: JPEG File Interchange Format (basic metadata for JPEG)
+# --- More specific fields derived from standards/tools ---
+# Examples are shown inline (truncated) to illustrate typical values.
 
-# Audio metadata standards
-# ID3: Used in MP3 files (ID3v1, ID3v2) for title, artist, album, etc.
-# Vorbis Comments: Used in OGG, FLAC, Opus, and others
-# APE tags: Used in Monkey’s Audio and some other formats
-# RIFF INFO: Used in WAV and AVI files
+# EXIF common fields (also available inside `image/exif` container)
+IMAGE_EXIF_MAKE = define_metadata(
+    "image/exif/make", MetadataType.STRING, "Camera maker"
+)
+# e.g. "Canon"
+IMAGE_EXIF_MODEL = define_metadata(
+    "image/exif/model", MetadataType.STRING, "Camera model"
+)
+# e.g. "Canon EOS 5D Mark IV"
+IMAGE_EXIF_DATETIME_ORIGINAL = define_metadata(
+    "image/exif/datetime_original", MetadataType.DATETIME, "Original capture time"
+)
+# e.g. 2021-07-14T12:34:56
+IMAGE_EXIF_ORIENTATION = define_metadata(
+    "image/exif/orientation", MetadataType.INT, "Orientation flag"
+)
+# e.g. 1..8
+IMAGE_EXIF_FOCAL_LENGTH = define_metadata(
+    "image/exif/focal_length", MetadataType.FLOAT, "Focal length (mm)"
+)
+# e.g. 35.0
+IMAGE_EXIF_APERTURE = define_metadata(
+    "image/exif/aperture", MetadataType.FLOAT, "Aperture (f-number)"
+)
+# e.g. 2.8
+IMAGE_EXIF_ISO = define_metadata("image/exif/iso", MetadataType.INT, "ISO speed")
+# e.g. 100
+IMAGE_GPS_LATITUDE = define_metadata(
+    "image/exif/gps_latitude", MetadataType.FLOAT, "GPS latitude (decimal)"
+)
+# e.g. 51.5074
+IMAGE_GPS_LONGITUDE = define_metadata(
+    "image/exif/gps_longitude", MetadataType.FLOAT, "GPS longitude (decimal)"
+)
+# e.g. -0.1278
 
-# Video metadata standards
-# RIFF INFO: Used in AVI, WAV
-# QuickTime/MP4 atoms: Metadata in MOV/MP4 files
-# Matroska tags: Used in MKV files
-# XMP: Can be embedded in some video formats
+# IPTC common fields (also inside `image/iptc`)
+IMAGE_IPTC_HEADLINE = define_metadata(
+    "image/iptc/headline", MetadataType.STRING, "IPTC headline"
+)
+# e.g. "Protest March Downtown"
+IMAGE_IPTC_CAPTION = define_metadata(
+    "image/iptc/caption", MetadataType.STRING, "IPTC caption/description"
+)
+# e.g. "Crowds gathered in central plaza..."
 
-# Documents
-# PDF:
-# Document Info Dictionary: Title, Author, Subject, etc.
-# XMP: Embedded for richer metadata
-# Microsoft Office (DOCX, XLSX, PPTX):
-# Core Properties: Title, Author, Created, Modified, etc. (stored as XML in the ZIP container)
-# Custom Properties: User-defined fields
-# OpenDocument (ODT, ODS, ODP):
-# Meta.xml: Contains document metadata
-# EPUB:
-# OPF file: Metadata in XML
-# Plain text/Markdown:
-# Sometimes a YAML front matter block is used for metadata
+# ID3 / audio tag scalars (also inside `audio/tags` container)
+AUDIO_TITLE = define_metadata("audio/title", MetadataType.STRING, "Track title")
+# e.g. "Song Name"
+AUDIO_ARTIST = define_metadata("audio/artist", MetadataType.STRING, "Artist")
+# e.g. "Artist Name"
+AUDIO_ALBUM = define_metadata("audio/album", MetadataType.STRING, "Album")
+# e.g. "Album Title"
+AUDIO_TRACK = define_metadata("audio/track", MetadataType.INT, "Track number")
+# e.g. 3
+AUDIO_GENRE = define_metadata("audio/genre", MetadataType.STRING, "Genre")
+# e.g. "Rock"
+AUDIO_YEAR = define_metadata("audio/year", MetadataType.INT, "Year")
+# e.g. 1999
 
-# Sidecar files:
-# .xmp files (for images, video, audio)
-# .cue files (for audio CDs)
+# HTML meta / OpenGraph / Schema.org
+HTML_META_DESCRIPTION = define_metadata(
+    "html/meta_description", MetadataType.STRING, "HTML meta description"
+)
+# e.g. "A short summary of the page"
+HTML_META_KEYWORDS = define_metadata(
+    "html/meta_keywords", MetadataType.JSON, "HTML meta keywords"
+)
+# e.g. ["katalog","photos"]
+OG_TITLE = define_metadata("og/title", MetadataType.STRING, "OpenGraph title")
+# e.g. "Article Title"
+OG_DESCRIPTION = define_metadata(
+    "og/description", MetadataType.STRING, "OpenGraph description"
+)
+# e.g. "Summary for social cards"
+OG_TYPE = define_metadata("og/type", MetadataType.STRING, "OpenGraph type")
+# e.g. "article"
+OG_IMAGE = define_metadata("og/image", MetadataType.STRING, "OpenGraph image URL")
+# e.g. "https://example.com/cover.jpg"
+OG_URL = define_metadata("og/url", MetadataType.STRING, "OpenGraph canonical URL")
+# e.g. "https://example.com/article/1"
+SCHEMA_ORG = define_metadata(
+    "schemaorg/jsonld", MetadataType.JSON, "Schema.org JSON-LD"
+)
+# e.g. {"@context":..., "@type":"Article", ...}
 
-# Websites, HTML
-# HTML meta tags: <meta name="description" content="...">
-# Open Graph tags: <meta property="og:title" content="...">
-# Dublin Core: <meta name="DC.title" content="...">
-# RDFa: <div vocab="http://schema.org/" typeof="Article">
-# JSON-LD: <script type="application/ld+json">{"@context": "http://schema.org", "@type": "Article", "headline": "..."}</script>
+# Markdown front matter (YAML/ TOML) common fields
+MF_TITLE = define_metadata(
+    "frontmatter/title", MetadataType.STRING, "Front matter title"
+)
+# e.g. "My Post"
+MF_DATE = define_metadata(
+    "frontmatter/date", MetadataType.DATETIME, "Front matter date"
+)
+# e.g. 2022-01-01
+MF_TAGS = define_metadata("frontmatter/tags", MetadataType.JSON, "Front matter tags")
+# e.g. ["notes","work"]
+MF_CATEGORIES = define_metadata(
+    "frontmatter/categories", MetadataType.JSON, "Front matter categories"
+)
+# e.g. ["blog"]
+MF_AUTHOR = define_metadata(
+    "frontmatter/author", MetadataType.STRING, "Front matter author"
+)
+# e.g. "Jane Doe"
+MF_EXCERPT = define_metadata(
+    "frontmatter/excerpt", MetadataType.STRING, "Front matter excerpt"
+)
+# e.g. "Short summary..."
+
+# Office / ODT metadata
+OFFICE_CORE_PROPERTIES = define_metadata(
+    "office/core_properties", MetadataType.JSON, "Office core properties (docx/odt)"
+)
+# e.g. {"creator":"Alice","created":"2020-01-01T...",...}
+OFFICE_CUSTOM_PROPERTIES = define_metadata(
+    "office/custom_properties", MetadataType.JSON, "Office custom properties"
+)
+# e.g. {"Project":"Katalog","Reviewed":True}
+ODT_EDITOR = define_metadata("odt/editor", MetadataType.STRING, "ODT last editor")
+# e.g. "libreoffice 7.0"
+
 
 # Tools/Libraries for Reading Metadata:
 
