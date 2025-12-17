@@ -17,7 +17,7 @@ from katalog.models import (
     TIME_CREATED,
     TIME_MODIFIED,
     FileAccessor,
-    AssetRecord,
+    Asset,
 )
 from katalog.utils.utils import timestamp_to_utc
 
@@ -60,11 +60,11 @@ class FilesystemClient(SourcePlugin):
             "version": "0.1",
         }
 
-    def get_accessor(self, record: AssetRecord) -> Any:
+    def get_accessor(self, asset: Asset) -> Any:
         """Return an accessor keyed off the canonical absolute path."""
-        if not record.canonical_uri:
+        if not asset.canonical_uri:
             return None
-        return FilesystemAccessor(_canonical_uri_to_path(record.canonical_uri))
+        return FilesystemAccessor(_canonical_uri_to_path(asset.canonical_uri))
 
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
@@ -98,7 +98,7 @@ class FilesystemClient(SourcePlugin):
                             asset_id = f"path:{full_path}"
 
                         abs_path = Path(full_path).resolve()
-                        asset = AssetRecord(
+                        asset = Asset(
                             id=asset_id,
                             provider_id=self.id,
                             canonical_uri=abs_path.as_uri(),

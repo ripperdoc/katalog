@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, FrozenSet, Protocol, runtime_checkable
+from typing import Any, ClassVar, FrozenSet, Protocol, cast, runtime_checkable
 
 from katalog.db import Database, Snapshot
-from katalog.models import Metadata, MetadataKey
+from katalog.models import Metadata, MetadataKey, Provider
+from katalog.utils.utils import import_plugin_class
 
 
 @dataclass(slots=True)
@@ -90,3 +91,10 @@ class Analyzer(Protocol):
         """Execute the analyzer and return the metadata mutations to persist."""
 
         raise NotImplementedError()
+
+
+def make_analyzer_instance(analyzer_record: Provider) -> Analyzer:
+    AnalyzerClass = cast(
+        type[Analyzer], import_plugin_class(analyzer_record.class_path)
+    )
+    return AnalyzerClass(**analyzer_record.config)

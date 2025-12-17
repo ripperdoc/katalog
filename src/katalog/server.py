@@ -4,18 +4,15 @@ from loguru import logger
 from fastapi import FastAPI, HTTPException
 from typing import Any, Literal, Optional
 
-from katalog.analyzers.runtime import AnalyzerEntry, load_analyzers, run_analyzers
-from katalog.sources.base import ScanStatus, SourcePlugin
-from katalog.models import SnapshotStats
+from katalog.analyzers.runtime import run_analyzers
+from katalog.sources.base import make_source_instance
+from katalog.models import OpStatus, Provider, ProviderType, SnapshotStats, Snapshot
 from katalog.config import WORKSPACE
-from katalog.db import Database
 from katalog.processors.runtime import (
-    ProcessorStage,
     ProcessorTaskResult,
-    process as run_processors,
+    process_asset,
     sort_processors,
 )
-from katalog.utils.utils import import_plugin_class, load_plugin_configs
 
 app = FastAPI()
 
@@ -26,54 +23,6 @@ DATABASE_URL = f"sqlite:///{db_path}"
 # Configure basic logging and report which database file is being used
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DATABASE_URL}")
-
-database = Database(db_path)
-database.initialize_schema()
-SOURCE_CONFIGS: dict[str, dict[str, Any]] = {}
-PROCESSOR_CONFIGS: list[dict[str, Any]] = []
-ANALYZER_CONFIGS: list[dict[str, Any]] = []
-PROCESSOR_PIPELINE: list[ProcessorStage] | None = None
-ANALYZER_PIPELINE: list[AnalyzerEntry] | None = None
-SOURCE_CACHE: dict[str, SourcePlugin] = {}
-
-SOURCE_CONFIGS, PROCESSOR_CONFIGS, ANALYZER_CONFIGS = load_plugin_configs(
-    database=database,
-    workspace=WORKSPACE,
-)
-
-
-def _get_source_config_or_404(provider_id: str) -> dict[str, Any]:
-    config = SOURCE_CONFIGS.get(provider_id)
-    if not config:
-        raise HTTPException(status_code=404, detail=f"Unknown source '{provider_id}'")
-    return config
-
-
-def _get_source_plugin(provider_id: str, source_cfg: dict[str, Any]) -> SourcePlugin:
-    cached = SOURCE_CACHE.get(provider_id)
-    if cached is not None:
-        return cached
-    class_path = source_cfg.get("class")
-    if not class_path:
-        raise ValueError(f"Source {provider_id} is missing a 'class'")
-    SourceClass = import_plugin_class(class_path)
-    source = SourceClass(**source_cfg)
-    SOURCE_CACHE[provider_id] = source
-    return source
-
-
-def _get_processor_pipeline() -> list[ProcessorStage]:
-    global PROCESSOR_PIPELINE
-    if PROCESSOR_PIPELINE is None:
-        PROCESSOR_PIPELINE = sort_processors(PROCESSOR_CONFIGS, database=database)
-    return PROCESSOR_PIPELINE
-
-
-def _get_analyzers() -> list[AnalyzerEntry]:
-    global ANALYZER_PIPELINE
-    if ANALYZER_PIPELINE is None:
-        ANALYZER_PIPELINE = load_analyzers(ANALYZER_CONFIGS, database=database)
-    return ANALYZER_PIPELINE
 
 
 async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
@@ -99,13 +48,17 @@ async def _drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, i
 
 
 @app.post("/snapshot/{provider_id}")
-async def snapshot_source(provider_id: str):
-    source_cfg = _get_source_config_or_404(provider_id)
-    source_plugin = _get_source_plugin(provider_id, source_cfg)
-    since_snapshot = database.get_cutoff_snapshot(provider_id)
-    processor_pipeline = _get_processor_pipeline()
-    logger.info(f"Snapshotting source: {provider_id}")
-    snapshot = database.begin_snapshot(provider_id)
+async def snapshot_source(provider_id: int):
+    source_record = await Provider.get_or_none(id=provider_id)
+    if not source_record or source_record.type != ProviderType.SOURCE:
+        raise HTTPException(status_code=404, detail=f"Unknown source '{provider_id}'")
+
+    source_plugin = make_source_instance(source_record)
+    # since_snapshot = database.get_cutoff_snapshot(provider_id)
+    since_snapshot = None
+    processor_pipeline = await sort_processors()
+    logger.info(f"Snapshotting source: {source_record}")
+    snapshot = await Snapshot.begin(source_record)
     stats = SnapshotStats()
     seen = 0
     added = 0
@@ -133,10 +86,9 @@ async def snapshot_source(provider_id: str):
                 stats.assets_processed += 1
                 processor_tasks.append(
                     asyncio.create_task(
-                        run_processors(
-                            record=result.asset,
+                        process_asset(
+                            asset=result.asset,
                             snapshot=snapshot,
-                            database=database,
                             stages=processor_pipeline,
                             initial_changes=changes,
                             stats=stats,
@@ -145,32 +97,25 @@ async def snapshot_source(provider_id: str):
                 )
     except asyncio.CancelledError:
         logger.info(
-            f"Snapshot {snapshot.id} for source {provider_id} canceled by client"
+            f"Snapshot {snapshot} for source {source_record} canceled by client"
         )
         for task in processor_tasks:
             task.cancel()
         delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
         processor_modified += delta_modified
         processor_failed += delta_failed
-        database.finalize_snapshot(snapshot, status="canceled", stats=stats)
+        await snapshot.finalize(status=OpStatus.CANCELED, stats=stats)
         raise
     except Exception:
         delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
         processor_modified += delta_modified
         processor_failed += delta_failed
-        database.finalize_snapshot(snapshot, status="failed", stats=stats)
+        await snapshot.finalize(status=OpStatus.ERROR, stats=stats)
         raise
     delta_modified, delta_failed = await _drain_processor_tasks(processor_tasks)
     processor_modified += delta_modified
     processor_failed += delta_failed
-    status_map = {
-        ScanStatus.FULL: "full",
-        ScanStatus.PARTIAL: "partial",
-        ScanStatus.CANCELED: "canceled",
-        ScanStatus.ERROR: "failed",
-    }
-    final_status = status_map.get(scan_handle.status, "full") if scan_handle else "full"
-    database.finalize_snapshot(snapshot, status=final_status, stats=stats)
+    await snapshot.finalize(status=scan_handle.status, stats=stats)
     seen = stats.assets_seen
     added = stats.assets_added
     updated = stats.assets_changed
@@ -178,7 +123,7 @@ async def snapshot_source(provider_id: str):
         "status": "snapshot complete",
         "source": provider_id,
         "snapshot_id": snapshot.id,
-        "snapshot_status": final_status,
+        "snapshot_status": scan_handle.status,
         "stats": {
             "seen": seen,
             "updated": updated,
@@ -190,13 +135,8 @@ async def snapshot_source(provider_id: str):
     }
 
 
-@app.get("/records")
-def list_files(provider_id: Optional[str] = None, view: str = "flat"):
-    if view not in {"flat", "complete"}:
-        raise ValueError("view must be 'flat' or 'complete'")
-    selected_view: Literal["flat", "complete"] = (
-        "flat" if view == "flat" else "complete"
-    )
+@app.get("/assets")
+def list_assets(provider_id: Optional[int] = None):
     return database.list_records_with_metadata(
         provider_id=provider_id, view=selected_view
     )

@@ -12,7 +12,7 @@ from katalog.analyzers.base import (
     FileGroupFinding,
 )
 from katalog.db import Database, Snapshot
-from katalog.models import SnapshotStats
+from katalog.models import Provider, SnapshotStats
 from katalog.utils.utils import import_plugin_class
 
 
@@ -24,6 +24,8 @@ class AnalyzerEntry:
     instance: Analyzer
     plugin_id: str
     provider_id: str
+    title: str
+    config: dict[str, Any]
     order: int = 0
 
 
@@ -119,13 +121,7 @@ def _instantiate_analyzer(
     name = config.get("id") or f"{AnalyzerClass.__name__}:{index}"
     provider_id = config.get("provider_id") or f"analyzer:{name}"
     plugin_id = getattr(AnalyzerClass, "PLUGIN_ID", AnalyzerClass.__module__)
-    database.ensure_source(
-        provider_id,
-        title=config.get("title") or f"Analyzer {name}",
-        plugin_id=plugin_id,
-        config=config,
-        provider_type="analyzer",
-    )
+    title = config.get("title") or f"Analyzer {name}"
     if not hasattr(instance, "provider_id"):
         setattr(instance, "provider_id", provider_id)
     order_value = config.get("order")
@@ -135,6 +131,8 @@ def _instantiate_analyzer(
         instance=instance,
         plugin_id=plugin_id,
         provider_id=provider_id,
+        title=title,
+        config=config,
         order=order,
     )
 
@@ -150,8 +148,8 @@ def _persist_analyzer_result(
     metadata_count = 0
     if result.metadata:
         for item in result.metadata:
-            if item.provider_id is None:
-                item.provider_id = entry.provider_id
+            if getattr(item, "provider_id", None) is None:
+                setattr(item, "provider_id", entry.provider_id)
         metadata_count = database.insert_metadata(
             result.metadata,
             snapshot=snapshot,

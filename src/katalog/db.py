@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from katalog.analyzers.base import RelationshipRecord
 
 from katalog.models import (
-    AssetRecord,
     Metadata,
     MetadataKey,
     get_metadata_schema,
@@ -29,8 +28,8 @@ from katalog.models import (
 SCHEMA_STATEMENTS = (
     """-- sql
     CREATE TABLE IF NOT EXISTS providers (
-        id TEXT PRIMARY KEY,
-        title TEXT,
+        id INTEGER PRIMARY KEY,
+        title TEXT UNIQUE NOT NULL,
         plugin_id TEXT,
         config TEXT,
         type TEXT NOT NULL CHECK (type IN ('source','processor','analyzer','editor', 'exporter')),
@@ -41,7 +40,7 @@ SCHEMA_STATEMENTS = (
     """-- sql
     CREATE TABLE IF NOT EXISTS snapshots (
         id INTEGER PRIMARY KEY,
-        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+        provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
         started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         completed_at DATETIME,
         status TEXT NOT NULL CHECK (status IN ('in_progress','partial','full', 'failed', 'canceled')),
@@ -53,13 +52,13 @@ SCHEMA_STATEMENTS = (
     """,
     """-- sql
     CREATE TABLE IF NOT EXISTS assets (
-        id TEXT PRIMARY KEY,
-        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-        canonical_uri TEXT NOT NULL,
+        id INTEGER PRIMARY KEY,
+        provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+        canonical_id TEXT UNIQUE NOT NULL,
+        canonical_uri TEXT UNIQUE NOT NULL,
         created_snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE RESTRICT,
         last_snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE RESTRICT,
-        deleted_snapshot_id INTEGER REFERENCES snapshots(id) ON DELETE SET NULL,
-        UNIQUE (provider_id, canonical_uri)
+        deleted_snapshot_id INTEGER REFERENCES snapshots(id) ON DELETE SET NULL
     );
     """,
     """-- sql
@@ -68,8 +67,8 @@ SCHEMA_STATEMENTS = (
     """-- sql
     CREATE TABLE IF NOT EXISTS metadata (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
-        provider_id TEXT NOT NULL REFERENCES providers(id),
+        asset_id INTEGER REFERENCES assets(id) ON DELETE CASCADE,
+        provider_id INTEGER NOT NULL REFERENCES providers(id),
         snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
         metadata_key TEXT NOT NULL,
         value_type TEXT NOT NULL CHECK (value_type IN ('string','int','float','datetime','json')),
@@ -205,7 +204,7 @@ class Database:
 
     def begin_snapshot(
         self,
-        provider_id: str,
+        provider: Provider,
         *,
         status: str = "in_progress",
         metadata: dict[str, Any] | None = None,
@@ -503,10 +502,10 @@ class Database:
         stats: SnapshotStats | None = None,
     ) -> set[str]:
         grouped_values: dict[
-            tuple[str, MetadataKey], dict[tuple[str, Any], dict[str, Any]]
+            tuple[int, MetadataKey], dict[tuple[int, Any], dict[int, Any]]
         ] = {}
-        provider_scope: set[str] = set()
-        cleared_combos: set[tuple[str, MetadataKey]] = set()
+        provider_scope: set[int] = set()
+        cleared_combos: set[tuple[int, MetadataKey]] = set()
         total_additions = 0
         total_removals = 0
         for entry in metadata:

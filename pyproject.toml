@@ -13,6 +13,8 @@ dependencies = [
     "python-magic>=0.4.27",
     "uvicorn[standard]>=0.29.0",
     "loguru",
+    "tortoise-orm",
+    "aiosqlite==0.21.0",                 # pinned as .22 has a breaking change that Tortoise ORM hasn't adapted to yet
 ]
 
 [tool.uv]

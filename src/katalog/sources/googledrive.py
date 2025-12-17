@@ -33,14 +33,15 @@ from katalog.models import (
     TIME_SHARED_WITH_ME,
     TIME_TRASHED,
     TIME_VIEWED_BY_ME,
-    AssetRecord,
+    Asset,
+    OpStatus,
     Metadata,
+    MetadataType,
     define_metadata_key,
 )
 from katalog.sources.base import (
     AssetRecordResult,
     ScanResult,
-    ScanStatus,
     SourcePlugin,
 )
 from katalog.utils.utils import parse_google_drive_datetime
@@ -127,7 +128,9 @@ class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive."""
 
     PLUGIN_ID = "dev.katalog.client.googledrive"
-    FILE_WEB_VIEW_LINK = define_metadata_key("file/web_view_link", "string", "Web link")
+    FILE_WEB_VIEW_LINK = define_metadata_key(
+        "file/web_view_link", MetadataType.STRING, "Web link"
+    )
 
     def __init__(self, id: str, max_files: int = 500, **_: Any) -> None:
         self.id = id
@@ -165,7 +168,7 @@ class GoogleDriveClient(SourcePlugin):
             "version": "0.1",
         }
 
-    def get_accessor(self, record: AssetRecord) -> Any:
+    def get_accessor(self, asset: Asset) -> Any:
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
@@ -233,11 +236,11 @@ class GoogleDriveClient(SourcePlugin):
                     await asyncio.sleep(0)
             finally:
                 if limit_reached:
-                    scan_result.status = ScanStatus.CANCELED
+                    scan_result.status = OpStatus.CANCELED
                 elif cutoff_reached:
-                    scan_result.status = ScanStatus.PARTIAL
+                    scan_result.status = OpStatus.PARTIAL
                 else:
-                    scan_result.status = ScanStatus.FULL
+                    scan_result.status = OpStatus.COMPLETED
                 self._persist_folder_cache()
 
         scan_result = ScanResult(iterator=inner())
@@ -248,8 +251,8 @@ class GoogleDriveClient(SourcePlugin):
         file_id = file.get("id", "")
         canonical_uri = f"https://drive.google.com/file/d/{file_id}"
 
-        asset = AssetRecord(
-            id=file_id,
+        asset = Asset(
+            canonical_id=file_id,
             provider_id=self.id,
             canonical_uri=canonical_uri,
         )

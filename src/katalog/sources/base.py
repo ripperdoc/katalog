@@ -1,21 +1,23 @@
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, AsyncIterator, Collection
+from typing import Any, AsyncIterator, Collection, cast
 
 from katalog.db import Snapshot
 from katalog.models import (
-    AssetRecord,
+    Asset,
     AssetRelationship,
     Metadata,
     MetadataKey,
     MetadataScalar,
+    OpStatus,
+    Provider,
     make_metadata,
 )
+from katalog.utils.utils import import_plugin_class
 
 
 @dataclass(slots=True)
 class AssetRecordResult:
-    asset: AssetRecord
+    asset: Asset
     metadata: list[Metadata] = field(default_factory=list)
     relationships: list[AssetRelationship] = field(default_factory=list)
 
@@ -34,18 +36,10 @@ class AssetRecordResult:
             self.metadata.append(make_metadata(plugin_id, metadata_key, v))
 
 
-class ScanStatus(Enum):
-    IN_PROGRESS = "in_progress"
-    PARTIAL = "partial"
-    FULL = "full"
-    CANCELED = "canceled"
-    ERROR = "error"
-
-
 @dataclass(slots=True)
 class ScanResult:
     iterator: AsyncIterator[AssetRecordResult]
-    status: ScanStatus = ScanStatus.IN_PROGRESS
+    status: OpStatus = OpStatus.IN_PROGRESS
 
 
 class SourcePlugin:
@@ -57,7 +51,7 @@ class SourcePlugin:
         """Returns metadata about the plugin."""
         raise NotImplementedError()
 
-    def get_accessor(self, record: AssetRecord) -> Any:
+    def get_accessor(self, asset: Asset) -> Any:
         """
         Returns an accessor for the file data represented by the AssetRecord.
         This is used to read file data.
@@ -74,3 +68,10 @@ class SourcePlugin:
         an async iterator that yields AssetRecordResult objects with their assets and metadata to persist.
         """
         raise NotImplementedError()
+
+
+def make_source_instance(source_record: Provider) -> SourcePlugin:
+    SourceClass = cast(
+        type[SourcePlugin], import_plugin_class(source_record.class_path)
+    )
+    return SourceClass(**source_record.config)

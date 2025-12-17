@@ -9,7 +9,7 @@ from katalog.processors.base import (
     file_data_changed,
     file_data_change_dependencies,
 )
-from katalog.models import MIME_TYPE, AssetRecord, make_metadata
+from katalog.models import MIME_TYPE, Asset, make_metadata
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic
@@ -23,23 +23,21 @@ class MimeTypeProcessor(Processor):
 
     def should_run(
         self,
-        record: AssetRecord,
+        asset: Asset,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
         # TODO, some services report application/octet-stream but there is probably a better mime type to find
         # Is there a logic where we can check for that, without having to recheck every time?
-        return file_data_changed(self, record, changes)
+        return file_data_changed(self, asset, changes)
 
-    async def run(
-        self, record: AssetRecord, changes: set[str] | None
-    ) -> ProcessorResult:
+    async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
-        if not record.data:
+        if not asset.data:
             raise ValueError("AssetRecord does not have a data accessor")
         m = magic.Magic(mime=True)
-        buf = await record.data.read(0, 2048, no_cache=True)
+        buf = await asset.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)
-        provider_id = getattr(self, "provider_id", record.provider_id)
+        provider_id = getattr(self, "provider_id", asset.provider_id)
         return ProcessorResult(metadata=[make_metadata(provider_id, MIME_TYPE, mt)])

@@ -7,110 +7,80 @@ from typing import Any, Iterable, Sequence
 from loguru import logger
 
 from katalog.db import Database, Snapshot
-from katalog.models import AssetRecord, Metadata, MetadataKey, SnapshotStats
-from katalog.processors.base import Processor, ProcessorResult, ProcessorStatus
-from katalog.utils.utils import import_plugin_class
+from katalog.models import (
+    Asset,
+    Metadata,
+    MetadataKey,
+    OpStatus,
+    Provider,
+    ProviderType,
+    SnapshotStats,
+)
+from katalog.processors.base import (
+    Processor,
+    ProcessorResult,
+    make_processor_instance,
+)
 
 
-@dataclass(slots=True)
-class ProcessorEntry:
-    """Runtime wrapper that keeps processor metadata handy."""
-
-    name: str
-    provider_id: str
-    plugin_id: str
-    instance: Processor
-    dependencies: frozenset[MetadataKey]
-    outputs: frozenset[MetadataKey]
-    order: int
-
-
-ProcessorStage = list[ProcessorEntry]
+ProcessorStage = list[Processor]
 
 
 @dataclass(slots=True)
 class ProcessorTaskResult:
-    """Summarizes the outcome of running the processor pipeline for one record."""
+    """Summarizes the outcome of running the processor pipeline for one asset."""
 
     changes: set[str]
     failures: int = 0
 
 
-def _instantiate_processor(
-    config: dict[str, Any], index: int, database: Database | None
-) -> ProcessorEntry:
-    class_path = config.get("class")
-    if not class_path:
-        raise ValueError("Each processor config must include a 'class' field")
-    ProcessorClass = import_plugin_class(class_path)
-    kwargs = {k: v for k, v in config.items() if k not in {"class", "id", "order"}}
-    if database is not None:
-        kwargs.setdefault("database", database)
-    instance = ProcessorClass(**kwargs)
-    name = config.get("id") or f"{ProcessorClass.__name__}:{index}"
-    plugin_id = getattr(ProcessorClass, "PLUGIN_ID", ProcessorClass.__module__)
-    provider_id = config.get("provider_id") or f"processor:{name}"
-    if database is not None:
-        database.ensure_source(
-            provider_id,
-            title=config.get("title") or f"Processor {name}",
-            plugin_id=plugin_id,
-            config=config,
-            provider_type="processor",
-        )
-    if not hasattr(instance, "provider_id"):
-        setattr(instance, "provider_id", provider_id)
-    order_value = config.get("order")
-    order = int(order_value) if order_value is not None else 0
-    return ProcessorEntry(
-        name=name,
-        provider_id=provider_id,
-        plugin_id=plugin_id,
-        instance=instance,
-        dependencies=ProcessorClass.dependencies,
-        outputs=ProcessorClass.outputs,
-        order=order,
-    )
-
-
-def sort_processors(
-    configs: Iterable[dict[str, Any]],
-    database: Database | None = None,
-) -> list[ProcessorStage]:
+async def sort_processors() -> list[ProcessorStage]:
     """Return processors layered via Kahn topological sorting."""
 
-    entries = [
-        _instantiate_processor(cfg, idx, database) for idx, cfg in enumerate(configs)
-    ]
-    if not entries:
+    providers = await Provider.filter(type=ProviderType.PROCESSOR).order_by("id")
+    if not providers:
+        logger.warning("No processor providers found")
         return []
 
-    # Build lookup helpers
-    index_by_name = {entry.name: idx for idx, entry in enumerate(entries)}
-    entry_map = {entry.name: entry for entry in entries}
+    processors_by_name: dict[str, Processor] = {}
+    order_by_name: dict[str, tuple[int, int]] = {}
+    dependencies_by_name: dict[str, frozenset[MetadataKey]] = {}
+    outputs_by_name: dict[str, frozenset[MetadataKey]] = {}
+
+    for provider in providers:
+        processor = make_processor_instance(provider)
+        # Used when persisting produced metadata.
+        setattr(processor, "provider_id", provider.id)
+        name = provider.name
+        processors_by_name[name] = processor
+        cfg = provider.config or {}
+        order = int(cfg.get("order") or 0)
+        seq = int(cfg.get("_sequence") or provider.id)
+        order_by_name[name] = (order, seq)
+        dependencies_by_name[name] = processor.dependencies
+        outputs_by_name[name] = processor.outputs
 
     field_to_producers: dict[MetadataKey, set[str]] = {}
-    for entry in entries:
-        for output in entry.outputs:
-            field_to_producers.setdefault(output, set()).add(entry.name)
+    for name, outputs in outputs_by_name.items():
+        for output in outputs:
+            field_to_producers.setdefault(output, set()).add(name)
 
     remaining: dict[str, set[str]] = {}
-    for entry in entries:
-        deps: set[str] = set()
-        for dependency in entry.dependencies:
-            deps.update(field_to_producers.get(dependency, set()))
-        remaining[entry.name] = deps
+    for name, deps in dependencies_by_name.items():
+        producers: set[str] = set()
+        for dependency in deps:
+            producers.update(field_to_producers.get(dependency, set()))
+        remaining[name] = producers
 
     stages: list[ProcessorStage] = []
     while remaining:
         ready = sorted(
             [name for name, deps in remaining.items() if not deps],
-            key=lambda name: (entries[index_by_name[name]].order, index_by_name[name]),
+            key=lambda n: order_by_name.get(n, (0, 0)),
         )
         if not ready:
             raise RuntimeError(f"Circular dependency detected: {remaining}")
-        stage: ProcessorStage = [entry_map[name] for name in ready]
-        stages.append(stage)
+        stages.append([processors_by_name[name] for name in ready])
         for name in ready:
             remaining.pop(name, None)
         for deps in remaining.values():
@@ -119,23 +89,22 @@ def sort_processors(
 
 
 async def _run_processor(
-    entry: ProcessorEntry, record: AssetRecord, changes: set[str]
+    processor: Processor, asset: Asset, changes: set[str]
 ) -> tuple[ProcessorResult, bool]:
     try:
-        logger.debug(f"Running processor {entry.name} for record {record.id}")
-        result = await entry.instance.run(record, changes)
+        logger.debug(f"Running processor {processor} for record {asset.id}")
+        result = await processor.run(asset, changes)
         return result, False
     except Exception as e:
-        msg = f"Processor {entry.name} failed for record {record.id}: {e}"
+        msg = f"Processor {processor} failed for record {asset.id}: {e}"
         logger.exception(msg)
-        return ProcessorResult(status=ProcessorStatus.ERROR, message=msg), True
+        return ProcessorResult(status=OpStatus.ERROR, message=msg), True
 
 
-async def process(
+async def process_asset(
     *,
-    record: AssetRecord,
+    asset: Asset,
     snapshot: Snapshot,
-    database: Database,
     stages: Sequence[ProcessorStage],
     initial_changes: Iterable[str] | None = None,
     stats: SnapshotStats | None = None,
@@ -148,25 +117,25 @@ async def process(
     changes = set(initial_changes or [])
     failed_runs = 0
     for stage in stages:
-        coros: list[tuple[ProcessorEntry, Any]] = []
-        for entry in stage:
+        coros: list[tuple[Processor, Any]] = []
+        for processor in stage:
             try:
-                should_run = entry.instance.should_run(record, changes, database)
+                should_run = processor.should_run(asset, changes, database)
             except Exception:
                 logger.exception(
-                    f"Processor {entry.name}.should_run failed for record {record.id}"
+                    f"Processor {processor}.should_run failed for record {asset.id}"
                 )
                 continue
             if not should_run:
                 continue
-            coros.append((entry, _run_processor(entry, record, changes)))
+            coros.append((processor, _run_processor(processor, asset, changes)))
             if stats:
                 stats.processings_started += 1
         if not coros:
             continue
         results = await asyncio.gather(*(coro for _, coro in coros))
         stage_metadata: list[Metadata] = []
-        for (entry, _), outcome in zip(coros, results):
+        for (processor, _), outcome in zip(coros, results):
             produced, failed = outcome
             if failed:
                 failed_runs += 1
@@ -175,31 +144,31 @@ async def process(
                 continue
             status = produced.status
             if stats:
-                if status == ProcessorStatus.COMPLETED:
+                if status == OpStatus.COMPLETED:
                     stats.processings_completed += 1
-                elif status == ProcessorStatus.PARTIAL:
+                elif status == OpStatus.PARTIAL:
                     stats.processings_partial += 1
-                elif status == ProcessorStatus.CANCELLED:
+                elif status == OpStatus.CANCELED:
                     stats.processings_cancelled += 1
-                elif status == ProcessorStatus.SKIPPED:
+                elif status == OpStatus.SKIPPED:
                     stats.processings_skipped += 1
-                elif status == ProcessorStatus.ERROR:
+                elif status == OpStatus.ERROR:
                     stats.processings_error += 1
-            if status in (ProcessorStatus.CANCELLED, ProcessorStatus.ERROR):
+            if status in (OpStatus.CANCELED, OpStatus.ERROR):
                 failed_runs += 1
                 continue
-            if status == ProcessorStatus.SKIPPED:
+            if status == OpStatus.SKIPPED:
                 continue
             for meta in produced.metadata:
-                if meta.provider_id is None:
-                    meta.provider_id = getattr(
-                        entry.instance, "provider_id", entry.provider_id
-                    )
+                if getattr(meta, "provider_id", None) is None:
+                    pid = getattr(processor, "provider_id", None)
+                    if pid is not None:
+                        setattr(meta, "provider_id", pid)
                 stage_metadata.append(meta)
         if not stage_metadata:
             continue
         stage_changes = database.upsert_asset(
-            record, stage_metadata, snapshot, stats=stats
+            asset, stage_metadata, snapshot, stats=stats
         )
         if stage_changes:
             changes.update(stage_changes)

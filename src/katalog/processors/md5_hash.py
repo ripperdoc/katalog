@@ -5,15 +5,15 @@ from typing import Any, Optional
 
 from katalog.db import Database
 from katalog.processors.base import Processor, ProcessorResult, file_data_changed
-from katalog.models import HASH_MD5, AssetRecord, Metadata, make_metadata
+from katalog.models import HASH_MD5, Asset, Metadata, make_metadata
 
 
-def _has_existing_hash(database: Optional[Database], record: AssetRecord) -> bool:
+def _has_existing_hash(database: Optional[Database], asset: Asset) -> bool:
     if not database:
         return False
     existing = database.get_metadata_for_file(
-        record.id,
-        provider_id=record.provider_id,
+        asset.id,
+        provider_id=asset.provider_id,
         metadata_key=HASH_MD5,
     )
     return bool(existing)
@@ -26,21 +26,19 @@ class MD5HashProcessor(Processor):
 
     def should_run(
         self,
-        record: AssetRecord,
+        asset: Asset,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
         if changes and HASH_MD5 in changes:
             # Source already supplied the hash during this snapshot.
             return False
-        if file_data_changed(self, record, changes):
+        if file_data_changed(self, asset, changes):
             return True
-        return not _has_existing_hash(database, record)
+        return not _has_existing_hash(database, asset)
 
-    async def run(
-        self, record: AssetRecord, changes: set[str] | None
-    ) -> ProcessorResult:
-        d = record.data
+    async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
+        d = asset.data
         if d is None:
             raise ValueError("AssetRecord does not have a data accessor")
         hash_md5 = hashlib.md5()
@@ -54,7 +52,7 @@ class MD5HashProcessor(Processor):
                 break
             hash_md5.update(chunk)
             offset += len(chunk)
-        provider_id = getattr(self, "provider_id", record.provider_id)
+        provider_id = getattr(self, "provider_id", asset.provider_id)
 
         return ProcessorResult(
             metadata=[make_metadata(provider_id, HASH_MD5, hash_md5.hexdigest())]

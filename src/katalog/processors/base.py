@@ -1,35 +1,29 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, FrozenSet
+from typing import Any, ClassVar, FrozenSet, cast
 
 from katalog.models import (
     DATA_KEY,
     HASH_MD5,
     TIME_MODIFIED,
-    AssetRecord,
+    Asset,
     AssetRelationship,
     MetadataKey,
     Metadata,
+    OpStatus,
+    Provider,
 )
 from katalog.db import Database
 
-from enum import Enum
-
-
-class ProcessorStatus(Enum):
-    SKIPPED = 0
-    PARTIAL = 1
-    COMPLETED = 2
-    CANCELLED = 3
-    ERROR = 4
+from katalog.utils.utils import import_plugin_class
 
 
 @dataclass(slots=True)
 class ProcessorResult:
     metadata: list[Metadata] = field(default_factory=list)
     relationships: list[AssetRelationship] = field(default_factory=list)
-    assets: list[AssetRecord] = field(default_factory=list)
-    status: ProcessorStatus = ProcessorStatus.COMPLETED
+    assets: list[Asset] = field(default_factory=list)
+    status: OpStatus = OpStatus.COMPLETED
     message: str | None = None
 
 
@@ -75,7 +69,7 @@ class Processor(ABC):
     @abstractmethod
     def should_run(
         self,
-        record: AssetRecord,
+        asset: Asset,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
@@ -83,15 +77,13 @@ class Processor(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    async def run(
-        self, record: AssetRecord, changes: set[str] | None
-    ) -> ProcessorResult:
+    async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
         """Run the processor logic and return a result class with changes to persist."""
         raise NotImplementedError()
 
 
 def file_data_changed(
-    self, record: AssetRecord, changes: set[str] | None, allow_weak_check: bool = True
+    self, asset: Asset, changes: set[str] | None, allow_weak_check: bool = True
 ) -> bool:
     """Helper to determine if data or relevant fields have changed. If allow_weak_check is True, also assume data has changed if TIME_MODIFIED has changed."""
     # TODO more hash types to check?
@@ -103,3 +95,10 @@ def file_data_changed(
 
 
 file_data_change_dependencies = frozenset({DATA_KEY, HASH_MD5, TIME_MODIFIED})
+
+
+def make_processor_instance(processor_record: Provider) -> Processor:
+    ProcessorClass = cast(
+        type[Processor], import_plugin_class(processor_record.class_path)
+    )
+    return ProcessorClass(**processor_record.config)

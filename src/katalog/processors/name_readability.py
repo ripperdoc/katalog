@@ -8,7 +8,7 @@ from katalog.db import Database
 from katalog.models import (
     FILE_NAME,
     WARNING_NAME_READABILITY,
-    AssetRecord,
+    Asset,
     Metadata,
     make_metadata,
 )
@@ -34,7 +34,7 @@ class NameReadabilityProcessor(Processor):
 
     def should_run(
         self,
-        record: AssetRecord,
+        asset: Asset,
         changes: set[str] | None,
         database: Database | None = None,
     ) -> bool:
@@ -44,16 +44,14 @@ class NameReadabilityProcessor(Processor):
         if not db:
             return False
         existing = db.get_metadata_for_file(
-            record.id,
-            provider_id=record.provider_id,
+            asset.id,
+            provider_id=asset.provider_id,
             metadata_key=WARNING_NAME_READABILITY,
         )
         return not existing
 
-    async def run(
-        self, record: AssetRecord, changes: set[str] | None
-    ) -> ProcessorResult:
-        name = self._resolve_file_name(record)
+    async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
+        name = self._resolve_file_name(asset)
         if not name:
             return ProcessorResult(
                 status=ProcessorStatus.SKIPPED, message="No filename found"
@@ -65,7 +63,7 @@ class NameReadabilityProcessor(Processor):
                 status=ProcessorStatus.COMPLETED, message="No signals from analysis"
             )
         confidence = min(0.9, 0.4 + 0.1 * len(signals))
-        provider_id = getattr(self, "provider_id", record.provider_id)
+        provider_id = getattr(self, "provider_id", asset.provider_id)
         metadata = make_metadata(
             provider_id,
             WARNING_NAME_READABILITY,
@@ -74,18 +72,18 @@ class NameReadabilityProcessor(Processor):
         )
         return ProcessorResult(metadata=[metadata])
 
-    def _resolve_file_name(self, record: AssetRecord) -> str | None:
+    def _resolve_file_name(self, asset: Asset) -> str | None:
         if self.database:
             entries = self.database.get_metadata_for_file(
-                record.id,
-                provider_id=record.provider_id,
+                asset.id,
+                provider_id=asset.provider_id,
                 metadata_key=FILE_NAME,
             )
             if entries:
                 latest = entries[0].value
                 if isinstance(latest, str) and latest:
                     return latest
-        return Path(record.canonical_uri).name or record.canonical_uri
+        return Path(asset.canonical_uri).name or asset.canonical_uri
 
     def _analyze_name(self, filename: str) -> dict[str, Any]:
         stem = Path(filename).stem or filename

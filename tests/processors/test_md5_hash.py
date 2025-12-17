@@ -6,13 +6,13 @@ from typing import cast
 import pytest
 
 from katalog.db import Database
-from katalog.models import AssetRecord, HASH_MD5
+from katalog.models import Asset, HASH_MD5
 from katalog.processors.md5_hash import MD5HashProcessor
 from tests.utils.fakes import DatabaseStub, MemoryAccessor
 
 
-def make_record(record_id: str = "file-1") -> AssetRecord:
-    return AssetRecord(id=record_id, provider_id="source-1", canonical_uri="uri://file")
+def make_record(asset_id: str = "file-1") -> Asset:
+    return Asset(id=asset_id, provider_id="source-1", canonical_uri="uri://file")
 
 
 def test_should_run_skips_when_hash_already_present(database_stub: DatabaseStub):
