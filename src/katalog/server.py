@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from loguru import logger
@@ -8,19 +8,9 @@ from tortoise import Tortoise
 
 from katalog.analyzers.runtime import run_analyzers
 from katalog.config import WORKSPACE
-from katalog.models import (
-    OpStatus,
-    Provider,
-    ProviderType,
-    Snapshot,
-    SnapshotStats,
-)
+from katalog.models import OpStatus, Provider, ProviderType, Snapshot
 from katalog.queries import list_assets_with_metadata, setup
-from katalog.processors.runtime import (
-    drain_processor_tasks,
-    process_asset,
-    sort_processors,
-)
+from katalog.processors.runtime import process_asset, sort_processors
 from katalog.sources.base import make_source_instance
 
 
@@ -86,8 +76,6 @@ async def do_run_sources(id: Optional[int] = None):
     processor_pipeline = await sort_processors()
     logger.info(f"Snapshotting source: {source_record}")
     snapshot = await Snapshot.begin(source_record)
-    stats = SnapshotStats()
-    processor_tasks: list[asyncio.Task[Any]] = []
     scan_result = None
     try:
         scan_result = await source_plugin.scan(since_snapshot=since_snapshot)
@@ -99,21 +87,20 @@ async def do_run_sources(id: Optional[int] = None):
                 logger.exception(
                     f"Failed to attach accessor for record {result.asset.id} in source {id}"
                 )
-            stats.assets_seen += 1
+            snapshot.stats.assets_seen += 1
             changes = await result.asset.upsert(
-                snapshot=snapshot, metadata=result.metadata, stats=stats
+                snapshot=snapshot, metadata=result.metadata
             )
 
             if processor_pipeline:
-                stats.assets_processed += 1
-                processor_tasks.append(
+                snapshot.stats.assets_processed += 1
+                snapshot.tasks.append(
                     asyncio.create_task(
                         process_asset(
                             asset=result.asset,
                             snapshot=snapshot,
                             stages=processor_pipeline,
                             initial_changes=changes,
-                            stats=stats,
                         )
                     )
                 )
@@ -121,24 +108,19 @@ async def do_run_sources(id: Optional[int] = None):
         logger.info(
             f"Snapshot {snapshot} for source {source_record} canceled by client"
         )
-        for task in processor_tasks:
+        for task in snapshot.tasks:
             task.cancel()
-        await drain_processor_tasks(processor_tasks)
-        await snapshot.finalize(status=OpStatus.CANCELED, stats=stats)
+        await snapshot.finalize(status=OpStatus.CANCELED)
         raise
     except Exception:
-        await drain_processor_tasks(processor_tasks)
-        await snapshot.finalize(status=OpStatus.ERROR, stats=stats)
+        await snapshot.finalize(status=OpStatus.ERROR)
         raise
-    await drain_processor_tasks(processor_tasks)
-    await snapshot.finalize(status=scan_result.status, stats=stats)
-    return {
-        "snapshot": snapshot,
-        "stats": stats.to_dict(),
-    }
+    await snapshot.finalize(status=scan_result.status)
+    return snapshot
 
 
-@app.post("/processors/{id}run")
+@app.post("/processors/run")
+@app.post("/processors/{id}/run")
 async def do_run_processor(id: Optional[int] = None):
     # if id is None:
     #     result = await run_analyzers(None)

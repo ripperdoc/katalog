@@ -26,14 +26,6 @@ from katalog.processors.base import (
 ProcessorStage = list[Processor]
 
 
-@dataclass(slots=True)
-class ProcessorTaskResult:
-    """Summarizes the outcome of running the processor pipeline for one asset."""
-
-    changes: set[str]
-    failures: int = 0
-
-
 async def sort_processors() -> list[ProcessorStage]:
     """Return processors layered via Kahn topological sorting."""
 
@@ -106,13 +98,12 @@ async def process_asset(
     snapshot: Snapshot,
     stages: Sequence[ProcessorStage],
     initial_changes: Iterable[str] | None = None,
-    stats: SnapshotStats | None = None,
 ) -> ProcessorTaskResult:
     """Run processors per stage, returning the union of all observed changes."""
 
     if not stages:
         return ProcessorTaskResult(changes=set(), failures=0)
-
+    stats = snapshot.stats
     changes = set(initial_changes or [])
     failed_runs = 0
     for stage in stages:
@@ -162,31 +153,7 @@ async def process_asset(
                 stage_metadata.append(meta)
         if not stage_metadata:
             continue
-        stage_changes = await asset.upsert(
-            snapshot=snapshot, metadata=stage_metadata, stats=stats
-        )
+        stage_changes = await asset.upsert(snapshot=snapshot, metadata=stage_metadata)
         if stage_changes:
             changes.update(stage_changes)
     return ProcessorTaskResult(changes=changes, failures=failed_runs)
-
-
-async def drain_processor_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
-    if not tasks:
-        return 0, 0
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    modified = 0
-    failures = 0
-    for result in results:
-        if isinstance(result, Exception):
-            logger.opt(exception=result).error("Processor task failed")
-            failures += 1
-            continue
-        if isinstance(result, ProcessorTaskResult):
-            if result.changes:
-                modified += 1
-            failures += result.failures
-            continue
-        if result:
-            modified += 1
-    tasks.clear()
-    return modified, failures

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from asyncio import Task
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum, IntEnum
@@ -8,6 +10,7 @@ from time import time
 
 from typing import Any, Mapping, Sequence
 
+from loguru import logger
 from tortoise.transactions import in_transaction
 from tortoise.fields import (
     CASCADE,
@@ -96,68 +99,6 @@ class Provider(Model):
                     plugin_id=entry.get("plugin_id"),
                     config=dict(entry),
                 )
-
-
-class Snapshot(Model):
-    id = IntField(pk=True)
-    provider = ForeignKeyField(
-        orm(Provider), related_name="snapshots", on_delete=CASCADE
-    )
-    started_at = DatetimeField(default=lambda: datetime.now(UTC))
-    completed_at = DatetimeField(null=True)
-    status = CharEnumField(OpStatus, max_length=32)
-    metadata = JSONField(null=True)
-
-    @classmethod
-    async def begin(
-        cls,
-        provider: Provider | int,
-        *,
-        status: OpStatus = OpStatus.IN_PROGRESS,
-        metadata: Mapping[str, Any] | None = None,
-        snapshot_id: int | None = None,
-    ) -> "Snapshot":
-        provider_id = provider.id if isinstance(provider, Provider) else provider
-        snapshot_id = snapshot_id or int(time())
-        if await cls.get_or_none(id=snapshot_id):
-            raise ValueError(f"Snapshot with id {snapshot_id} already exists")
-        return await cls.create(
-            id=snapshot_id,
-            provider_id=provider_id,
-            status=status,
-            metadata=dict(metadata) if metadata else None,
-        )
-
-    async def finalize(
-        self, *, status: OpStatus, stats: SnapshotStats | None = None
-    ) -> None:
-        completed_at = datetime.now(UTC)
-        provider_id = self.provider
-        metadata_payload: dict[str, Any] | None = None
-        if stats is not None or self.metadata is not None:
-            metadata_payload = dict(self.metadata or {})
-            if stats is not None:
-                metadata_payload["stats"] = stats.to_dict()
-            self.metadata = metadata_payload
-
-        async with in_transaction():
-            update_fields = ["completed_at", "status"]
-            if metadata_payload is not None:
-                update_fields.append("metadata")
-            self.status = status
-            self.completed_at = completed_at
-            await self.save(update_fields=update_fields)
-
-            await Asset.filter(
-                provider_id=provider_id,
-                deleted_snapshot_id__isnull=True,
-                last_snapshot_id__lt=self.id,
-            ).update(deleted_snapshot_id=self.id)
-
-            await Provider.filter(id=provider_id).update(updated_at=completed_at)
-
-    class Meta(Model.Meta):
-        indexes = (("provider", "started_at"),)
 
 
 @dataclass(slots=True)
@@ -263,6 +204,82 @@ class SnapshotStats:
         }
 
 
+@dataclass(slots=True)
+class ProcessorTaskResult:
+    """Summarizes the outcome of running the processor pipeline for one asset."""
+
+    changes: set[str]
+    failures: int = 0
+
+
+class Snapshot(Model):
+    id = IntField(pk=True)
+    provider = ForeignKeyField(
+        orm(Provider), related_name="snapshots", on_delete=CASCADE
+    )
+    started_at = DatetimeField(default=lambda: datetime.now(UTC))
+    completed_at = DatetimeField(null=True)
+    status = CharEnumField(OpStatus, max_length=32)
+    metadata = JSONField(null=True)
+
+    # Local fields, not persisted automatically
+    stats = SnapshotStats()
+    tasks: list[Task] = []
+
+    @classmethod
+    async def begin(
+        cls,
+        provider: Provider | int,
+        *,
+        status: OpStatus = OpStatus.IN_PROGRESS,
+        metadata: Mapping[str, Any] | None = None,
+        snapshot_id: int | None = None,
+    ) -> "Snapshot":
+        provider_id = provider.id if isinstance(provider, Provider) else provider
+        snapshot_id = snapshot_id or int(time())
+        if await cls.get_or_none(id=snapshot_id):
+            raise ValueError(f"Snapshot with id {snapshot_id} already exists")
+        return await cls.create(
+            id=snapshot_id,
+            provider_id=provider_id,
+            status=status,
+            metadata=dict(metadata) if metadata else None,
+        )
+
+    async def finalize(self, *, status: OpStatus) -> None:
+        completed_at = datetime.now(UTC)
+        provider_id = self.provider
+        metadata_payload: dict[str, Any] | None = None
+
+        if self.tasks:
+            await drain_tasks(self.tasks)
+
+        if self.stats is not None or self.metadata is not None:
+            metadata_payload = dict(self.metadata or {})
+            if self.stats is not None:
+                metadata_payload["stats"] = self.stats.to_dict()
+            self.metadata = metadata_payload
+
+        async with in_transaction():
+            update_fields = ["completed_at", "status"]
+            if metadata_payload is not None:
+                update_fields.append("metadata")
+            self.status = status
+            self.completed_at = completed_at
+            await self.save(update_fields=update_fields)
+
+            await Asset.filter(
+                provider_id=provider_id,
+                deleted_snapshot_id__isnull=True,
+                last_snapshot_id__lt=self.id,
+            ).update(deleted_snapshot_id=self.id)
+
+            await Provider.filter(id=provider_id).update(updated_at=completed_at)
+
+    class Meta(Model.Meta):
+        indexes = (("provider", "started_at"),)
+
+
 class FileAccessor(ABC):
     @abstractmethod
     async def read(
@@ -288,7 +305,12 @@ class Asset(Model):
         null=True,
         on_delete=SET_NULL,
     )
+    # Just for fixing type errors, these are populated via ForeignKeyField
+    created_snapshot_id: int
+    last_snapshot_id: int
+    deleted_snapshot_id: int | None
     _data_accessor: FileAccessor | None = None
+    _metadata_cache: list["Metadata"] | None = None
 
     @property
     def data(self) -> FileAccessor | None:
@@ -301,12 +323,28 @@ class Asset(Model):
         self,
         snapshot: "Snapshot",
         metadata: Sequence["Metadata"] | None = None,
-        stats: SnapshotStats | None = None,
     ) -> set[MetadataKey]:
         """Persist this asset and apply metadata changes for the snapshot.
 
         Returns a set of metadata keys that changed.
         """
+        # Reuse an existing asset with the same canonical_id when unsaved to avoid
+        # duplicating rows across scans.
+        if self.id is None:
+            existing = await Asset.get_or_none(canonical_id=self.canonical_id)
+            if existing:
+                self.id = existing.id
+                self._saved_in_db = True
+                self.created_snapshot_id = existing.created_snapshot_id
+                self.provider_id = existing.provider_id
+                # If no canonical_uri provided, keep the previous one
+                if not getattr(self, "canonical_uri", None):
+                    self.canonical_uri = existing.canonical_uri
+        # Ensure snapshot markers are set for this run.
+        if getattr(self, "created_snapshot_id", None) is None:
+            self.created_snapshot = snapshot
+        self.last_snapshot = snapshot
+        self.deleted_snapshot = None
 
         # Ensure the asset itself is saved first so we have an id for FKs.
         await self.save()
@@ -323,12 +361,11 @@ class Asset(Model):
             if m.provider is None:
                 raise ValueError("Metadata provider_id is not set for upsert")
 
-        await self.load_metadata()
-        existing_metadata: list[Metadata] = getattr(self, "metadata")
+        existing_metadata = await self.load_metadata()
 
         existing_index: set[tuple[int, int, Any]] = set()
         for md in existing_metadata:
-            existing_index.add((int(md.metadata_key_id), int(md.provider_id), md.value))  # type: ignore
+            existing_index.add((int(md.metadata_key_id), int(md.provider_id), md.value))
 
         to_create: list[Metadata] = []
         changed_keys: set[MetadataKey] = set()
@@ -336,7 +373,7 @@ class Asset(Model):
         for md in metadata:
             md.asset = self
             md.snapshot = snapshot
-            key = (int(md.metadata_key_id), int(md.provider_id), md.value)  # type: ignore
+            key = (int(md.metadata_key_id), int(md.provider_id), md.value)
             if key in existing_index:
                 continue
             to_create.append(md)
@@ -345,13 +382,18 @@ class Asset(Model):
 
         if to_create:
             await Metadata.bulk_create(to_create)
+            if self._metadata_cache is not None:
+                self._metadata_cache.extend(to_create)
 
         return changed_keys
 
     async def load_metadata(self) -> Sequence["Metadata"]:
         """Fetch and cache metadata rows for this asset."""
+        if self._metadata_cache is not None:
+            return self._metadata_cache
         await self.fetch_related("metadata")
-        return getattr(self, "metadata", [])
+        self._metadata_cache = list(getattr(self, "metadata", []))
+        return self._metadata_cache
 
     class Meta(Model.Meta):
         indexes = (("provider", "last_snapshot"),)
@@ -538,3 +580,25 @@ def current_metadata(metadata: Sequence[Metadata]) -> dict[MetadataKey, list[Met
         result.setdefault(key, []).append(entry)
 
     return result
+
+
+async def drain_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
+    if not tasks:
+        return 0, 0
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    modified = 0
+    failures = 0
+    for result in results:
+        if isinstance(result, Exception):
+            logger.opt(exception=result).error("Processor task failed")
+            failures += 1
+            continue
+        if isinstance(result, ProcessorTaskResult):
+            if result.changes:
+                modified += 1
+            failures += result.failures
+            continue
+        if result:
+            modified += 1
+    tasks.clear()
+    return modified, failures
