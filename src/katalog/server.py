@@ -1,7 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-import json
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from loguru import logger
@@ -15,9 +14,8 @@ from katalog.models import (
     ProviderType,
     Snapshot,
     SnapshotStats,
-    list_assets_with_metadata,
-    setup,
 )
+from katalog.queries import list_assets_with_metadata, setup
 from katalog.processors.runtime import (
     drain_processor_tasks,
     process_asset,
@@ -51,51 +49,8 @@ logger.info(f"Using database: {DATABASE_URL}")
 
 
 @app.get("/assets")
-async def list_assets(
-    provider_id: Optional[int] = None,
-    limit: int = 100,
-    cursor: Optional[str] = None,
-    order_by: str = "id",
-    order_dir: Literal["asc", "desc"] = "asc",
-    include_deleted: bool = False,
-    include_removed_metadata: bool = False,
-    metadata_filters: Optional[str] = None,
-    relationship_filters: Optional[str] = None,
-):
-    # Filters are JSON-encoded lists (AND semantics), kept as a string so clients can
-    # send arbitrary combinations without multiplying query parameters.
-    def _parse_filter_list(raw: Optional[str], *, param_name: str):
-        if raw is None:
-            return None
-        try:
-            parsed = json.loads(raw)
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{param_name} must be valid JSON: {e}",
-            )
-        if not isinstance(parsed, list):
-            raise HTTPException(
-                status_code=400,
-                detail=f"{param_name} must be a JSON array",
-            )
-        return parsed
-
-    return await list_assets_with_metadata(
-        provider_id=provider_id,
-        limit=limit,
-        cursor=cursor,
-        order_by=order_by,
-        order_dir=order_dir,
-        include_deleted=include_deleted,
-        include_removed_metadata=include_removed_metadata,
-        metadata_filters=_parse_filter_list(
-            metadata_filters, param_name="metadata_filters"
-        ),
-        relationship_filters=_parse_filter_list(
-            relationship_filters, param_name="relationship_filters"
-        ),
-    )
+async def list_assets(provider_id: Optional[int] = None):
+    return await list_assets_with_metadata(provider_id=provider_id)
 
 
 @app.post("/assets")
@@ -179,6 +134,15 @@ async def do_run_sources(id: Optional[int] = None):
         "snapshot": snapshot,
         "stats": stats.to_dict(),
     }
+
+
+@app.post("/processors/{id}run")
+async def do_run_processor(id: Optional[int] = None):
+    # if id is None:
+    #     result = await run_analyzers(None)
+    # else:
+    #     result = await run_analyzers([int(id)])
+    return result
 
 
 @app.post("/analyzers/run")

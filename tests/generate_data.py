@@ -2,18 +2,31 @@ from argparse import ArgumentParser
 from datetime import UTC, datetime
 from pathlib import Path
 from random import Random
+from time import time
 import sqlite3
+import shutil
 
 from tortoise import run_async
-from katalog.models import MetadataType, ProviderType
-from katalog.models import (
-    Asset,
-    Metadata,
-    MetadataRegistry,
-    Provider,
-    Snapshot,
-    setup,
+from katalog.models import MetadataType, OpStatus, ProviderType
+from katalog.models import Asset, Metadata, MetadataRegistry, Provider, Snapshot
+from katalog.metadata import (
+    ACCESS_OWNER,
+    ACCESS_SHARED_WITH,
+    DOC_LANG,
+    FILE_EXTENSION,
+    FILE_NAME,
+    FILE_PATH,
+    FILE_SIZE,
+    FILE_TAGS,
+    FILE_TYPE,
+    FILE_URI,
+    HASH_MD5,
+    HASH_SHA1,
+    TIME_ACCESSED,
+    TIME_CREATED,
+    TIME_MODIFIED,
 )
+from katalog.queries import setup
 
 
 def _pick_weighted(rng: Random, items: list[tuple[str, float]]) -> str:
@@ -57,33 +70,36 @@ async def populate_test_data(
     - Defaults are small enough to run quickly; scale up intentionally.
     """
 
+    workspace_dir = db_path.expanduser().resolve().parent
+    if workspace_dir.exists() and workspace_dir.name == "test_workspace":
+        shutil.rmtree(workspace_dir)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    await setup(db_path)
+
     rng = Random(seed)
 
     provider_types = list(ProviderType)
     if not provider_types:
         raise RuntimeError("ProviderType enum has no members")
 
-    metadata_keys: list[str] = [
-        "name",
-        "mime_type",
-        "size_bytes",
-        "created_at",
-        "modified_at",
-        "md5",
-        "sha256",
-        "width",
-        "height",
-        "duration_seconds",
-        "camera_make",
-        "camera_model",
-        "gps_lat",
-        "gps_lon",
-        "summary",
-        "tags",
-        "language",
-        "author",
-        "album",
-        "duplicate_group",
+    # Core metadata keys to populate (covers UI fields plus a few extras)
+    metadata_keys = [
+        FILE_PATH,
+        FILE_NAME,
+        FILE_SIZE,
+        FILE_TYPE,
+        FILE_EXTENSION,
+        FILE_URI,
+        TIME_CREATED,
+        TIME_MODIFIED,
+        TIME_ACCESSED,
+        ACCESS_OWNER,
+        ACCESS_SHARED_WITH,
+        FILE_TAGS,
+        HASH_MD5,
+        HASH_SHA1,
+        DOC_LANG,
     ]
 
     mime_types = [
@@ -106,58 +122,29 @@ async def populate_test_data(
         ("application/vnd.apple.keynote", 0.01),
     ]
 
-    relationship_types = [
-        "duplicate_of",
-        "derived_from",
-        "preview_of",
-        "sidecar_of",
-        "same_content_as",
-    ]
-
     all_assets: list[Asset] = []
 
     for provider_idx in range(providers):
         provider = await Provider.create(
-            title=f"provider-{provider_idx}",
+            name=f"provider-{provider_idx}",
             plugin_id=f"plugin-{provider_idx}",
             type=provider_types[provider_idx % len(provider_types)],
             config={"seed": seed, "provider_idx": provider_idx},
         )
 
-        # Create the metadata key registry rows once per provider namespace.
-        # In the real app, plugins should provide globally unique, namespaced keys.
-        key_rows: list[MetadataRegistry] = []
-        key_to_type: dict[str, MetadataType] = {}
-        for short_key in metadata_keys:
-            full_key = f"{provider.plugin_id}:{short_key}"
-            if short_key in {"size_bytes", "width", "height"}:
-                vt = MetadataType.INT
-            elif short_key in {"created_at", "modified_at"}:
-                vt = MetadataType.DATETIME
-            elif short_key == "tags":
-                vt = MetadataType.JSON
-            else:
-                vt = MetadataType.STRING
-            key_to_type[full_key] = vt
-            key_rows.append(
-                MetadataRegistry(
-                    key=full_key,
-                    value_type=vt,
-                    title=short_key,
-                    description="",
-                    width=None,
-                )
-            )
-        await MetadataRegistry.bulk_create(key_rows)
-        registry_rows = await MetadataRegistry.filter(key__in=list(key_to_type.keys()))
+        registry_rows = await MetadataRegistry.filter(
+            key__in=[str(k) for k in metadata_keys]
+        )
         registry_by_key = {r.key: r for r in registry_rows}
 
         snapshots: list[Snapshot] = []
+        base_snapshot_id = int(time()) + provider_idx * 10_000
         for snap_idx in range(snapshots_per_provider):
             snapshots.append(
                 await Snapshot.create(
+                    id=base_snapshot_id + snap_idx,
                     provider=provider,
-                    status="completed",
+                    status=OpStatus.COMPLETED,
                     started_at=datetime.now(UTC),
                     completed_at=datetime.now(UTC),
                     metadata={"snap_idx": snap_idx},
@@ -171,7 +158,7 @@ async def populate_test_data(
         assets: list[Asset] = []
         for asset_idx in range(assets_per_provider):
             canonical_id = f"{provider.id}:{asset_idx}"
-            canonical_uri = f"katalog://{provider.title}/asset/{asset_idx}"
+            canonical_uri = f"katalog://{provider.name}/asset/{asset_idx}"
             assets.append(
                 Asset(
                     provider=provider,
@@ -190,17 +177,30 @@ async def populate_test_data(
 
         # Metadata (inserted for the last snapshot only by default)
         metadata_entries: list[Metadata] = []
+        tag_pool = [
+            "work",
+            "personal",
+            "invoice",
+            "photo",
+            "scan",
+            "archive",
+            "music",
+            "video",
+        ]
+
         for asset in assets:
-            # Ensure uniqueness for (asset, provider, snapshot, metadata_key)
             keys_for_asset = rng.sample(
                 metadata_keys, k=min(metadata_per_asset, len(metadata_keys))
             )
             for key in keys_for_asset:
-                registry_key = f"{provider.plugin_id}:{key}"
-                registry = registry_by_key[registry_key]
-                if key in {"size_bytes", "width", "height"}:
-                    value_type = MetadataType.INT
-                    value_int = rng.randrange(0, 5_000_000_000)
+                registry = registry_by_key[str(key)]
+                value_type = registry.value_type
+
+                if value_type == MetadataType.INT:
+                    if registry.key == str(FILE_SIZE):
+                        value_int = rng.randrange(0, 5_000_000_000)
+                    else:
+                        value_int = rng.randrange(0, 10_000)
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
@@ -212,8 +212,7 @@ async def populate_test_data(
                             removed=False,
                         )
                     )
-                elif key in {"created_at", "modified_at"}:
-                    value_type = MetadataType.DATETIME
+                elif value_type == MetadataType.DATETIME:
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
@@ -225,31 +224,7 @@ async def populate_test_data(
                             removed=False,
                         )
                     )
-                elif key == "mime_type":
-                    value_type = MetadataType.STRING
-                    metadata_entries.append(
-                        Metadata(
-                            asset=asset,
-                            provider=provider,
-                            snapshot=last_snapshot,
-                            metadata_key=registry,
-                            value_type=value_type,
-                            value_text=_pick_weighted(rng, mime_types),
-                            removed=False,
-                        )
-                    )
-                elif key in {"tags"}:
-                    value_type = MetadataType.JSON
-                    tag_pool = [
-                        "work",
-                        "personal",
-                        "invoice",
-                        "photo",
-                        "scan",
-                        "archive",
-                        "music",
-                        "video",
-                    ]
+                elif value_type == MetadataType.JSON:
                     value_json = rng.sample(tag_pool, k=rng.randrange(0, 5))
                     metadata_entries.append(
                         Metadata(
@@ -263,8 +238,16 @@ async def populate_test_data(
                         )
                     )
                 else:
-                    value_type = MetadataType.STRING
-                    # Intentionally repetitive-ish strings.
+                    if registry.key == str(FILE_TYPE):
+                        value_text = _pick_weighted(rng, mime_types)
+                    elif registry.key == str(HASH_MD5):
+                        value_text = f"md5-{rng.randrange(0, 1_000_000):06x}"
+                    elif registry.key == str(HASH_SHA1):
+                        value_text = f"sha1-{rng.randrange(0, 1_000_000):06x}"
+                    elif registry.key == str(FILE_NAME):
+                        value_text = f"asset-{asset.id}.dat"
+                    else:
+                        value_text = f"{registry.key}-{rng.randrange(0, 200)}"
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
@@ -272,7 +255,7 @@ async def populate_test_data(
                             snapshot=last_snapshot,
                             metadata_key=registry,
                             value_type=value_type,
-                            value_text=f"{key}-{rng.randrange(0, 200)}",
+                            value_text=value_text,
                             removed=False,
                         )
                     )
@@ -434,12 +417,12 @@ def analyze_sqlite(db_path: Path) -> None:
 
 def _parse_args() -> object:
     parser = ArgumentParser()
-    parser.add_argument("--db", type=Path, default=Path("katalog_database.sqlite3"))
+    parser.add_argument("--db", type=Path, default=Path("test_workspace/katalog.db"))
     parser.add_argument("--populate", action="store_true")
     parser.add_argument("--analyze", action="store_true")
     parser.add_argument("--providers", type=int, default=1)
     parser.add_argument("--snapshots-per-provider", type=int, default=3)
-    parser.add_argument("--assets-per-provider", type=int, default=50_000)
+    parser.add_argument("--assets-per-provider", type=int, default=5_000)
     parser.add_argument("--metadata-per-asset", type=int, default=25)
     parser.add_argument("--relationships-per-asset", type=int, default=0)
     parser.add_argument("--seed", type=int, default=1)

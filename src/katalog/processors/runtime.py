@@ -167,9 +167,7 @@ async def process_asset(
                 stage_metadata.append(meta)
         if not stage_metadata:
             continue
-        stage_changes = database.upsert_asset(
-            asset, stage_metadata, snapshot, stats=stats
-        )
+        stage_changes = await asset.upsert(asset, snapshot, stats=stats)
         if stage_changes:
             changes.update(stage_changes)
     return ProcessorTaskResult(changes=changes, failures=failed_runs)
