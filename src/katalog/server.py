@@ -100,7 +100,9 @@ async def do_run_sources(id: Optional[int] = None):
                     f"Failed to attach accessor for record {result.asset.id} in source {id}"
                 )
             stats.assets_seen += 1
-            changes = await result.asset.upsert(result, snapshot, stats)
+            changes = await result.asset.upsert(
+                snapshot=snapshot, metadata=result.metadata, stats=stats
+            )
 
             if processor_pipeline:
                 stats.assets_processed += 1

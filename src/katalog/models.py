@@ -10,24 +10,34 @@ from typing import Any, Mapping, Sequence
 
 from tortoise.transactions import in_transaction
 from tortoise.fields import (
-    BigIntField,
-    BooleanField,
     CASCADE,
     IntEnumField,
     CharEnumField,
+    BigIntField,
     CharField,
     DatetimeField,
     FloatField,
     ForeignKeyField,
     JSONField,
     IntField,
+    BooleanField,
+    TextField,
     RESTRICT,
     SET_NULL,
-    TextField,
 )
 from tortoise.models import Model
 
 from katalog.config import config_file
+from katalog.metadata import (
+    MetadataKey,
+    MetadataScalar,
+    MetadataType,
+    ensure_value_type,
+    get_metadata_def,
+    get_metadata_def_by_registry_id,
+    get_metadata_registry_id,
+)
+from katalog.utils.utils import fqn
 
 """Data usage notes
 - The target profile for this system is to handle metadata for 1 million files. Actual file contents is not to be stored in the DB.
@@ -39,11 +49,6 @@ Metadata will mostly be shorter text and date values, but some fields may grow p
 - As data changes over time, snapshots will be created, increasing the number of Metadata rows per asset. 
 On the other hand, users will be encouraged to purge snapshots regularly.
 """
-
-
-def fqn(cls: type) -> str:
-    # return f"{cls.__module__}.{cls.__qualname__}"
-    return f"models.{cls.__qualname__}"
 
 
 class OpStatus(Enum):
@@ -157,6 +162,109 @@ class Snapshot(Model):
         indexes = (("provider", "started_at"),)
 
 
+@dataclass(slots=True)
+class SnapshotStats:
+    assets_seen: int = 0
+    assets_changed: int = 0
+    assets_added: int = 0
+    assets_modified: int = 0
+    assets_deleted: int = 0
+    assets_ignored: int = 0
+    assets_processed: int = 0
+
+    metadata_values_affected: int = 0
+    metadata_values_added: int = 0
+    metadata_values_removed: int = 0
+
+    relations_affected: int = 0
+    relations_added: int = 0
+    relations_removed: int = 0
+
+    processings_started: int = 0
+    processings_completed: int = 0
+    processings_partial: int = 0
+    processings_cancelled: int = 0
+    processings_skipped: int = 0
+    processings_error: int = 0
+
+    _changed_assets: set[int] = field(default_factory=set, init=False, repr=False)
+    _added_assets: set[int] = field(default_factory=set, init=False, repr=False)
+    _modified_assets: set[int] = field(default_factory=set, init=False, repr=False)
+
+    def record_asset_change(self, asset_id: int, *, added: bool) -> None:
+        if added:
+            if asset_id not in self._added_assets:
+                self.assets_added += 1
+                self._added_assets.add(asset_id)
+        else:
+            if (
+                asset_id not in self._added_assets
+                and asset_id not in self._modified_assets
+            ):
+                self.assets_modified += 1
+                self._modified_assets.add(asset_id)
+        if asset_id not in self._changed_assets:
+            self.assets_changed += 1
+            self._changed_assets.add(asset_id)
+
+    def record_metadata_diff(self, added: int, removed: int) -> None:
+        if not added and not removed:
+            return
+        self.metadata_values_added += added
+        self.metadata_values_removed += removed
+        self.metadata_values_affected += added + removed
+
+    def record_relationship_diff(self, added: int, removed: int) -> None:
+        if not added and not removed:
+            return
+        self.relations_added += added
+        self.relations_removed += removed
+        self.relations_affected += added + removed
+
+    def to_dict(self) -> dict[str, Any]:
+        assets_not_changed = max(
+            self.assets_seen - self.assets_changed - self.assets_ignored, 0
+        )
+        assets_not_processed = max(
+            self.assets_seen - self.assets_processed - self.assets_ignored, 0
+        )
+        return {
+            "assets": {
+                "seen": self.assets_seen,
+                "changed": {
+                    "total": self.assets_changed,
+                    "added": self.assets_added,
+                    "modified": self.assets_modified,
+                    "deleted": self.assets_deleted,
+                },
+                "not_changed": assets_not_changed,
+                "ignored": self.assets_ignored,
+                "processed": {
+                    "processed": self.assets_processed,
+                    "not_processed": assets_not_processed,
+                },
+            },
+            "metadata": {
+                "values_affected": self.metadata_values_affected,
+                "added": self.metadata_values_added,
+                "removed": self.metadata_values_removed,
+            },
+            "relationships": {
+                "affected": self.relations_affected,
+                "added": self.relations_added,
+                "removed": self.relations_removed,
+            },
+            "processors": {
+                "started": self.processings_started,
+                "completed": self.processings_completed,
+                "partial": self.processings_partial,
+                "cancelled": self.processings_cancelled,
+                "skipped": self.processings_skipped,
+                "error": self.processings_error,
+            },
+        }
+
+
 class FileAccessor(ABC):
     @abstractmethod
     async def read(
@@ -191,8 +299,31 @@ class Asset(Model):
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
 
-    async def upsert(self, *args, **kwargs):
-        raise NotImplementedError()
+    async def upsert(
+        self,
+        *,
+        snapshot: "Snapshot",
+        metadata: Sequence["Metadata"] | None = None,
+        stats: SnapshotStats | None = None,
+    ) -> set[MetadataKey]:
+        """Persist this asset and apply metadata changes for the snapshot.
+
+        Returns a set of metadata keys that changed.
+        """
+
+        # Ensure the asset itself is saved first so we have an id for FKs.
+        if self.id is None:
+            await self.save()
+        else:
+            await self.save()
+
+        # No metadata to process: nothing changed.
+        if not metadata:
+            return set()
+
+        # Load existing metadata to compare against (cached on the instance).
+        await self.fetch_related("metadata")
+        return set()
 
     async def load_metadata(self) -> Sequence["Metadata"]:
         """Fetch and cache metadata rows for this asset."""
@@ -201,26 +332,6 @@ class Asset(Model):
 
     class Meta(Model.Meta):
         indexes = (("provider", "last_snapshot"),)
-
-
-class MetadataType(IntEnum):
-    STRING = 0
-    INT = 1
-    FLOAT = 2
-    DATETIME = 3
-    JSON = 4
-    RELATION = 5
-
-
-# Imported after MetadataType is defined to avoid circular import issues.
-from katalog.metadata import (  # noqa: E402
-    MetadataKey,
-    MetadataScalar,
-    ensure_value_type,
-    get_metadata_def,
-    get_metadata_def_by_registry_id,
-    get_metadata_registry_id,
-)
 
 
 class MetadataRegistry(Model):
@@ -393,104 +504,8 @@ def make_metadata(*args, **kwargs) -> Metadata:
     return entry
 
 
-@dataclass(slots=True)
-class SnapshotStats:
-    assets_seen: int = 0
-    assets_changed: int = 0
-    assets_added: int = 0
-    assets_modified: int = 0
-    assets_deleted: int = 0
-    assets_ignored: int = 0
-    assets_processed: int = 0
-
-    metadata_values_affected: int = 0
-    metadata_values_added: int = 0
-    metadata_values_removed: int = 0
-
-    relations_affected: int = 0
-    relations_added: int = 0
-    relations_removed: int = 0
-
-    processings_started: int = 0
-    processings_completed: int = 0
-    processings_partial: int = 0
-    processings_cancelled: int = 0
-    processings_skipped: int = 0
-    processings_error: int = 0
-
-    _changed_assets: set[int] = field(default_factory=set, init=False, repr=False)
-    _added_assets: set[int] = field(default_factory=set, init=False, repr=False)
-    _modified_assets: set[int] = field(default_factory=set, init=False, repr=False)
-
-    def record_asset_change(self, asset_id: int, *, added: bool) -> None:
-        if added:
-            if asset_id not in self._added_assets:
-                self.assets_added += 1
-                self._added_assets.add(asset_id)
-        else:
-            if (
-                asset_id not in self._added_assets
-                and asset_id not in self._modified_assets
-            ):
-                self.assets_modified += 1
-                self._modified_assets.add(asset_id)
-        if asset_id not in self._changed_assets:
-            self.assets_changed += 1
-            self._changed_assets.add(asset_id)
-
-    def record_metadata_diff(self, added: int, removed: int) -> None:
-        if not added and not removed:
-            return
-        self.metadata_values_added += added
-        self.metadata_values_removed += removed
-        self.metadata_values_affected += added + removed
-
-    def record_relationship_diff(self, added: int, removed: int) -> None:
-        if not added and not removed:
-            return
-        self.relations_added += added
-        self.relations_removed += removed
-        self.relations_affected += added + removed
-
-    def to_dict(self) -> dict[str, Any]:
-        assets_not_changed = max(
-            self.assets_seen - self.assets_changed - self.assets_ignored, 0
-        )
-        assets_not_processed = max(
-            self.assets_seen - self.assets_processed - self.assets_ignored, 0
-        )
-        return {
-            "assets": {
-                "seen": self.assets_seen,
-                "changed": {
-                    "total": self.assets_changed,
-                    "added": self.assets_added,
-                    "modified": self.assets_modified,
-                    "deleted": self.assets_deleted,
-                },
-                "not_changed": assets_not_changed,
-                "ignored": self.assets_ignored,
-                "processed": {
-                    "processed": self.assets_processed,
-                    "not_processed": assets_not_processed,
-                },
-            },
-            "metadata": {
-                "values_affected": self.metadata_values_affected,
-                "added": self.metadata_values_added,
-                "removed": self.metadata_values_removed,
-            },
-            "relationships": {
-                "affected": self.relations_affected,
-                "added": self.relations_added,
-                "removed": self.relations_removed,
-            },
-            "processors": {
-                "started": self.processings_started,
-                "completed": self.processings_completed,
-                "partial": self.processings_partial,
-                "cancelled": self.processings_cancelled,
-                "skipped": self.processings_skipped,
-                "error": self.processings_error,
-            },
-        }
+def current_metadata(metadata: Sequence[Metadata]):
+    """Get the current metadata entries by key from a list of Metadata.
+    This means any metadata entry that hasn't been removed OR"""
+    result: dict[MetadataKey, list[Metadata]] = {}
+    return result

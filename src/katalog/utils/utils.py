@@ -79,3 +79,8 @@ def _decode_cursor(cursor: str) -> dict[str, Any]:
     if not isinstance(decoded, dict):
         raise ValueError("cursor must decode to an object")
     return decoded
+
+
+def fqn(cls: type) -> str:
+    # return f"{cls.__module__}.{cls.__qualname__}"
+    return f"models.{cls.__qualname__}"

@@ -1,7 +1,7 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Mapping, NewType
-from katalog.models import MetadataType
+from enum import IntEnum
+from typing import TYPE_CHECKING, Any, Mapping, NewType, Sequence
 
 
 MetadataScalar = (
@@ -11,6 +11,15 @@ MetadataKey = NewType("MetadataKey", str)
 
 
 CORE_PLUGIN_ID = "katalog"
+
+
+class MetadataType(IntEnum):
+    STRING = 0
+    INT = 1
+    FLOAT = 2
+    DATETIME = 3
+    JSON = 4
+    RELATION = 5
 
 
 @dataclass(frozen=True)
