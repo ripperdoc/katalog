@@ -91,25 +91,6 @@ def get_metadata_def_by_key(key: MetadataKey) -> MetadataDef:
         raise ValueError(f"Unknown metadata key {key!s}")
 
 
-# Main columns for flat current table
-# FILE_NAME, sort, filter
-# FILE_TYPE, sort, filter
-# FILE_PATH, sort, filter (pick latest path)
-# FILE_SIZE, sort, filter
-# TIME_CREATED, sort, filter
-# TIME_MODIFIED, sort, filter
-# ACCESS_OWNER, sort, filter
-# ACCESS_SHARED_WITH ??
-# HASH_MD5 (sort filter not necessary)
-# Provider
-# Added/seen
-# Provider URI
-# Provider ID
-# Combined col for Warnings
-# Combined col for other metadata fields
-# Combined col for relations
-
-
 # Special keys to signal changes
 DATA_KEY = define_metadata("data", MetadataType.INT)
 FILE_RECORD_KEY = define_metadata("asset", MetadataType.INT)
