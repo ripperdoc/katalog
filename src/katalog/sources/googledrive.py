@@ -19,26 +19,26 @@ from katalog.models import (
 )
 from katalog.metadata import (
     ACCESS_OWNER,
-    ACCESS_SHARED,
+    FLAG_SHARED,
     ACCESS_SHARED_WITH,
     ACCESS_SHARING_USER,
     FILE_DESCRIPTION,
     FILE_ID_PATH,
-    FILE_LAST_MODIFYING_USER,
+    ACCESS_LAST_MODIFYING_USER,
     FILE_NAME,
     FILE_PATH,
     FILE_QUOTA_BYTES_USED,
     FILE_SIZE,
     FILE_VERSION,
     HASH_MD5,
-    MIME_TYPE,
-    STARRED,
+    FILE_TYPE,
+    FLAG_FAVORITE,
     TIME_CREATED,
     TIME_MODIFIED,
     TIME_MODIFIED_BY_ME,
     TIME_SHARED_WITH_ME,
     TIME_TRASHED,
-    TIME_VIEWED_BY_ME,
+    TIME_ACCESSED_BY_ME,
     define_metadata,
 )
 from katalog.sources.base import (
@@ -288,7 +288,7 @@ class GoogleDriveClient(SourcePlugin):
 
         result.add_metadata(
             self.id,
-            TIME_VIEWED_BY_ME,
+            TIME_ACCESSED_BY_ME,
             parse_google_drive_datetime(file.get("viewedByMeTime")),
         )
 
@@ -298,7 +298,7 @@ class GoogleDriveClient(SourcePlugin):
             parse_google_drive_datetime(file.get("viewedByMesharedWithMeTimeTime")),
         )
 
-        result.add_metadata(self.id, MIME_TYPE, file.get("mimeType"))
+        result.add_metadata(self.id, FILE_TYPE, file.get("mimeType"))
 
         result.add_metadata(self.id, HASH_MD5, file.get("md5Checksum"))
 
@@ -312,11 +312,11 @@ class GoogleDriveClient(SourcePlugin):
         #         make_metadata(self.id, self.FILE_WEB_VIEW_LINK, web_view_link)
         #     )
 
-        result.add_metadata(self.id, ACCESS_SHARED, int(bool(file.get("shared"))))
+        result.add_metadata(self.id, FLAG_SHARED, int(bool(file.get("shared"))))
 
         result.add_metadata(
             self.id,
-            FILE_LAST_MODIFYING_USER,
+            ACCESS_LAST_MODIFYING_USER,
             get_user_email(file.get("lastModifyingUser")),
         )
 
@@ -334,7 +334,7 @@ class GoogleDriveClient(SourcePlugin):
 
         result.add_metadata(self.id, FILE_VERSION, _coerce_int(file.get("version")))
 
-        result.add_metadata(self.id, STARRED, int(bool(file.get("starred"))))
+        result.add_metadata(self.id, FLAG_FAVORITE, int(bool(file.get("starred"))))
 
         owners = get_many_user_emails(file.get("owners"))
         result.add_metadata_set(self.id, ACCESS_OWNER, owners)

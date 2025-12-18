@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from katalog.processors.base import Processor
-from katalog.metadata import MIME_TYPE
+from katalog.metadata import FILE_TYPE
 
 
 class ArchiveProcess(Processor):
     """Checks if a file is an archive and if so, scans it to emit "virtual" file records."""
 
-    dependencies = frozenset({MIME_TYPE})
+    dependencies = frozenset({FILE_TYPE})
     outputs = frozenset({})  # TODO
 
     # def should_run(self, record: AssetRecord, prev_cache: str | None) -> bool:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import magic
 
-from katalog.metadata import MIME_TYPE
+from katalog.metadata import FILE_TYPE
 from katalog.processors.base import (
     Processor,
     ProcessorResult,
@@ -19,7 +19,7 @@ from katalog.models import Asset, make_metadata
 class MimeTypeProcessor(Processor):
     PLUGIN_ID = "dev.katalog.processor.mime_type"
     dependencies = file_data_change_dependencies
-    outputs = frozenset({MIME_TYPE})
+    outputs = frozenset({FILE_TYPE})
 
     def should_run(
         self,
@@ -39,4 +39,4 @@ class MimeTypeProcessor(Processor):
         buf = await asset.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)
         provider_id = getattr(self, "provider_id", asset.provider_id)
-        return ProcessorResult(metadata=[make_metadata(provider_id, MIME_TYPE, mt)])
+        return ProcessorResult(metadata=[make_metadata(provider_id, FILE_TYPE, mt)])

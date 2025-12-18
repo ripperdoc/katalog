@@ -8,7 +8,6 @@ from tortoise import run_async
 from katalog.models import MetadataType, ProviderType
 from katalog.models import (
     Asset,
-    AssetRelationship,
     Metadata,
     MetadataRegistry,
     Provider,
@@ -279,30 +278,6 @@ async def populate_test_data(
                     )
         if metadata_entries:
             await Metadata.bulk_create(metadata_entries)
-
-        # Relationships
-        rels: list[AssetRelationship] = []
-        if len(assets) >= 2 and relationships_per_asset > 0:
-            for asset in assets:
-                for _ in range(relationships_per_asset):
-                    other = assets[rng.randrange(0, len(assets))]
-                    if other.id == asset.id:
-                        continue
-                    rels.append(
-                        AssetRelationship(
-                            provider=provider,
-                            from_asset=asset,
-                            to_asset=other,
-                            relationship_type=relationship_types[
-                                rng.randrange(0, len(relationship_types))
-                            ],
-                            snapshot=last_snapshot,
-                            removed=False,
-                            description=None,
-                        )
-                    )
-        if rels:
-            await AssetRelationship.bulk_create(rels)
 
     return db_path
 

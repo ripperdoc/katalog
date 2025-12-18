@@ -103,21 +103,31 @@ def ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
     raise TypeError(f"Expected {expected}, got {type(value).__name__}")
 
 
+# Main columns for flat current table
+# FILE_NAME, sort, filter
+# FILE_TYPE, sort, filter
+# FILE_PATH, sort, filter (pick latest path)
+# FILE_SIZE, sort, filter
+# TIME_CREATED, sort, filter
+# TIME_MODIFIED, sort, filter
+# ACCESS_OWNER, sort, filter
+# ACCESS_SHARED_WITH ??
+# HASH_MD5 (sort filter not necessary)
+# Provider
+# Added/seen
+# Provider URI
+# Provider ID
+# Combined col for Warnings
+# Combined col for other metadata fields
+# Combined col for relations
+
+
 # Special keys to signal changes
 DATA_KEY = define_metadata("data", MetadataType.INT)
 FILE_RECORD_KEY = define_metadata("asset", MetadataType.INT)
 
 # Built-in metadata
-FILE_ABSOLUTE_PATH = define_metadata(
-    "file/absolute_path", MetadataType.STRING, "Absolute path"
-)
-FILE_DESCRIPTION = define_metadata(
-    "file/description", MetadataType.STRING, "Description"
-)
 FILE_ID_PATH = define_metadata("file/id_path", MetadataType.STRING)
-FILE_LAST_MODIFYING_USER = define_metadata(
-    "file/last_modifying_user", MetadataType.STRING, "Last modifying user"
-)
 FILE_NAME = define_metadata("file/filename", MetadataType.STRING, "Filename")
 FILE_ORIGINAL_NAME = define_metadata(
     "file/original_filename", MetadataType.STRING, "Original filename"
@@ -126,22 +136,41 @@ FILE_PATH = define_metadata("file/path", MetadataType.STRING, "Path")
 FILE_QUOTA_BYTES_USED = define_metadata(
     "file/quota_bytes_used", MetadataType.INT, "Quota bytes used"
 )
+FILE_TYPE = define_metadata("file/type", MetadataType.STRING, "MIME Type")
+FILE_EXTENSION = define_metadata(
+    "file/extension", MetadataType.STRING, "File extension"
+)
+FILE_SIZE = define_metadata("file/size", MetadataType.INT, "Size (bytes)", width=120)
+FILE_VERSION = define_metadata("file/version", MetadataType.INT, "Version")
+FILE_DOWNLOAD_URI = define_metadata(
+    "file/download_uri", MetadataType.STRING, "Download URI"
+)  # e.g. from Linux user.xdg.origin.url or macOS com.apple.metadata:kMDItemWhereFroms
+FILE_URI = define_metadata("file/uri", MetadataType.STRING, "URI")
+FILE_TITLE = define_metadata(
+    "file/title", MetadataType.STRING, "Title"
+)  # E.g. IPTC headline field
+FILE_DESCRIPTION = define_metadata(
+    "file/description", MetadataType.STRING, "Description"
+)  # E.g. IPTC caption/description field, HTML Meta description
+FILE_TAGS = define_metadata(
+    "file/tags", MetadataType.JSON, "Tags"
+)  # E.g. from MaxOS xattr
+FILE_COMMENT = define_metadata(
+    "file/comment", MetadataType.STRING, "Comment"
+)  # E.g. from Linux xattr user.comment
+
 
 ACCESS_OWNER = define_metadata("access/owner", MetadataType.STRING, "Owner")
-ACCESS_SHARED = define_metadata("access/shared", MetadataType.INT, "Shared", width=100)
 ACCESS_SHARED_WITH = define_metadata(
     "access/shared_with", MetadataType.STRING, "Shared with"
 )
 ACCESS_SHARING_USER = define_metadata(
     "access/sharing_user", MetadataType.JSON, "Sharing user"
 )
+ACCESS_LAST_MODIFYING_USER = define_metadata(
+    "access/last_modifying_user", MetadataType.STRING, "Last modifying user"
+)
 
-FILE_SIZE = define_metadata("file/size", MetadataType.INT, "Size (bytes)", width=120)
-FILE_VERSION = define_metadata("file/version", MetadataType.INT, "Version")
-FLAG_HIDDEN = define_metadata("flag/hidden", MetadataType.INT, "Hidden", width=100)
-HASH_MD5 = define_metadata("hash/md5", MetadataType.STRING, "MD5 Hash")
-MIME_TYPE = define_metadata("mime/type", MetadataType.STRING, "MIME Type")
-STARRED = define_metadata("file/starred", MetadataType.INT, "Starred", width=100)
 TIME_CREATED = define_metadata("time/created", MetadataType.DATETIME, "Created")
 TIME_MODIFIED = define_metadata("time/modified", MetadataType.DATETIME, "Modified")
 TIME_MODIFIED_BY_ME = define_metadata(
@@ -151,63 +180,84 @@ TIME_SHARED_WITH_ME = define_metadata(
     "time/shared_with_me", MetadataType.DATETIME, "Shared with me"
 )
 TIME_TRASHED = define_metadata("time/trashed", MetadataType.DATETIME, "Trashed")
-TIME_VIEWED_BY_ME = define_metadata(
-    "time/viewed_by_me", MetadataType.DATETIME, "Viewed by me"
+TIME_ACCESSED = define_metadata("time/accessed", MetadataType.DATETIME, "Last accessed")
+TIME_ACCESSED_BY_ME = define_metadata(
+    "time/accessed", MetadataType.DATETIME, "Accessed by me"
 )
+TIME_DOWNLOADED = define_metadata(
+    "time/downloaded", MetadataType.DATETIME, "Downloaded"
+)  # E.g. From MacOS xattr com.apple.metadata:kMDItemDownloadedDate
+TIME_BIRTHTIME = define_metadata(
+    "time/birthtime", MetadataType.DATETIME, "Birth/creation time (fs)"
+)  # E.g. from fs stat birthtime on macOS/Windows or from EXIF original date
+
+REL_CHILD_OF = define_metadata(
+    "relationship/child_of", MetadataType.RELATION, "Child of"
+)
+REL_PARENT_OF = define_metadata(
+    "relationship/parent_of", MetadataType.RELATION, "Parent of"
+)
+REL_PART_OF = define_metadata("relationship/part_of", MetadataType.RELATION, "Part of")
+REL_DERIVED_FROM = define_metadata(
+    "relationship/derived_from", MetadataType.RELATION, "Derived from"
+)
+REL_VERSION_OF = define_metadata(
+    "relationship/version_of", MetadataType.RELATION, "Version of"
+)
+REL_SIMILAR_TO = define_metadata(
+    "relationship/similar_to", MetadataType.RELATION, "Similar to"
+)
+REL_DUPLICATE_OF = define_metadata(
+    "relationship/duplicate_of", MetadataType.RELATION, "Duplicate of"
+)
+REL_LINK_TO = define_metadata("relationship/link_to", MetadataType.RELATION, "Link to")
+
 WARNING_NAME_READABILITY = define_metadata(
     "warning/name_readability", MetadataType.JSON
 )
+WARNING_NAME_CONVENTIONS = define_metadata(
+    "warning/name_conventions", MetadataType.JSON
+)
 
-# flag_review, flag_delete, flag_favorite, flag_hide
+FLAG_FAVORITE = define_metadata(
+    "flag/starred", MetadataType.INT, "Favorited", width=100
+)
+FLAG_HIDDEN = define_metadata("flag/hidden", MetadataType.INT, "Hidden", width=100)
+FLAG_REVIEW = define_metadata("flag/review", MetadataType.INT, "Review", width=100)
+FLAG_REJECTED = define_metadata(
+    "flag/rejected", MetadataType.INT, "Rejecedt", width=100
+)
+FLAG_SHARED = define_metadata("flag/shared", MetadataType.INT, "Shared", width=100)
+FLAG_TRASHED = define_metadata("flag/trashed", MetadataType.INT, "Trashed", width=100)
+
 
 # Content fingerprints (used for similarity / deduplication)
 # Hashes often represented as strings; some fingerprints are lists/maps
-FINGERPRINT_MINHASH = define_metadata(
+HASH_MD5 = define_metadata("hash/md5", MetadataType.STRING, "MD5 Hash")
+HASH_SHA1 = define_metadata("hash/sha1", MetadataType.STRING, "SHA1 Hash")
+HASH_MINHASH = define_metadata(
     "fingerprint/minhash", MetadataType.JSON, "MinHash fingerprint"
 )
-FINGERPRINT_SIMHASH = define_metadata(
+HASH_SIMHASH = define_metadata(
     "fingerprint/simhash", MetadataType.STRING, "SimHash (text)"
 )
-FINGERPRINT_PHASH = define_metadata(
+HASH_PHASH = define_metadata(
     "fingerprint/phash", MetadataType.STRING, "Perceptual hash (images)"
 )
-FINGERPRINT_AHASH = define_metadata(
+HASH_AHASH = define_metadata(
     "fingerprint/ahash", MetadataType.STRING, "Average hash (images)"
 )
-FINGERPRINT_DHASH = define_metadata(
+HASH_DHASH = define_metadata(
     "fingerprint/dhash", MetadataType.STRING, "Difference hash (images)"
 )
-FINGERPRINT_AUDIO_CHROMAPRINT = define_metadata(
+HASH_AUDIO_CHROMAPRINT = define_metadata(
     "fingerprint/chromaprint", MetadataType.STRING, "Chromaprint (audio)"
 )
-FINGERPRINT_SSDEEP = define_metadata(
+HASH_SSDEEP = define_metadata(
     "fingerprint/ssdeep", MetadataType.STRING, "ssdeep fuzzy hash"
 )
 
-# Derived / filesystem values
-FILE_EXTENSION = define_metadata(
-    "file/extension", MetadataType.STRING, "File extension"
-)
-FILE_PARENT = define_metadata("file/parent", MetadataType.STRING, "Parent folder path")
-FILE_ATIME = define_metadata("file/atime", MetadataType.DATETIME, "Access time")
-FILE_BIRTHTIME = define_metadata(
-    "file/birthtime", MetadataType.DATETIME, "Birth/creation time (fs)"
-)
-
-# Downloaded time: MacOS extended attributes
-
-# Tags and simple collections
-TAGS = define_metadata("file/tags", MetadataType.JSON, "Tags")
-
 # Document related metadata
-DOC_ORIGINAL_URI = define_metadata(
-    "document/original_uri", MetadataType.STRING, "Original document URI"
-)
-DOC_DOWNLOAD_URI = define_metadata(
-    "document/download_uri", MetadataType.STRING, "Download URI"
-)
-DOC_URI = define_metadata("document/uri", MetadataType.STRING, "Document canonical URI")
-DOC_TITLE = define_metadata("document/title", MetadataType.STRING, "Document title")
 DOC_SUMMARY = define_metadata(
     "document/summary", MetadataType.STRING, "Document summary"
 )
@@ -215,111 +265,54 @@ DOC_BYLINE = define_metadata(
     "document/byline", MetadataType.STRING, "Byline / author string"
 )
 DOC_LANG = define_metadata("document/lang", MetadataType.STRING, "Document language")
-DOC_AUTHOR = define_metadata("document/author", MetadataType.JSON, "Document author")
+DOC_AUTHOR = define_metadata("document/author", MetadataType.STRING, "Document author")
 DOC_KEYWORD = define_metadata(
-    "document/keywords", MetadataType.JSON, "Document keyword"
-)
-DOC_CHARACTERS = define_metadata("document/chars", MetadataType.INT, "Character count")
+    "document/keyword", MetadataType.STRING, "Document keyword"
+)  # e.g. from PDF metadata or HTML meta keywords
+DOC_CATEGORY = define_metadata(
+    "document/category", MetadataType.STRING, "Document category"
+)  # e.g. from PDF metadata or OpenGraph type
+DOC_CHARS = define_metadata("document/chars", MetadataType.INT, "Character count")
 DOC_WORDS = define_metadata("document/words", MetadataType.INT, "Word count")
 DOC_PAGES = define_metadata("document/pages", MetadataType.INT, "Page count")
 
-# Image / Audio / Video specific metadata containers (structured JSON)
-IMAGE_EXIF = define_metadata("image/exif", MetadataType.JSON, "Image EXIF metadata")
-IMAGE_IPTC = define_metadata("image/iptc", MetadataType.JSON, "Image IPTC metadata")
-IMAGE_XMP = define_metadata("image/xmp", MetadataType.JSON, "Image XMP metadata")
-
-AUDIO_TAGS = define_metadata("audio/tags", MetadataType.JSON, "Audio tags (ID3/Vorbis)")
-VIDEO_ATOMS = define_metadata(
-    "video/atoms", MetadataType.JSON, "QuickTime/MP4 atoms or similar"
-)
-
-# Sidecar / external metadata
-SIDECAR_XMP = define_metadata("sidecar/xmp", MetadataType.JSON, "Sidecar XMP data")
-SIDECAR_CUE = define_metadata(
-    "sidecar/cue", MetadataType.JSON, "Sidecar CUE data (audio)"
-)
-
-# Extended attributes (OS-specific). These are intentionally generic JSON
-# because xattrs can contain platform-specific formats (plist, binary).
-# Examples: macOS `com.apple.metadata:kMDItemWhereFroms`, `com.apple.metadata:_kMDItemUserTags`.
-XATTR = define_metadata("xattr/all", MetadataType.JSON, "All extended attributes")
-XATTR_DOWNLOADED_DATE = define_metadata(
-    "xattr/downloaded_date",
-    MetadataType.DATETIME,
-    "Downloaded date from xattr (if available)",
-)
-XATTR_FINDER_TAGS = define_metadata(
-    "xattr/finder_tags", MetadataType.JSON, "Finder tags / user tags from xattr"
-)
-
-# Extended attributes
-# Access using Python xattr library
-# Available mostly in MacOS and Linux. Namespaces like user., system., security.
-# Example: user.downloaded, system.metadata, security.label
-# macOS (APFS, HFS+)
-# com.apple.quarantine — Quarantine flag for downloaded files
-# com.apple.metadata:kMDItemWhereFroms — Download source URLs (plist)
-# com.apple.metadata:kMDItemDownloadedDate — Downloaded date (plist)
-# com.apple.metadata:_kMDItemUserTags — Finder tags
-# com.apple.FinderInfo — Finder metadata
-# com.apple.ResourceFork — Classic Mac resource fork
-# com.apple.lastuseddate#PS — Last used date (plist)
-# Linux (ext4, XFS, etc.)
-# user.comment — User comment
-# user.xdg.origin.url — Download source URL (used by some apps)
-
-# --- More specific fields derived from standards/tools ---
-# Examples are shown inline (truncated) to illustrate typical values.
 
 # EXIF common fields (also available inside `image/exif` container)
-IMAGE_EXIF_MAKE = define_metadata(
-    "image/exif/make", MetadataType.STRING, "Camera maker"
+IMAGE_CAMERA_MAKE = define_metadata(
+    "image/camera_make", MetadataType.STRING, "Camera maker"
 )
 # e.g. "Canon"
-IMAGE_EXIF_MODEL = define_metadata(
-    "image/exif/model", MetadataType.STRING, "Camera model"
-)
-# e.g. "Canon EOS 5D Mark IV"
-IMAGE_EXIF_DATETIME_ORIGINAL = define_metadata(
-    "image/exif/datetime_original", MetadataType.DATETIME, "Original capture time"
-)
-# e.g. 2021-07-14T12:34:56
-IMAGE_EXIF_ORIENTATION = define_metadata(
-    "image/exif/orientation", MetadataType.INT, "Orientation flag"
-)
-# e.g. 1..8
-IMAGE_EXIF_FOCAL_LENGTH = define_metadata(
-    "image/exif/focal_length", MetadataType.FLOAT, "Focal length (mm)"
-)
-# e.g. 35.0
-IMAGE_EXIF_APERTURE = define_metadata(
-    "image/exif/aperture", MetadataType.FLOAT, "Aperture (f-number)"
+IMAGE_CAMERA_MODEL = define_metadata(
+    "image/camera_model", MetadataType.STRING, "Camera model"
+)  # e.g. "Canon EOS 5D Mark IV"
+
+IMAGE_ORIENTATION = define_metadata(
+    "image/orientation", MetadataType.INT, "Orientation flag"
+)  # e.g. 1..8 from EXIF spec
+
+IMAGE_FOCAL_LENGTH = define_metadata(
+    "image/focal_length", MetadataType.FLOAT, "Focal length (mm)"
+)  # e.g. 35.0
+
+IMAGE_APERTURE = define_metadata(
+    "image/aperture", MetadataType.FLOAT, "Aperture (f-number)"
 )
 # e.g. 2.8
-IMAGE_EXIF_ISO = define_metadata("image/exif/iso", MetadataType.INT, "ISO speed")
+IMAGE_ISO = define_metadata("image/iso", MetadataType.INT, "ISO speed")
 # e.g. 100
 IMAGE_GPS_LATITUDE = define_metadata(
-    "image/exif/gps_latitude", MetadataType.FLOAT, "GPS latitude (decimal)"
+    "image/gps_latitude", MetadataType.FLOAT, "GPS latitude (decimal)"
 )
 # e.g. 51.5074
 IMAGE_GPS_LONGITUDE = define_metadata(
-    "image/exif/gps_longitude", MetadataType.FLOAT, "GPS longitude (decimal)"
+    "image/gps_longitude", MetadataType.FLOAT, "GPS longitude (decimal)"
 )
 # e.g. -0.1278
 
-# IPTC common fields (also inside `image/iptc`)
-IMAGE_IPTC_HEADLINE = define_metadata(
-    "image/iptc/headline", MetadataType.STRING, "IPTC headline"
-)
-# e.g. "Protest March Downtown"
-IMAGE_IPTC_CAPTION = define_metadata(
-    "image/iptc/caption", MetadataType.STRING, "IPTC caption/description"
-)
-# e.g. "Crowds gathered in central plaza..."
 
 # ID3 / audio tag scalars (also inside `audio/tags` container)
-AUDIO_TITLE = define_metadata("audio/title", MetadataType.STRING, "Track title")
-# e.g. "Song Name"
+# Track title uses FILE_TITLE key
+
 AUDIO_ARTIST = define_metadata("audio/artist", MetadataType.STRING, "Artist")
 # e.g. "Artist Name"
 AUDIO_ALBUM = define_metadata("audio/album", MetadataType.STRING, "Album")
@@ -331,68 +324,23 @@ AUDIO_GENRE = define_metadata("audio/genre", MetadataType.STRING, "Genre")
 AUDIO_YEAR = define_metadata("audio/year", MetadataType.INT, "Year")
 # e.g. 1999
 
-# HTML meta / OpenGraph / Schema.org
-HTML_META_DESCRIPTION = define_metadata(
-    "html/meta_description", MetadataType.STRING, "HTML meta description"
-)
-# e.g. "A short summary of the page"
-HTML_META_KEYWORDS = define_metadata(
-    "html/meta_keywords", MetadataType.JSON, "HTML meta keywords"
-)
 # e.g. ["katalog","photos"]
-OG_TITLE = define_metadata("og/title", MetadataType.STRING, "OpenGraph title")
-# e.g. "Article Title"
-OG_DESCRIPTION = define_metadata(
-    "og/description", MetadataType.STRING, "OpenGraph description"
-)
-# e.g. "Summary for social cards"
-OG_TYPE = define_metadata("og/type", MetadataType.STRING, "OpenGraph type")
-# e.g. "article"
-OG_IMAGE = define_metadata("og/image", MetadataType.STRING, "OpenGraph image URL")
-# e.g. "https://example.com/cover.jpg"
-OG_URL = define_metadata("og/url", MetadataType.STRING, "OpenGraph canonical URL")
-# e.g. "https://example.com/article/1"
-SCHEMA_ORG = define_metadata(
-    "schemaorg/jsonld", MetadataType.JSON, "Schema.org JSON-LD"
-)
-# e.g. {"@context":..., "@type":"Article", ...}
+# OG_IMAGE = define_metadata("og/image", MetadataType.STRING, "OpenGraph image URL")
+# # e.g. "https://example.com/cover.jpg"
 
-# Markdown front matter (YAML/ TOML) common fields
-MF_TITLE = define_metadata(
-    "frontmatter/title", MetadataType.STRING, "Front matter title"
-)
-# e.g. "My Post"
-MF_DATE = define_metadata(
-    "frontmatter/date", MetadataType.DATETIME, "Front matter date"
-)
-# e.g. 2022-01-01
-MF_TAGS = define_metadata("frontmatter/tags", MetadataType.JSON, "Front matter tags")
-# e.g. ["notes","work"]
-MF_CATEGORIES = define_metadata(
-    "frontmatter/categories", MetadataType.JSON, "Front matter categories"
-)
-# e.g. ["blog"]
-MF_AUTHOR = define_metadata(
-    "frontmatter/author", MetadataType.STRING, "Front matter author"
-)
-# e.g. "Jane Doe"
-MF_EXCERPT = define_metadata(
-    "frontmatter/excerpt", MetadataType.STRING, "Front matter excerpt"
-)
+# # e.g. "Jane Doe"
+# MF_EXCERPT = define_metadata(
+#     "frontmatter/excerpt", MetadataType.STRING, "Front matter excerpt"
+# )
 # e.g. "Short summary..."
 
-# Office / ODT metadata
-OFFICE_CORE_PROPERTIES = define_metadata(
-    "office/core_properties", MetadataType.JSON, "Office core properties (docx/odt)"
-)
-# e.g. {"creator":"Alice","created":"2020-01-01T...",...}
-OFFICE_CUSTOM_PROPERTIES = define_metadata(
-    "office/custom_properties", MetadataType.JSON, "Office custom properties"
-)
-# e.g. {"Project":"Katalog","Reviewed":True}
-ODT_EDITOR = define_metadata("odt/editor", MetadataType.STRING, "ODT last editor")
-# e.g. "libreoffice 7.0"
 
+# Metadata standards to expand into multiple fields
+# sidecar XMP
+# sidecar CUE (audio track markers)
+# ID3 Vorbis
+# Video quicktime atoms
+# Schema.org (JSON-LD)
 
 # Tools/Libraries for Reading Metadata:
 

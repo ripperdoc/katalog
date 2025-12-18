@@ -48,9 +48,8 @@ from katalog.utils.utils import _decode_cursor, _encode_cursor
 - ~1 million Asset records
 - ~30 million Metadata records (assuming an average of 30 metadata entries per asset). 
 Metadata will mostly be shorter text and date values, but some fields may grow pretty large, such as text contents, summaries, etc.
-- ~5 million AssetRelationship records (assuming an average of 5 relationships per asset)
 - 10 to 100 Providers
-- As data changes over time, snapshots will be created, increasing the number of Metadata and AssetRelationship rows per asset. 
+- As data changes over time, snapshots will be created, increasing the number of Metadata rows per asset. 
 On the other hand, users will be encouraged to purge snapshots regularly.
 """
 
@@ -213,6 +212,7 @@ class MetadataType(IntEnum):
     FLOAT = 2
     DATETIME = 3
     JSON = 4
+    RELATION = 5
 
 
 class MetadataRegistry(Model):
@@ -248,13 +248,14 @@ class Metadata(Model):
     value_real = FloatField(null=True)
     value_datetime = DatetimeField(null=True)
     value_json = JSONField(null=True)
+    value_relation = ForeignKeyField(fqn(Asset), null=True, on_delete=CASCADE)
     removed = BooleanField(default=False)
     # Null means no confidence score, which can be assumed to be 1.0
     confidence = FloatField(null=True)
 
     class Meta(Model.Meta):
         indexes = ("metadata_key", "value_type")
-        unique_together = ("asset", "provider", "snapshot", "metadata_key")
+        # unique_together = ("asset", "provider", "snapshot", "metadata_key")
 
     @property
     def key(self) -> "MetadataKey":
@@ -283,19 +284,10 @@ class Metadata(Model):
             return self.value_datetime
         if self.value_type == MetadataType.JSON:
             return self.value_json
-
-        # Fallback for unexpected values.
-        if self.value_text is not None:
-            return self.value_text
-        if self.value_int is not None:
-            return self.value_int
-        if self.value_real is not None:
-            return self.value_real
-        if self.value_datetime is not None:
-            return self.value_datetime
-        if self.value_json is not None:
-            return self.value_json
-        return None
+        if self.value_type == MetadataType.RELATION:
+            return self.value_relation
+        else:
+            raise ValueError(f"Unsupported metadata value_type {self.value_type}")
 
     @classmethod
     async def for_asset(
@@ -388,27 +380,6 @@ def make_metadata(*args, **kwargs) -> Metadata:
         raise ValueError(f"Unsupported metadata value type {definition.value_type}")
 
     return entry
-
-
-class AssetRelationship(Model):
-    id = IntField(pk=True)
-    provider = ForeignKeyField(
-        fqn(Provider), related_name="relationships", on_delete=CASCADE
-    )
-    from_asset = ForeignKeyField(
-        fqn(Asset), related_name="outgoing_relationships", on_delete=CASCADE
-    )
-    to_asset = ForeignKeyField(
-        fqn(Asset), related_name="incoming_relationships", on_delete=CASCADE
-    )
-    relationship_type = CharField(max_length=255)
-    snapshot = ForeignKeyField(fqn(Snapshot), on_delete=CASCADE)
-    removed = BooleanField(default=False)
-    confidence = FloatField(null=True)
-    description = TextField(null=True)
-
-    class Meta(Model.Meta):
-        indexes = (("provider", "from_asset", "to_asset", "relationship_type"),)
 
 
 async def list_assets_with_metadata(

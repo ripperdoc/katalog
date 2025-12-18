@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, FrozenSet, cast
+from typing import ClassVar, FrozenSet, cast
 
 from katalog.models import (
     Asset,
-    AssetRelationship,
     MetadataKey,
     Metadata,
     OpStatus,
@@ -18,7 +17,6 @@ from katalog.utils.utils import import_plugin_class
 @dataclass(slots=True)
 class ProcessorResult:
     metadata: list[Metadata] = field(default_factory=list)
-    relationships: list[AssetRelationship] = field(default_factory=list)
     assets: list[Asset] = field(default_factory=list)
     status: OpStatus = OpStatus.COMPLETED
     message: str | None = None

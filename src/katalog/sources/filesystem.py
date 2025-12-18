@@ -15,7 +15,7 @@ from katalog.models import (
     Snapshot,
 )
 from katalog.metadata import (
-    FILE_ABSOLUTE_PATH,
+    FILE_PATH,
     FILE_SIZE,
     FLAG_HIDDEN,
     TIME_CREATED,
@@ -106,7 +106,7 @@ class FilesystemClient(SourcePlugin):
                             canonical_uri=abs_path.as_uri(),
                         )
                         result = AssetRecordResult(asset=asset)
-                        result.add_metadata(self.id, FILE_ABSOLUTE_PATH, str(abs_path))
+                        result.add_metadata(self.id, FILE_PATH, str(abs_path))
                         result.add_metadata(self.id, TIME_MODIFIED, modified)
                         result.add_metadata(self.id, TIME_CREATED, created)
                         result.add_metadata(self.id, FILE_SIZE, int(stat.st_size))

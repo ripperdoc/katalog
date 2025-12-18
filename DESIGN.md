@@ -232,21 +232,8 @@ very minor problem, and the escape hatch is to store it all as JSON.
 
 #### Relationship snapshots
 
-Relationships between assets are also saved by snapshot to allow us to walk back as needed. But the
-nature of a relationship is a little bit different.
-
-If we want to add a relationship A-(type)->B, and there was no such relation before for that
-provider, we add a row.
-
-If we want to then add a relationship A-(othertype)->B, it is also added.
-
-If we analyze again and want to set the same relationship again, with the same provider, we should
-detect that they are the same and not add a new row.
-
-If we want to set that there is NO relationshop A-(type)->B, and it existed already for that
-provider, we add a new row which sets this relationship as `removed=1`. However, a typical analyzer
-would not explicitly say which files are _not_ related in a way, just say that somme files may be
-related. Therefore it would be unusual to remove a relationship.
+Relationships are modeled as a metadata with a relation type. Therefore the same rules that apply
+for metadata snapshots apply here.
 
 #### Removing snapshots
 

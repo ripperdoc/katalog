@@ -3,7 +3,6 @@ from typing import Any, AsyncIterator, Collection, cast
 
 from katalog.models import (
     Asset,
-    AssetRelationship,
     Metadata,
     MetadataKey,
     MetadataScalar,
@@ -19,7 +18,6 @@ from katalog.utils.utils import import_plugin_class
 class AssetRecordResult:
     asset: Asset
     metadata: list[Metadata] = field(default_factory=list)
-    relationships: list[AssetRelationship] = field(default_factory=list)
 
     def add_metadata(
         self, plugin_id: str, metadata_key: MetadataKey, value: MetadataScalar
