@@ -1,7 +1,7 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import IntEnum
-from typing import TYPE_CHECKING, Any, Mapping, NewType, Sequence
+from typing import Any, Mapping, NewType
 
 
 MetadataScalar = (
@@ -56,7 +56,7 @@ def define_metadata(
     return key
 
 
-def get_metadata_registry_id(key: MetadataKey) -> int:
+def get_metadata_id(key: MetadataKey) -> int:
     definition = get_metadata_def(key)
     if definition.registry_id is None:
         raise RuntimeError(

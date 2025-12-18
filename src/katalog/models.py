@@ -35,7 +35,7 @@ from katalog.metadata import (
     ensure_value_type,
     get_metadata_def,
     get_metadata_def_by_registry_id,
-    get_metadata_registry_id,
+    get_metadata_id,
 )
 from katalog.utils.utils import fqn
 
@@ -301,7 +301,6 @@ class Asset(Model):
 
     async def upsert(
         self,
-        *,
         snapshot: "Snapshot",
         metadata: Sequence["Metadata"] | None = None,
         stats: SnapshotStats | None = None,
@@ -312,18 +311,36 @@ class Asset(Model):
         """
 
         # Ensure the asset itself is saved first so we have an id for FKs.
-        if self.id is None:
-            await self.save()
-        else:
-            await self.save()
+        await self.save()
 
         # No metadata to process: nothing changed.
         if not metadata:
             return set()
 
-        # Load existing metadata to compare against (cached on the instance).
-        await self.fetch_related("metadata")
-        return set()
+        await self.load_metadata()
+        existing_metadata: list[Metadata] = getattr(self, "metadata")
+
+        existing_index: set[tuple[int, int, Any]] = set()
+        for md in existing_metadata:
+            existing_index.add((int(md.metadata_key_id), int(md.provider_id), md.value))  # type: ignore
+
+        to_create: list[Metadata] = []
+        changed_keys: set[MetadataKey] = set()
+
+        for md in metadata:
+            md.asset = self
+            md.snapshot = snapshot
+            key = (int(md.metadata_key_id), int(md.provider_id), md.value)  # type: ignore
+            if key in existing_index:
+                continue
+            to_create.append(md)
+            existing_index.add(key)
+            changed_keys.add(get_metadata_def_by_registry_id(key[0]).key)
+
+        if to_create:
+            await Metadata.bulk_create(to_create)
+
+        return changed_keys
 
     async def load_metadata(self) -> Sequence["Metadata"]:
         """Fetch and cache metadata rows for this asset."""
@@ -472,7 +489,7 @@ def make_metadata(*args, **kwargs) -> Metadata:
 
     entry = Metadata(
         provider_id=int(provider_id),
-        metadata_key_id=get_metadata_registry_id(key),
+        metadata_key_id=get_metadata_id(key),
         value_type=definition.value_type,
         removed=bool(removed),
         confidence=confidence,
