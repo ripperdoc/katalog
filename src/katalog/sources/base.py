@@ -11,27 +11,26 @@ from katalog.models import (
     Snapshot,
     make_metadata,
 )
+from katalog.plugins.base import PluginBase
 from katalog.utils.utils import import_plugin_class
 
 
 @dataclass(slots=True)
 class AssetRecordResult:
     asset: Asset
+    provider: Provider
     metadata: list[Metadata] = field(default_factory=list)
 
-    def add_metadata(
-        self, plugin_id: str, metadata_key: MetadataKey, value: MetadataScalar
-    ):
-        self.metadata.append(make_metadata(plugin_id, metadata_key, value))
+    def add_metadata(self, metadata_key: MetadataKey, value: MetadataScalar) -> None:
+        self.metadata.append(make_metadata(metadata_key, value, self.provider.id))
 
     def add_metadata_set(
         self,
-        plugin_id: str,
         metadata_key: MetadataKey,
         value: Collection[MetadataScalar],
-    ):
+    ) -> None:
         for v in value:
-            self.metadata.append(make_metadata(plugin_id, metadata_key, v))
+            self.metadata.append(make_metadata(metadata_key, v, self.provider.id))
 
 
 @dataclass(slots=True)
@@ -40,10 +39,13 @@ class ScanResult:
     status: OpStatus = OpStatus.IN_PROGRESS
 
 
-class SourcePlugin:
+class SourcePlugin(PluginBase):
     """
     Source plugin for accessing and listing assets in some asset or file repository.
     """
+
+    def __init__(self, provider: Provider, **kwargs: Any) -> None:
+        super().__init__(provider, **kwargs)
 
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the plugin."""
@@ -69,7 +71,5 @@ class SourcePlugin:
 
 
 def make_source_instance(source_record: Provider) -> SourcePlugin:
-    SourceClass = cast(
-        type[SourcePlugin], import_plugin_class(source_record.class_path)
-    )
-    return SourceClass(**source_record.config)
+    SourceClass = cast(type[SourcePlugin], import_plugin_class(source_record.plugin_id))
+    return SourceClass(provider=source_record, **(source_record.config or {}))

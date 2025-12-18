@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, FrozenSet, Protocol, cast, runtime_checkable
+from typing import Any, ClassVar, FrozenSet, cast
 
 from katalog.models import Metadata, MetadataKey, Provider, Snapshot
+from katalog.plugins.base import PluginBase
 from katalog.utils.utils import import_plugin_class
 
 
@@ -51,11 +53,8 @@ class AnalyzerResult:
     issues: list[AnalyzerIssue] = field(default_factory=list)
 
 
-@runtime_checkable
-class Analyzer(Protocol):
+class Analyzer(PluginBase, ABC):
     """Interface for analyzers that operate on the full dataset after a snapshot."""
-
-    PLUGIN_ID: ClassVar[str]
 
     # Metadata keys that must exist before this analyzer can run
     dependencies: ClassVar[FrozenSet[MetadataKey]] = frozenset()
@@ -65,14 +64,6 @@ class Analyzer(Protocol):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-
-        plugin_id = getattr(cls, "PLUGIN_ID", None)
-        if not isinstance(plugin_id, str) or not plugin_id.strip():
-            raise TypeError(
-                f"Analyzer subclass {cls.__name__} must define a non-empty PLUGIN_ID"
-            )
-        cls.PLUGIN_ID = plugin_id
-
         deps = cls.dependencies
         if not isinstance(deps, frozenset):
             deps = frozenset(deps)
@@ -81,19 +72,15 @@ class Analyzer(Protocol):
             outs = frozenset(outs)
         cls.dependencies, cls.outputs = deps, outs
 
+    @abstractmethod
     def should_run(self, *, snapshot: Snapshot) -> bool:
         """Return True if the analyzer needs to execute for the given snapshot."""
 
-        raise NotImplementedError()
-
+    @abstractmethod
     async def run(self, *, snapshot: Snapshot) -> AnalyzerResult:
         """Execute the analyzer and return the metadata mutations to persist."""
 
-        raise NotImplementedError()
-
 
 def make_analyzer_instance(analyzer_record: Provider) -> Analyzer:
-    AnalyzerClass = cast(
-        type[Analyzer], import_plugin_class(analyzer_record.class_path)
-    )
-    return AnalyzerClass(**analyzer_record.config)
+    AnalyzerClass = cast(type[Analyzer], import_plugin_class(analyzer_record.plugin_id))
+    return AnalyzerClass(provider=analyzer_record, **(analyzer_record.config or {}))

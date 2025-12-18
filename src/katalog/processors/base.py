@@ -10,6 +10,7 @@ from katalog.models import (
     Provider,
 )
 from katalog.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
+from katalog.plugins.base import PluginBase
 
 from katalog.utils.utils import import_plugin_class
 
@@ -22,12 +23,10 @@ class ProcessorResult:
     message: str | None = None
 
 
-class Processor(ABC):
+class Processor(PluginBase, ABC):
     """
     Defines the interface for a metadata processor.
     """
-
-    PLUGIN_ID: ClassVar[str]
 
     # List of metadata keys that this processor consumes
     dependencies: ClassVar[FrozenSet[MetadataKey]] = frozenset()
@@ -37,15 +36,7 @@ class Processor(ABC):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-
-        plugin_id = getattr(cls, "PLUGIN_ID", None)
-        if not isinstance(plugin_id, str) or not plugin_id.strip():
-            raise TypeError(
-                f"Processor subclass {cls.__name__} must define a non-empty PLUGIN_ID"
-            )
-        cls.PLUGIN_ID = plugin_id
-
-        # Coerce to frozenset
+        # Coerce to frozenset for consistency
         deps = cls.dependencies
         if not isinstance(deps, frozenset):
             deps = frozenset(deps)
@@ -86,6 +77,6 @@ file_data_change_dependencies = frozenset({DATA_KEY, HASH_MD5, TIME_MODIFIED})
 
 def make_processor_instance(processor_record: Provider) -> Processor:
     ProcessorClass = cast(
-        type[Processor], import_plugin_class(processor_record.class_path)
+        type[Processor], import_plugin_class(processor_record.plugin_id)
     )
-    return ProcessorClass(**processor_record.config)
+    return ProcessorClass(provider=processor_record, **(processor_record.config or {}))

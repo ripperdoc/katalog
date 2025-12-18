@@ -18,6 +18,7 @@ from tortoise.fields import (
     DatetimeField,
     FloatField,
     ForeignKeyField,
+    ForeignKeyRelation,
     JSONField,
     IntField,
     BooleanField,
@@ -32,12 +33,11 @@ from katalog.metadata import (
     MetadataKey,
     MetadataScalar,
     MetadataType,
-    ensure_value_type,
-    get_metadata_def,
-    get_metadata_def_by_registry_id,
+    get_metadata_def_by_id,
+    get_metadata_def_by_key,
     get_metadata_id,
 )
-from katalog.utils.utils import fqn
+from katalog.utils.utils import orm
 
 """Data usage notes
 - The target profile for this system is to handle metadata for 1 million files. Actual file contents is not to be stored in the DB.
@@ -71,8 +71,7 @@ class ProviderType(IntEnum):
 class Provider(Model):
     id = IntField(pk=True)
     name = CharField(max_length=255, unique=True)
-    plugin_id = CharField(max_length=255, null=True)
-    class_path = CharField(max_length=1024, null=True)
+    plugin_id = CharField(max_length=1024, null=True)
     config = JSONField(null=True)
     type = IntEnumField(ProviderType)
     created_at = DatetimeField(auto_now_add=True)
@@ -86,7 +85,7 @@ class Provider(Model):
             ("analyzers", ProviderType.ANALYZER),
         ):
             for entry in (config_file or {}).get(section, []) or []:
-                entry_name = entry.get("name") or entry.get("class_path")
+                entry_name = entry.get("name") or entry.get("plugin_id")
                 if not entry_name:
                     continue
                 if await cls.get_or_none(name=entry_name):
@@ -95,7 +94,6 @@ class Provider(Model):
                     name=entry_name,
                     type=ptype,
                     plugin_id=entry.get("plugin_id"),
-                    class_path=entry.get("class_path"),
                     config=dict(entry),
                 )
 
@@ -103,7 +101,7 @@ class Provider(Model):
 class Snapshot(Model):
     id = IntField(pk=True)
     provider = ForeignKeyField(
-        fqn(Provider), related_name="snapshots", on_delete=CASCADE
+        orm(Provider), related_name="snapshots", on_delete=CASCADE
     )
     started_at = DatetimeField(default=lambda: datetime.now(UTC))
     completed_at = DatetimeField(null=True)
@@ -275,17 +273,17 @@ class FileAccessor(ABC):
 
 class Asset(Model):
     id = IntField(pk=True)
-    provider = ForeignKeyField(fqn(Provider), related_name="assets", on_delete=CASCADE)
+    provider = ForeignKeyField(orm(Provider), related_name="assets", on_delete=CASCADE)
     canonical_id = CharField(max_length=255, unique=True)
     canonical_uri = CharField(max_length=1024, unique=True)
     created_snapshot = ForeignKeyField(
-        fqn(Snapshot), related_name="created_assets", on_delete=RESTRICT
+        orm(Snapshot), related_name="created_assets", on_delete=RESTRICT
     )
     last_snapshot = ForeignKeyField(
-        fqn(Snapshot), related_name="last_assets", on_delete=RESTRICT
+        orm(Snapshot), related_name="last_assets", on_delete=RESTRICT
     )
     deleted_snapshot = ForeignKeyField(
-        fqn(Snapshot),
+        orm(Snapshot),
         related_name="deleted_assets",
         null=True,
         on_delete=SET_NULL,
@@ -317,6 +315,14 @@ class Asset(Model):
         if not metadata:
             return set()
 
+        for m in metadata:
+            if m.asset is None:
+                raise ValueError("Metadata asset_id is not set for upsert")
+            if m.snapshot is None:
+                raise ValueError("Metadata snapshot_id is not set for upsert")
+            if m.provider is None:
+                raise ValueError("Metadata provider_id is not set for upsert")
+
         await self.load_metadata()
         existing_metadata: list[Metadata] = getattr(self, "metadata")
 
@@ -335,7 +341,7 @@ class Asset(Model):
                 continue
             to_create.append(md)
             existing_index.add(key)
-            changed_keys.add(get_metadata_def_by_registry_id(key[0]).key)
+            changed_keys.add(get_metadata_def_by_id(key[0]).key)
 
         if to_create:
             await Metadata.bulk_create(to_create)
@@ -353,9 +359,8 @@ class Asset(Model):
 
 class MetadataRegistry(Model):
     id = IntField(pk=True)
-    # Owner/defining plugin id (same identifier format as Provider.plugin_id)
-    plugin_id = CharField(max_length=255)
-    # Canonical, globally unique key string (recommended: namespaced, e.g. "plugin_id:key").
+    # Owner/defining plugin id (import path to the plugin class)
+    plugin_id = CharField(max_length=1024)
     key = CharField(max_length=512)
     value_type = IntEnumField(MetadataType)
     title = CharField(max_length=255, default="")
@@ -368,23 +373,28 @@ class MetadataRegistry(Model):
 
 class Metadata(Model):
     id = IntField(pk=True)
-    asset = ForeignKeyField(fqn(Asset), related_name="metadata", on_delete=CASCADE)
-    provider = ForeignKeyField(
-        fqn(Provider), related_name="metadata_entries", on_delete=CASCADE
+    asset = ForeignKeyField(orm(Asset), related_name="metadata", on_delete=CASCADE)
+    provider: ForeignKeyRelation[Provider] = ForeignKeyField(
+        orm(Provider), related_name="metadata_entries", on_delete=CASCADE
     )
     snapshot = ForeignKeyField(
-        fqn(Snapshot), related_name="metadata_entries", on_delete=CASCADE
+        orm(Snapshot), related_name="metadata_entries", on_delete=CASCADE
     )
     metadata_key = ForeignKeyField(
-        fqn(MetadataRegistry), related_name="metadata_entries", on_delete=RESTRICT
+        orm(MetadataRegistry), related_name="metadata_entries", on_delete=RESTRICT
     )
+    # Just for fixing type errors, these are populated via ForeignKeyField
+    provider_id: int
+    snapshot_id: int
+    metadata_key_id: int
+
     value_type = IntEnumField(MetadataType)
     value_text = TextField(null=True)
     value_int = BigIntField(null=True)
     value_real = FloatField(null=True)
     value_datetime = DatetimeField(null=True)
     value_json = JSONField(null=True)
-    value_relation = ForeignKeyField(fqn(Asset), null=True, on_delete=CASCADE)
+    value_relation = ForeignKeyField(orm(Asset), null=True, on_delete=CASCADE)
     removed = BooleanField(default=False)
     # Null means no confidence score, which can be assumed to be 1.0
     confidence = FloatField(null=True)
@@ -406,7 +416,7 @@ class Metadata(Model):
         registry_id = getattr(self, "metadata_key_id", None)
         if registry_id is None:
             raise RuntimeError("metadata_key_id is missing on this Metadata instance")
-        return get_metadata_def_by_registry_id(int(registry_id)).key
+        return get_metadata_def_by_id(int(registry_id)).key
 
     @property
     def value(self) -> "MetadataScalar":
@@ -428,6 +438,24 @@ class Metadata(Model):
         else:
             raise ValueError(f"Unsupported metadata value_type {self.value_type}")
 
+    def set_value(self, value: Any) -> None:
+        if self.value_type == MetadataType.STRING:
+            self.value_text = str(value)
+        elif self.value_type == MetadataType.INT:
+            self.value_int = int(value)
+        elif self.value_type == MetadataType.FLOAT:
+            self.value_real = float(value)
+        elif self.value_type == MetadataType.DATETIME:
+            self.value_datetime = value
+        elif self.value_type == MetadataType.JSON:
+            self.value_json = value
+        elif self.value_type == MetadataType.RELATION:
+            self.value_relation_id = int(value)
+        else:
+            raise ValueError(
+                f"Unsupported value to set '{value}' of type '{type(value)} for Metadata of type {self.value_type}"
+            )
+
     @classmethod
     async def for_asset(
         cls,
@@ -442,87 +470,71 @@ class Metadata(Model):
         return await query.order_by("metadata_key_id", "id")
 
 
-def make_metadata(*args, **kwargs) -> Metadata:
+def make_metadata(
+    key: MetadataKey,
+    value: MetadataScalar | None = None,
+    provider_id: int | None = None,
+    removed: bool = False,
+    confidence: float | None = None,
+    *,
+    asset: Asset | None = None,
+    asset_id: int | None = None,
+    snapshot: Snapshot | None = None,
+    snapshot_id: int | None = None,
+    metadata_id: int | None = None,  # Only used for testing or bypassing
+) -> Metadata:
     """Create a Metadata instance, ensuring the value type matches the key definition."""
-    # Signature is intentionally flexible because call sites differ (sources/processors/tests).
-    # Preferred usage:
-    #   make_metadata(provider_id, key, value, asset_id=..., snapshot_id=...)
-    provider_id: int | None = None
-    key: MetadataKey | None = None
-    value: MetadataScalar | None = None
+    definition = get_metadata_def_by_key(key)
 
-    if len(args) >= 1:
-        provider_id = args[0]
-    if len(args) >= 2:
-        key = args[1]
-    if len(args) >= 3:
-        value = args[2]
-    if len(args) > 3:
-        raise TypeError(
-            "make_metadata(provider_id, key, value, ...) takes at most 3 positional arguments"
-        )
-
-    provider_id = kwargs.pop("provider_id", provider_id)
-    key = kwargs.pop("key", key)
-    value = kwargs.pop("value", value)
-
-    asset = kwargs.pop("asset", None)
-    asset_id = kwargs.pop("asset_id", None)
-    snapshot = kwargs.pop("snapshot", None)
-    snapshot_id = kwargs.pop("snapshot_id", None)
-    removed = kwargs.pop("removed", False)
-    confidence = kwargs.pop("confidence", None)
-
-    if kwargs:
-        unknown = ", ".join(sorted(kwargs.keys()))
-        raise TypeError(f"Unknown make_metadata() kwargs: {unknown}")
-
-    if provider_id is None:
-        raise TypeError("make_metadata requires provider_id")
-    if key is None:
-        raise TypeError("make_metadata requires key")
-    if value is None:
-        raise TypeError("make_metadata requires value")
-
-    definition = get_metadata_def(key)
-    ensure_value_type(definition.value_type, value)
-
-    entry = Metadata(
-        provider_id=int(provider_id),
-        metadata_key_id=get_metadata_id(key),
+    md = Metadata(
+        metadata_key_id=get_metadata_id(key) if metadata_id is None else metadata_id,
         value_type=definition.value_type,
-        removed=bool(removed),
+        removed=removed,
         confidence=confidence,
     )
+    md.set_value(value)
+    if provider_id is not None:
+        md.provider_id = provider_id
     if asset is not None:
-        entry.asset = asset
+        md.asset = asset
     elif asset_id is not None:
-        entry.asset_id = int(asset_id)
-
+        md.asset_id = asset_id
     if snapshot is not None:
-        entry.snapshot = snapshot
+        md.snapshot = snapshot
     elif snapshot_id is not None:
-        entry.snapshot_id = int(snapshot_id)
+        md.snapshot_id = snapshot_id
 
-    if definition.value_type == MetadataType.STRING:
-        entry.value_text = str(value)
-    elif definition.value_type == MetadataType.INT:
-        # bool is rejected by _ensure_value_type
-        entry.value_int = int(value)  # type: ignore[arg-type]
-    elif definition.value_type == MetadataType.FLOAT:
-        entry.value_real = float(value)  # type: ignore[arg-type]
-    elif definition.value_type == MetadataType.DATETIME:
-        entry.value_datetime = value  # type: ignore[assignment]
-    elif definition.value_type == MetadataType.JSON:
-        entry.value_json = value  # type: ignore[assignment]
-    else:  # pragma: no cover
-        raise ValueError(f"Unsupported metadata value type {definition.value_type}")
-
-    return entry
+    return md
 
 
-def current_metadata(metadata: Sequence[Metadata]):
+def current_metadata(metadata: Sequence[Metadata]) -> dict[MetadataKey, list[Metadata]]:
     """Get the current metadata entries by key from a list of Metadata.
-    This means any metadata entry that hasn't been removed OR"""
+    Current means that we only keep all non-removed unique values for each key."""
+    # Sort newest-first so later snapshots win.
+    ordered = sorted(
+        metadata,
+        key=lambda m: int(getattr(m, "snapshot_id", 0) or 0),
+        reverse=True,
+    )
+
     result: dict[MetadataKey, list[Metadata]] = {}
+    seen_values: dict[MetadataKey, set[Any]] = {}
+
+    for entry in ordered:
+        key = entry.key
+        seen_for_key = seen_values.setdefault(key, set())
+        value = entry.value
+
+        # If we've already decided on this value (added or removed), skip.
+        if value in seen_for_key:
+            continue
+
+        # A removed entry blocks earlier additions of the same value.
+        seen_for_key.add(value)
+        if entry.removed:
+            continue
+
+        # Keep the newest non-removed value for this key/value pair.
+        result.setdefault(key, []).append(entry)
+
     return result

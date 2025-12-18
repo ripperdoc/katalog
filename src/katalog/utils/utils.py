@@ -81,6 +81,12 @@ def _decode_cursor(cursor: str) -> dict[str, Any]:
     return decoded
 
 
-def fqn(cls: type) -> str:
+def orm(cls: type) -> str:
+    """Method that ensures we get the correct name from a Tortoise ORM model class."""
     # return f"{cls.__module__}.{cls.__qualname__}"
     return f"models.{cls.__qualname__}"
+
+
+def fqn(cls: type) -> str:
+    """Get the fully qualified name of a class."""
+    return f"{cls.__module__}.{cls.__qualname__}"

@@ -18,7 +18,6 @@ from katalog.metadata import HASH_MD5
 class ExactDuplicateAnalyzer(Analyzer):
     """Groups files that share the same MD5 hash."""
 
-    PLUGIN_ID = "katalog.analyzers.exact_duplicates"
     dependencies = frozenset({HASH_MD5})
     outputs = frozenset()
 

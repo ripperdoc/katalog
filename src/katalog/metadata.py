@@ -9,8 +9,10 @@ MetadataScalar = (
 )
 MetadataKey = NewType("MetadataKey", str)
 
-
-CORE_PLUGIN_ID = "katalog"
+# Plugin IDs are normally fully qualified Python class paths
+# like "katalog.processors.mime_type.MimeTypeProcessor"
+# But for built-in/core metadata, we use a special ID.
+CORE_PLUGIN_PATH = "katalog.metadata"
 
 
 class MetadataType(IntEnum):
@@ -46,8 +48,7 @@ def define_metadata(
     title: str = "",
     description: str = "",
     width: int | None = None,
-    *,
-    plugin_id: str = CORE_PLUGIN_ID,
+    plugin_id: str = CORE_PLUGIN_PATH,
 ) -> MetadataKey:
     key = MetadataKey(name)
     METADATA_REGISTRY[key] = MetadataDef(
@@ -57,7 +58,7 @@ def define_metadata(
 
 
 def get_metadata_id(key: MetadataKey) -> int:
-    definition = get_metadata_def(key)
+    definition = get_metadata_def_by_key(key)
     if definition.registry_id is None:
         raise RuntimeError(
             f"Metadata key {key!s} has no registry_id; did you call setup()/sync_metadata_registry()?"
@@ -65,7 +66,7 @@ def get_metadata_id(key: MetadataKey) -> int:
     return definition.registry_id
 
 
-def get_metadata_def_by_registry_id(registry_id: int) -> MetadataDef:
+def get_metadata_def_by_id(registry_id: int) -> MetadataDef:
     try:
         return METADATA_REGISTRY_BY_ID[registry_id]
     except KeyError:  # pragma: no cover
@@ -83,33 +84,11 @@ def get_metadata_schema(key: MetadataKey) -> dict:
         return asdict(definition)
 
 
-def get_metadata_def(key: MetadataKey) -> MetadataDef:
+def get_metadata_def_by_key(key: MetadataKey) -> MetadataDef:
     try:
         return METADATA_REGISTRY[key]
     except KeyError:  # pragma: no cover
         raise ValueError(f"Unknown metadata key {key!s}")
-
-
-def ensure_value_type(expected: MetadataType, value: MetadataScalar) -> None:
-    if expected == MetadataType.STRING and isinstance(value, str):
-        return
-    if (
-        expected == MetadataType.INT
-        and isinstance(value, int)
-        and not isinstance(value, bool)
-    ):
-        return
-    if (
-        expected == MetadataType.FLOAT
-        and isinstance(value, (int, float))
-        and not isinstance(value, bool)
-    ):
-        return
-    if expected == MetadataType.DATETIME and isinstance(value, datetime):
-        return
-    if expected == MetadataType.JSON:  # accept Mapping/list primitives
-        return
-    raise TypeError(f"Expected {expected}, got {type(value).__name__}")
 
 
 # Main columns for flat current table

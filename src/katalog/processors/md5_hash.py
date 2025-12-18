@@ -18,7 +18,6 @@ def _has_existing_hash(asset: Asset) -> bool:
 
 
 class MD5HashProcessor(Processor):
-    PLUGIN_ID = "dev.katalog.processor.md5_hash"
     dependencies = frozenset()  # No dependencies, runs on any record
     outputs = frozenset({HASH_MD5})
 
@@ -49,8 +48,7 @@ class MD5HashProcessor(Processor):
                 break
             hash_md5.update(chunk)
             offset += len(chunk)
-        provider_id = getattr(self, "provider_id", asset.provider_id)
 
         return ProcessorResult(
-            metadata=[make_metadata(provider_id, HASH_MD5, hash_md5.hexdigest())]
+            metadata=[make_metadata(HASH_MD5, hash_md5.hexdigest(), self.provider.id)]
         )

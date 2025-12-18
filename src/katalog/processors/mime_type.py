@@ -17,7 +17,6 @@ from katalog.models import Asset, make_metadata
 
 
 class MimeTypeProcessor(Processor):
-    PLUGIN_ID = "dev.katalog.processor.mime_type"
     dependencies = file_data_change_dependencies
     outputs = frozenset({FILE_TYPE})
 
@@ -38,5 +37,6 @@ class MimeTypeProcessor(Processor):
         m = magic.Magic(mime=True)
         buf = await asset.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)
-        provider_id = getattr(self, "provider_id", asset.provider_id)
-        return ProcessorResult(metadata=[make_metadata(provider_id, FILE_TYPE, mt)])
+        return ProcessorResult(
+            metadata=[make_metadata(FILE_TYPE, mt, self.provider.id)]
+        )

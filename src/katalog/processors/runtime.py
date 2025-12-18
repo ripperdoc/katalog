@@ -50,7 +50,6 @@ async def sort_processors() -> list[ProcessorStage]:
     for provider in providers:
         processor = make_processor_instance(provider)
         # Used when persisting produced metadata.
-        setattr(processor, "provider_id", provider.id)
         name = provider.name
         processors_by_name[name] = processor
         cfg = provider.config or {}
@@ -160,10 +159,6 @@ async def process_asset(
             if status == OpStatus.SKIPPED:
                 continue
             for meta in produced.metadata:
-                if getattr(meta, "provider_id", None) is None:
-                    pid = getattr(processor, "provider_id", None)
-                    if pid is not None:
-                        setattr(meta, "provider_id", pid)
                 stage_metadata.append(meta)
         if not stage_metadata:
             continue

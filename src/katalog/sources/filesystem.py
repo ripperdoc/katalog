@@ -13,6 +13,7 @@ from katalog.models import (
     FileAccessor,
     Asset,
     Snapshot,
+    Provider,
 )
 from katalog.metadata import (
     FILE_PATH,
@@ -48,10 +49,10 @@ class FilesystemClient(SourcePlugin):
     Client for accessing and listing files in a local file system source.
     """
 
-    PLUGIN_ID = "dev.katalog.client.filesystem"
-
-    def __init__(self, id: str, root_path: str, max_files: int = 500, **kwargs):
-        self.id = id
+    def __init__(
+        self, provider: Provider, root_path: str, max_files: int = 500, **kwargs: Any
+    ) -> None:
+        super().__init__(provider, **kwargs)
         self.root_path = root_path
         self.max_files = max_files
 
@@ -102,20 +103,20 @@ class FilesystemClient(SourcePlugin):
                         abs_path = Path(full_path).resolve()
                         asset = Asset(
                             id=asset_id,
-                            provider_id=self.id,
+                            provider_id=self.provider.id,
                             canonical_uri=abs_path.as_uri(),
                         )
-                        result = AssetRecordResult(asset=asset)
-                        result.add_metadata(self.id, FILE_PATH, str(abs_path))
-                        result.add_metadata(self.id, TIME_MODIFIED, modified)
-                        result.add_metadata(self.id, TIME_CREATED, created)
-                        result.add_metadata(self.id, FILE_SIZE, int(stat.st_size))
+                        result = AssetRecordResult(asset=asset, provider=self.provider)
+                        result.add_metadata(FILE_PATH, str(abs_path))
+                        result.add_metadata(TIME_MODIFIED, modified)
+                        result.add_metadata(TIME_CREATED, created)
+                        result.add_metadata(FILE_SIZE, int(stat.st_size))
                         result.add_metadata(
-                            self.id, FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
+                            FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
                         )
                     except Exception as e:
                         logger.warning(
-                            f"Failed to stat {full_path} for source {self.id}: {e}"
+                            f"Failed to stat {full_path} for source {self.provider.id}: {e}"
                         )
                         continue
                     yield result

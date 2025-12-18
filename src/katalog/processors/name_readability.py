@@ -16,7 +16,6 @@ from katalog.processors.base import Processor, ProcessorResult
 class NameReadabilityProcessor(Processor):
     """Flags filenames that look auto-generated or otherwise unreadable."""
 
-    PLUGIN_ID = "dev.katalog.processor.name_readability"
     dependencies = frozenset({FILE_NAME})
     outputs = frozenset({WARNING_NAME_READABILITY})
 
@@ -52,11 +51,10 @@ class NameReadabilityProcessor(Processor):
                 status=OpStatus.COMPLETED, message="No signals from analysis"
             )
         confidence = min(0.9, 0.4 + 0.1 * len(signals))
-        provider_id = getattr(self, "provider_id", asset.provider_id)
         metadata = make_metadata(
-            provider_id,
             WARNING_NAME_READABILITY,
             analysis,
+            self.provider.id,
             confidence=confidence,
         )
         return ProcessorResult(metadata=[metadata])

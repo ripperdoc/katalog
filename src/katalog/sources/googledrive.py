@@ -15,6 +15,7 @@ from katalog.models import (
     OpStatus,
     Metadata,
     MetadataType,
+    Provider,
     Snapshot,
 )
 from katalog.metadata import (
@@ -46,7 +47,7 @@ from katalog.sources.base import (
     ScanResult,
     SourcePlugin,
 )
-from katalog.utils.utils import parse_google_drive_datetime
+from katalog.utils.utils import fqn, parse_google_drive_datetime
 
 
 def get_user_email(user_like_object: Any) -> Optional[str]:
@@ -129,13 +130,8 @@ _API_FIELDS = {
 class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive."""
 
-    PLUGIN_ID = "dev.katalog.client.googledrive"
-    FILE_WEB_VIEW_LINK = define_metadata(
-        "file/web_view_link", MetadataType.STRING, "Web link"
-    )
-
-    def __init__(self, id: str, max_files: int = 500, **_: Any) -> None:
-        self.id = id
+    def __init__(self, provider: Provider, max_files: int = 500, **kwargs: Any) -> None:
+        super().__init__(provider, **kwargs)
         self.max_files = max_files
 
         creds: Optional[Credentials] = None
@@ -190,7 +186,7 @@ class GoogleDriveClient(SourcePlugin):
                 cutoff = since_snapshot.completed_at or since_snapshot.started_at
                 if cutoff:
                     logger.info(
-                        f"Incremental scan for source {self.id} — cutoff {cutoff}"
+                        f"Incremental scan for source {self.provider.id} — cutoff {cutoff}"
                     )
             try:
                 while True:
@@ -204,7 +200,7 @@ class GoogleDriveClient(SourcePlugin):
                         if self.max_files and count >= self.max_files:
                             limit_reached = True
                             logger.info(
-                                f"Reached max files {self.max_files} — stopping scan for source {self.id}"
+                                f"Reached max files {self.max_files} — stopping scan for source {self.provider.id}"
                             )
                             break
 
@@ -215,18 +211,18 @@ class GoogleDriveClient(SourcePlugin):
                                 if modified_dt and modified_dt < cutoff:
                                     cutoff_reached = True
                                     logger.info(
-                                        f"Stopping scan for source {self.id} at cutoff {cutoff} (latest {modified_dt})"
+                                        f"Stopping scan for source {self.provider.id} at cutoff {cutoff} (latest {modified_dt})"
                                     )
                                     break
                             yield result
                             count += 1
                         else:
                             logger.warning(
-                                f"Skipping invalid file record in source {self.id}: {file}"
+                                f"Skipping invalid file record in source {self.provider.id}: {file}"
                             )
 
                     logger.info(
-                        f"Scanning Google Drive source {self.id} — processed {count} files so far"
+                        f"Scanning Google Drive source {self.provider.id} — processed {count} files so far"
                     )
 
                     if cutoff_reached or limit_reached:
@@ -255,92 +251,81 @@ class GoogleDriveClient(SourcePlugin):
 
         asset = Asset(
             canonical_id=file_id,
-            provider_id=self.id,
+            provider_id=self.provider.id,
             canonical_uri=canonical_uri,
         )
-        result = AssetRecordResult(asset=asset)
+        result = AssetRecordResult(asset=asset, provider=self.provider)
 
         name_paths, id_paths = self._resolve_paths(file)
-        result.add_metadata_set(self.id, FILE_ID_PATH, id_paths)
-        result.add_metadata_set(self.id, FILE_PATH, name_paths)
+        result.add_metadata_set(FILE_ID_PATH, id_paths)
+        result.add_metadata_set(FILE_PATH, name_paths)
 
         result.add_metadata(
-            self.id, FILE_NAME, file.get("originalFilename", file.get("name", ""))
+            FILE_NAME, file.get("originalFilename", file.get("name", ""))
         )
 
         result.add_metadata(
-            self.id,
-            TIME_CREATED,
-            parse_google_drive_datetime(file.get("createdTime")),
+            TIME_CREATED, parse_google_drive_datetime(file.get("createdTime"))
         )
 
         result.add_metadata(
-            self.id,
-            TIME_MODIFIED,
-            parse_google_drive_datetime(file.get("modifiedTime")),
+            TIME_MODIFIED, parse_google_drive_datetime(file.get("modifiedTime"))
         )
 
         result.add_metadata(
-            self.id,
             TIME_MODIFIED_BY_ME,
             parse_google_drive_datetime(file.get("modifiedByMeTime")),
         )
 
         result.add_metadata(
-            self.id,
-            TIME_ACCESSED_BY_ME,
-            parse_google_drive_datetime(file.get("viewedByMeTime")),
+            TIME_ACCESSED_BY_ME, parse_google_drive_datetime(file.get("viewedByMeTime"))
         )
 
         result.add_metadata(
-            self.id,
             TIME_SHARED_WITH_ME,
             parse_google_drive_datetime(file.get("viewedByMesharedWithMeTimeTime")),
         )
 
-        result.add_metadata(self.id, FILE_TYPE, file.get("mimeType"))
+        result.add_metadata(FILE_TYPE, file.get("mimeType"))
 
-        result.add_metadata(self.id, HASH_MD5, file.get("md5Checksum"))
+        result.add_metadata(HASH_MD5, file.get("md5Checksum"))
 
-        result.add_metadata(self.id, FILE_SIZE, _coerce_int(file.get("size")))
+        result.add_metadata(FILE_SIZE, _coerce_int(file.get("size")))
 
-        result.add_metadata(self.id, FILE_DESCRIPTION, file.get("description"))
+        result.add_metadata(FILE_DESCRIPTION, file.get("description"))
 
         # web_view_link = file.get("webViewLink")
         # if web_view_link:
         #     metadata.append(
-        #         make_metadata(self.id, self.FILE_WEB_VIEW_LINK, web_view_link)
+        #         make_metadata(self.provider.id, FILE_WEB_VIEW_LINK, web_view_link)
         #     )
 
-        result.add_metadata(self.id, FLAG_SHARED, int(bool(file.get("shared"))))
+        result.add_metadata(FLAG_SHARED, int(bool(file.get("shared"))))
 
         result.add_metadata(
-            self.id,
             ACCESS_LAST_MODIFYING_USER,
             get_user_email(file.get("lastModifyingUser")),
         )
 
-        result.add_metadata(self.id, ACCESS_SHARING_USER, file.get("sharingUser"))
+        result.add_metadata(ACCESS_SHARING_USER, file.get("sharingUser"))
 
         result.add_metadata(
-            self.id,
-            TIME_TRASHED,
-            parse_google_drive_datetime(file.get("trashedTime")),
+            TIME_TRASHED, parse_google_drive_datetime(file.get("trashedTime"))
         )
 
         result.add_metadata(
-            self.id, FILE_QUOTA_BYTES_USED, _coerce_int(file.get("quotaBytesUsed"))
+            FILE_QUOTA_BYTES_USED, _coerce_int(file.get("quotaBytesUsed"))
         )
 
-        result.add_metadata(self.id, FILE_VERSION, _coerce_int(file.get("version")))
+        result.add_metadata(FILE_VERSION, _coerce_int(file.get("version")))
 
-        result.add_metadata(self.id, FLAG_FAVORITE, int(bool(file.get("starred"))))
+        result.add_metadata(FLAG_FAVORITE, int(bool(file.get("starred"))))
 
         owners = get_many_user_emails(file.get("owners"))
-        result.add_metadata_set(self.id, ACCESS_OWNER, owners)
+        result.add_metadata_set(ACCESS_OWNER, owners)
 
         shared_with = get_many_user_emails(file.get("permissions"))
-        result.add_metadata_set(self.id, ACCESS_SHARED_WITH, shared_with)
+        result.add_metadata_set(ACCESS_SHARED_WITH, shared_with)
 
         return result
 
@@ -365,7 +350,9 @@ class GoogleDriveClient(SourcePlugin):
             )
             return response
         except HttpError as error:
-            logger.error(f"Google Drive API error for source {self.id}: {error}")
+            logger.error(
+                f"Google Drive API error for source {self.provider.id}: {error}"
+            )
             return None
 
     def _resolve_paths(self, file: Dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -436,7 +423,7 @@ class GoogleDriveClient(SourcePlugin):
         )
 
     def _cache_file_path(self):
-        return WORKSPACE / f"{self.id}_folder_cache.pkl"
+        return WORKSPACE / f"{self.provider.id}_folder_cache.pkl"
 
     def _load_folder_cache_from_disk(
         self,
@@ -506,3 +493,11 @@ class GoogleDriveClient(SourcePlugin):
             if cached:
                 return cached
         return None
+
+
+FILE_WEB_VIEW_LINK = define_metadata(
+    "file/web_view_link",
+    MetadataType.STRING,
+    "Web link",
+    plugin_id=fqn(GoogleDriveClient),
+)
