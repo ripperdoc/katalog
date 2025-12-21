@@ -7,6 +7,8 @@ Various ideas for sources that can be connected to katalog.
   - A lot of website specific sources can be developed
 - Dropbox
 - OneDrive
+- A CSV, e.g. a webshop export or similar
+  - Needs mapping between columns and potential metadata fields. Doesn't normally contain file data
 - Wordpress database (e.g. SQL file or live DB)
 - Mediawiki database, API or similar
 - Github Repository (allows reading historical snapshots as well)
@@ -35,6 +37,9 @@ Various ideas for sources that can be connected to katalog.
 - TextExtractor: Extract text content (maybe not a single processor, but a processor per file type,
   which parses more than just text). Could be based on Pandoc.
 - Summarizer, depends on text content, maybe also output language
+  - We will need one metadata key per language
+- Translator
+  - Translate metadata fields to other language using AI
 - Thumbnail extractor (find embedded or linked thumbnail, or create one from raw data)
 - EXIF/IPTC
 - OfficeDocs reader, including their specific metadata

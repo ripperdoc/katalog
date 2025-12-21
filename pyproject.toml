@@ -14,7 +14,10 @@ dependencies = [
     "uvicorn[standard]>=0.29.0",
     "loguru",
     "tortoise-orm",
-    "aiosqlite==0.21.0",                 # pinned as .22 has a breaking change that Tortoise ORM hasn't adapted to yet
+    "aiosqlite==0.21.0", # pinned as .22 has a breaking change that Tortoise ORM hasn't adapted to yet
+    "markdownify>=1.2.2",
+    "markdown>=3.10",
+    "openai>=2.14.0",
 ]
 
 [tool.uv]
