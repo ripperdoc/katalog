@@ -81,7 +81,7 @@ class Provider(Model):
     updated_at = DatetimeField(auto_now=True)
 
     @classmethod
-    async def sync_db(cls, id: int, name: str) -> None:
+    async def sync_db(cls) -> None:
         for section, ptype in (
             ("sources", ProviderType.SOURCE),
             ("processors", ProviderType.PROCESSOR),
@@ -217,6 +217,7 @@ class Snapshot(Model):
     provider = ForeignKeyField(
         orm(Provider), related_name="snapshots", on_delete=CASCADE
     )
+    note = CharField(max_length=512, null=True)
     started_at = DatetimeField(default=lambda: datetime.now(UTC))
     completed_at = DatetimeField(null=True)
     status = CharEnumField(OpStatus, max_length=32)
@@ -234,6 +235,7 @@ class Snapshot(Model):
         status: OpStatus = OpStatus.IN_PROGRESS,
         metadata: Mapping[str, Any] | None = None,
         snapshot_id: int | None = None,
+        note: str | None = None,
     ) -> "Snapshot":
         provider_id = provider.id if isinstance(provider, Provider) else provider
         snapshot_id = snapshot_id or int(time())
@@ -243,12 +245,14 @@ class Snapshot(Model):
             id=snapshot_id,
             provider_id=provider_id,
             status=status,
+            note=note,
             metadata=dict(metadata) if metadata else None,
         )
 
     async def finalize(self, *, status: OpStatus) -> None:
         completed_at = datetime.now(UTC)
-        provider_id = self.provider
+        # Make it get provider_id even if we haven't saved the snapshot to DB yet but have assigned a Provider object
+        provider_id = int(getattr(self, "provider_id", None) or self.provider.id)
         metadata_payload: dict[str, Any] | None = None
 
         if self.tasks:
@@ -262,6 +266,8 @@ class Snapshot(Model):
 
         async with in_transaction():
             update_fields = ["completed_at", "status"]
+            if self.note is not None:
+                update_fields.append("note")
             if metadata_payload is not None:
                 update_fields.append("metadata")
             self.status = status

@@ -254,6 +254,7 @@ class GoogleDriveClient(SourcePlugin):
             provider_id=self.provider.id,
             canonical_uri=canonical_uri,
         )
+        asset.attach_accessor(self.get_accessor(asset))
         result = AssetRecordResult(asset=asset, provider=self.provider)
 
         name_paths, id_paths = self._resolve_paths(file)

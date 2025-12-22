@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import os
 from typing import Any, Iterable, Sequence
 
 from loguru import logger
@@ -11,16 +11,20 @@ from katalog.models import (
     Metadata,
     MetadataKey,
     OpStatus,
+    ProcessorTaskResult,
     Provider,
     ProviderType,
     Snapshot,
-    SnapshotStats,
 )
 from katalog.processors.base import (
     Processor,
     ProcessorResult,
     make_processor_instance,
 )
+from katalog.metadata import get_metadata_def_by_id
+
+
+DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
 
 
 ProcessorStage = list[Processor]
@@ -80,7 +84,9 @@ async def sort_processors() -> list[ProcessorStage]:
 
 
 async def _run_processor(
-    processor: Processor, asset: Asset, changes: set[str]
+    processor: Processor,
+    asset: Asset,
+    changes: set[str],
 ) -> tuple[ProcessorResult, bool]:
     try:
         logger.debug(f"Running processor {processor} for record {asset.id}")
@@ -98,19 +104,26 @@ async def process_asset(
     snapshot: Snapshot,
     stages: Sequence[ProcessorStage],
     initial_changes: Iterable[str] | None = None,
+    force_run: bool = False,
 ) -> ProcessorTaskResult:
     """Run processors per stage, returning the union of all observed changes."""
 
     if not stages:
-        return ProcessorTaskResult(changes=set(), failures=0)
+        return ProcessorTaskResult(changes=set(initial_changes or []), failures=0)
     stats = snapshot.stats
     changes = set(initial_changes or [])
     failed_runs = 0
+    pending_metadata: list[Metadata] = []
+    existing_metadata = await asset.load_metadata()
+    seen_metadata: set[tuple[int, int, Any]] = {
+        (int(md.metadata_key_id), int(md.provider_id), md.value)
+        for md in existing_metadata
+    }
     for stage in stages:
         coros: list[tuple[Processor, Any]] = []
         for processor in stage:
             try:
-                should_run = processor.should_run(asset, changes)
+                should_run = True if force_run else processor.should_run(asset, changes)
             except Exception:
                 logger.exception(
                     f"Processor {processor}.should_run failed for record {asset.id}"
@@ -153,7 +166,48 @@ async def process_asset(
                 stage_metadata.append(meta)
         if not stage_metadata:
             continue
-        stage_changes = await asset.upsert(snapshot=snapshot, metadata=stage_metadata)
-        if stage_changes:
-            changes.update(stage_changes)
+        new_entries: list[Metadata] = []
+        for md in stage_metadata:
+            key = (int(md.metadata_key_id), int(md.provider_id), md.value)
+            if key in seen_metadata:
+                continue
+            seen_metadata.add(key)
+            new_entries.append(md)
+        if not new_entries:
+            continue
+        pending_metadata.extend(new_entries)
+        for md in new_entries:
+            changed_key = get_metadata_def_by_id(int(md.metadata_key_id)).key
+            changes.add(changed_key)
+    if pending_metadata:
+        final_changes = await asset.upsert(snapshot=snapshot, metadata=pending_metadata)
+        changes.update(final_changes)
     return ProcessorTaskResult(changes=changes, failures=failed_runs)
+
+
+async def enqueue_asset_processing(
+    *,
+    asset: Asset,
+    snapshot: Snapshot,
+    stages: Sequence[ProcessorStage],
+    tasks: list[asyncio.Task[Any]],
+    semaphore: asyncio.Semaphore,
+    initial_changes: Iterable[str] | None = None,
+    force_run: bool = False,
+) -> None:
+    """Schedule processor pipeline for an asset with bounded concurrency."""
+
+    if not stages:
+        return
+
+    async def runner() -> ProcessorTaskResult:
+        async with semaphore:
+            return await process_asset(
+                asset=asset,
+                snapshot=snapshot,
+                stages=stages,
+                initial_changes=initial_changes,
+                force_run=force_run,
+            )
+
+    tasks.append(asyncio.create_task(runner()))

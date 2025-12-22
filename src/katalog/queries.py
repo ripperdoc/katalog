@@ -17,7 +17,7 @@ from katalog.metadata import (
     MetadataDef,
     MetadataKey,
 )
-from katalog.models import Asset, Metadata, MetadataRegistry, MetadataType
+from katalog.models import Asset, Metadata, MetadataRegistry, MetadataType, Provider
 
 
 async def setup(db_path: Path) -> Path:
@@ -26,6 +26,7 @@ async def setup(db_path: Path) -> Path:
     await Tortoise.init(db_url=db_url, modules={"models": ["katalog.models"]})
     await Tortoise.generate_schemas()
     await sync_metadata_registry()
+    await Provider.sync_db()
 
     # Ensure composite index for fast latest-metadata lookups.
     conn = Tortoise.get_connection("default")
@@ -39,25 +40,19 @@ async def setup(db_path: Path) -> Path:
 
 
 async def sync_metadata_registry() -> None:
-    """Replace MetadataRegistry contents with in-memory registry (dev convenience)."""
+    """Upsert MetadataRegistry rows from the in-memory registry without deleting existing rows."""
 
-    await MetadataRegistry.all().delete()
-
-    rows = []
     for definition in list(METADATA_REGISTRY.values()):
-        rows.append(
-            MetadataRegistry(
-                plugin_id=definition.plugin_id,
-                key=str(definition.key),
-                value_type=definition.value_type,
-                title=definition.title,
-                description=definition.description,
-                width=definition.width,
-            )
+        await MetadataRegistry.update_or_create(
+            plugin_id=definition.plugin_id,
+            key=str(definition.key),
+            defaults={
+                "value_type": definition.value_type,
+                "title": definition.title,
+                "description": definition.description,
+                "width": definition.width,
+            },
         )
-
-    if rows:
-        await MetadataRegistry.bulk_create(rows)
 
     # Reload to capture generated IDs and rebuild mappings.
     METADATA_REGISTRY_BY_ID.clear()

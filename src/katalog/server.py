@@ -2,16 +2,20 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from loguru import logger
 from tortoise import Tortoise
 
 from katalog.analyzers.runtime import run_analyzers
 from katalog.config import WORKSPACE
-from katalog.models import OpStatus, Provider, ProviderType, Snapshot
+from katalog.models import Asset, OpStatus, Provider, ProviderType, Snapshot
 from katalog.queries import list_assets_with_metadata, setup
-from katalog.processors.runtime import process_asset, sort_processors
-from katalog.sources.base import make_source_instance
+from katalog.processors.runtime import (
+    DEFAULT_PROCESSOR_CONCURRENCY,
+    enqueue_asset_processing,
+    sort_processors,
+)
+from katalog.sources.runtime import run_source_snapshot
 
 
 @asynccontextmanager
@@ -65,68 +69,79 @@ async def update_asset(asset_id: int):
 
 @app.post("/sources/run")
 @app.post("/sources/{id}/run")
-async def do_run_sources(id: Optional[int] = None):
-    source_record = await Provider.get_or_none(id=id)
-    if not source_record or source_record.type != ProviderType.SOURCE:
-        raise HTTPException(status_code=404, detail=f"Unknown source '{id}'")
-
-    source_plugin = make_source_instance(source_record)
-    # since_snapshot = database.get_cutoff_snapshot(provider_id)
-    since_snapshot = None
+async def do_run_sources(
+    request: Request, id: Optional[int] = None, ids: list[int] | None = Query(None)
+):
+    """Scan one or more sources and run processors for their assets."""
     processor_pipeline = await sort_processors()
-    logger.info(f"Snapshotting source: {source_record}")
-    snapshot = await Snapshot.begin(source_record)
-    scan_result = None
-    try:
-        scan_result = await source_plugin.scan(since_snapshot=since_snapshot)
-        async for result in scan_result.iterator:
-            # logger.debug(f"Seen asset {result.asset.id} from source {provider_id}")
-            try:
-                result.asset.attach_accessor(source_plugin.get_accessor(result.asset))
-            except Exception:
-                logger.exception(
-                    f"Failed to attach accessor for record {result.asset.id} in source {id}"
-                )
-            snapshot.stats.assets_seen += 1
-            changes = await result.asset.upsert(
-                snapshot=snapshot, metadata=result.metadata
-            )
+    target_ids = set(ids or [])
+    if id is not None:
+        target_ids.add(int(id))
 
-            if processor_pipeline:
-                snapshot.stats.assets_processed += 1
-                snapshot.tasks.append(
-                    asyncio.create_task(
-                        process_asset(
-                            asset=result.asset,
-                            snapshot=snapshot,
-                            stages=processor_pipeline,
-                            initial_changes=changes,
-                        )
-                    )
-                )
-    except asyncio.CancelledError:
-        logger.info(
-            f"Snapshot {snapshot} for source {source_record} canceled by client"
+    if target_ids:
+        providers = await Provider.filter(
+            type=ProviderType.SOURCE, id__in=sorted(target_ids)
+        ).order_by("id")
+        if len(providers) != len(target_ids):
+            raise HTTPException(status_code=404, detail="One or more sources not found")
+    else:
+        providers = await Provider.filter(type=ProviderType.SOURCE).order_by("id")
+
+    if not providers:
+        raise HTTPException(status_code=404, detail="No sources configured")
+
+    snapshots = []
+    for source_record in providers:
+        snapshots.append(
+            await run_source_snapshot(
+                source_record=source_record,
+                processor_pipeline=processor_pipeline,
+                is_cancelled=request.is_disconnected,
+            )
         )
-        for task in snapshot.tasks:
-            task.cancel()
-        await snapshot.finalize(status=OpStatus.CANCELED)
-        raise
-    except Exception:
-        await snapshot.finalize(status=OpStatus.ERROR)
-        raise
-    await snapshot.finalize(status=scan_result.status)
-    return snapshot
+    return snapshots[0] if len(snapshots) == 1 else snapshots
 
 
 @app.post("/processors/run")
 @app.post("/processors/{id}/run")
-async def do_run_processor(id: Optional[int] = None):
-    # if id is None:
-    #     result = await run_analyzers(None)
-    # else:
-    #     result = await run_analyzers([int(id)])
-    return result
+async def do_run_processor(id: Optional[int] = None, ids: list[int] | None = Query(None)):
+    processor_pipeline = await sort_processors()
+    if not processor_pipeline:
+        raise HTTPException(status_code=400, detail="No processor providers configured")
+
+    target_ids = set(ids or [])
+    if id is not None:
+        target_ids.add(int(id))
+
+    assets_query = Asset.filter(deleted_snapshot_id__isnull=True)
+    if target_ids:
+        assets_query = assets_query.filter(id__in=sorted(target_ids))
+    assets = await assets_query
+    if target_ids and len(assets) != len(target_ids):
+        raise HTTPException(
+            status_code=404, detail="One or more asset ids not found or deleted"
+        )
+    if not assets:
+        raise HTTPException(status_code=404, detail="No assets found to process")
+
+    by_provider: dict[int, list[Asset]] = {}
+    for asset in assets:
+        by_provider.setdefault(int(asset.provider_id), []).append(asset)
+
+    snapshots = []
+    for provider_id, provider_assets in by_provider.items():
+        provider_record = await Provider.get_or_none(id=provider_id)
+        if provider_record is None:
+            logger.warning(f"Skipping assets for missing provider {provider_id}")
+            continue
+        snapshots.append(
+            await _run_processor_snapshot(
+                provider=provider_record,
+                assets=provider_assets,
+                processor_pipeline=processor_pipeline,
+            )
+        )
+    return snapshots[0] if len(snapshots) == 1 else snapshots
 
 
 @app.post("/analyzers/run")
@@ -137,6 +152,40 @@ async def do_run_analyzers(id: Optional[int] = None):
     else:
         result = await run_analyzers([int(id)])
     return result
+
+
+async def _run_processor_snapshot(
+    *, provider: Provider, assets: list[Asset], processor_pipeline
+):
+    """Run processors for a list of assets belonging to one provider."""
+    snapshot = await Snapshot.begin(provider)
+    processor_semaphore = asyncio.Semaphore(DEFAULT_PROCESSOR_CONCURRENCY)
+    try:
+        for asset in assets:
+            snapshot.stats.assets_seen += 1
+            snapshot.stats.assets_processed += 1
+            initial_changes = await asset.upsert(snapshot=snapshot, metadata=None)
+            await enqueue_asset_processing(
+                asset=asset,
+                snapshot=snapshot,
+                stages=processor_pipeline,
+                tasks=snapshot.tasks,
+                semaphore=processor_semaphore,
+                initial_changes=initial_changes,
+                force_run=True,
+            )
+    except asyncio.CancelledError:
+        logger.info(f"Processor snapshot {snapshot} canceled by client")
+        for task in snapshot.tasks:
+            task.cancel()
+        await snapshot.finalize(status=OpStatus.CANCELED)
+        raise
+    except Exception:
+        await snapshot.finalize(status=OpStatus.ERROR)
+        raise
+
+    await snapshot.finalize(status=OpStatus.COMPLETED)
+    return snapshot
 
 
 # endregion
