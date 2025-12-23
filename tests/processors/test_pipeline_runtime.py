@@ -5,10 +5,11 @@ from typing import Callable, Iterable, Sequence
 
 import pytest
 
-from katalog.metadata import FILE_NAME, FILE_PATH, FILE_SIZE
-from katalog.models import Asset, Metadata, OpStatus
+from katalog.metadata import FILE_NAME, FILE_SIZE, HASH_MD5
+from katalog.models import Asset, Metadata, MetadataChangeSet, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.processors.runtime import process_asset
+from katalog.processors.md5_hash import MD5HashProcessor
 from tests.utils.pipeline_helpers import PipelineFixture
 
 
@@ -34,12 +35,12 @@ def make_processor(
             super().__init__(provider=provider)
             self.runs = 0
 
-        def should_run(self, asset, changes):
+        def should_run(self, asset, change_set):
             if should_run_predicate is None:
                 return True
-            return should_run_predicate(set(changes or []))
+            return should_run_predicate(set(change_set.changed_keys()))
 
-        async def run(self, asset, changes):
+        async def run(self, asset, change_set):
             self.runs += 1
             metadata = metadata_factory(asset) if metadata_factory else []
             return ProcessorResult(metadata=list(metadata), status=OpStatus.COMPLETED)
@@ -78,26 +79,17 @@ async def test_stage_dependency_triggers_following_stage(pipeline_db):
         )
     ]
 
-    upsert_calls = 0
-    original_upsert = ctx.asset.upsert
-
-    async def counted_upsert(*args, **kwargs):
-        nonlocal upsert_calls
-        upsert_calls += 1
-        return await original_upsert(*args, **kwargs)
-
-    ctx.asset.upsert = counted_upsert  # type: ignore[assignment]
-
-    result = await process_asset(
+    change_set = MetadataChangeSet(await ctx.asset.load_metadata())
+    changes = await process_asset(
         asset=ctx.asset,
         snapshot=ctx.snapshot,
         stages=[stage1, stage2],
-        initial_changes=set(),
+        change_set=change_set,
     )
 
     assert runs == ["stage1", "stage2"]
-    assert FILE_NAME in result.changes
-    assert upsert_calls == 1  # single flush at end
+    assert FILE_NAME in changes
+    assert FILE_NAME in change_set.changed_keys()
     assert stage1[0].runs == 1
     assert stage2[0].runs == 1
 
@@ -113,15 +105,14 @@ async def test_processor_skipped_when_dependency_not_changed(pipeline_db):
         should_run_predicate=lambda changes: FILE_SIZE in changes,
     )
 
-    result = await process_asset(
-        asset=ctx.asset,
-        snapshot=ctx.snapshot,
-        stages=[[proc]],
-        initial_changes=set(),
+    change_set = MetadataChangeSet(await ctx.asset.load_metadata())
+    changes = await process_asset(
+        asset=ctx.asset, snapshot=ctx.snapshot, stages=[[proc]], change_set=change_set
     )
 
     assert proc.runs == 0
-    assert result.changes == set()
+    assert change_set.changed_keys() == set()
+    assert changes == set()
 
 
 @pytest.mark.asyncio
@@ -157,15 +148,44 @@ async def test_stage_processors_run_concurrently(pipeline_db):
     proc_a.run = proc_a_run  # type: ignore[assignment]
     proc_b.run = proc_b_run  # type: ignore[assignment]
 
-    result = await asyncio.wait_for(
+    change_set = MetadataChangeSet(await ctx.asset.load_metadata())
+    await asyncio.wait_for(
         process_asset(
             asset=ctx.asset,
             snapshot=ctx.snapshot,
             stages=[[proc_a, proc_b]],
-            initial_changes=set(),
+            change_set=change_set,
         ),
         timeout=3,
     )
 
     assert set(completed) == {"a", "b"}
-    assert result.changes == set()
+    assert change_set.changed_keys() == set()
+
+
+@pytest.mark.asyncio
+async def test_md5_skips_when_hash_already_present(pipeline_db):
+    ctx = await PipelineFixture.create()
+    md5_processor = MD5HashProcessor(provider=ctx.provider)
+
+    # Seed an existing hash in DB and cache
+    existing_md5 = make_metadata(HASH_MD5, "abc", provider_id=ctx.provider.id)
+    existing_md5.asset = ctx.asset
+    existing_md5.snapshot = ctx.snapshot
+    await ctx.asset.save_record(snapshot=ctx.snapshot)
+    change_set = MetadataChangeSet(
+        loaded=await ctx.asset.load_metadata(), staged=[existing_md5]
+    )
+    await change_set.persist(asset=ctx.asset, snapshot=ctx.snapshot)
+
+    change_set = MetadataChangeSet(await ctx.asset.load_metadata())
+    changes = await process_asset(
+        asset=ctx.asset,
+        snapshot=ctx.snapshot,
+        stages=[[md5_processor]],
+        change_set=change_set,
+    )
+
+    assert md5_processor.should_run(ctx.asset, change_set) is False
+    assert HASH_MD5 not in change_set.changed_keys()
+    assert HASH_MD5 not in changes

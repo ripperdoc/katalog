@@ -3,7 +3,13 @@
 import pytest
 
 from katalog.metadata import FILE_PATH
-from katalog.models import Asset, Snapshot, OpStatus
+from katalog.models import (
+    Asset,
+    Metadata,
+    MetadataChangeSet,
+    Snapshot,
+    OpStatus,
+)
 from tests.utils.upsert_helpers import UpsertFixture, ctx, md  # noqa: F401
 
 
@@ -30,7 +36,11 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     meta.snapshot = snap
     meta.asset = new_asset
 
-    changes = await new_asset.upsert(snapshot=snap, metadata=[meta])
+    await new_asset.save_record(snapshot=snap)
+    change_set = MetadataChangeSet(
+        loaded=await new_asset.load_metadata(), staged=[meta]
+    )
+    changes = await change_set.persist(asset=new_asset, snapshot=snap)
 
     assert new_asset.id == existing.id
     assert new_asset.created_snapshot_id == original_created
@@ -53,7 +63,7 @@ async def test_upsert_uses_metadata_cache(ctx: UpsertFixture):
 
     # First upsert populates cache
     await ctx.upsert(provider_id=0, snapshot_id=1, metas=[md(FILE_PATH, "/tmp/one")])
-    # Second upsert should use cache and skip fetch_related
+    # Second save should use cache and skip fetch_related
     await ctx.upsert(provider_id=0, snapshot_id=2, metas=[md(FILE_PATH, "/tmp/two")])
 
     assert calls == 1

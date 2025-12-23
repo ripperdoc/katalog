@@ -8,7 +8,7 @@ if os.name == "nt":
 
 from loguru import logger
 
-from katalog.sources.base import AssetRecordResult, ScanResult, SourcePlugin
+from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.models import (
     FileAccessor,
     Asset,
@@ -74,7 +74,7 @@ class FilesystemClient(SourcePlugin):
 
     async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
         """
-        Recursively scan the directory and yield AssetRecord objects.
+        Recursively scan the directory and yield AssetScanResults.
         """
 
         async def inner():
@@ -108,7 +108,7 @@ class FilesystemClient(SourcePlugin):
                         )
                         asset.attach_accessor(self.get_accessor(asset))
 
-                        result = AssetRecordResult(asset=asset, provider=self.provider)
+                        result = AssetScanResult(asset=asset, provider=self.provider)
                         result.add_metadata(FILE_PATH, str(abs_path))
                         result.add_metadata(TIME_MODIFIED, modified)
                         result.add_metadata(TIME_CREATED, created)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchRecords } from "../api/client";
-import type { AssetRecordResponse, AssetRecord, MetadataEntry } from "../types/api";
+import type { AssetResponse, Asset, MetadataEntry } from "../types/api";
 import {
   SimpleTable,
   HeaderObject,
@@ -81,7 +81,7 @@ const collectSearchableParts = (value: unknown, parts: string[]) => {
   }
 };
 
-const buildSearchString = (record: AssetRecord): string => {
+const buildSearchString = (record: Asset): string => {
   const parts: string[] = [
     record.id,
     record.provider_id,
@@ -103,7 +103,7 @@ const buildSearchString = (record: AssetRecord): string => {
 };
 
 function RecordsRoute() {
-  const [records, setRecords] = useState<AssetRecord[]>([]);
+  const [records, setRecords] = useState<Asset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [seenHeaders, setSeenHeaders] = useState<HeaderObject[]>([]);
@@ -127,7 +127,7 @@ function RecordsRoute() {
     setLoading(true);
     setError(null);
     try {
-      const response: AssetRecordResponse = await fetchRecords();
+      const response: AssetResponse = await fetchRecords();
       const fetchedRecords = response.records ?? [];
       setRecords(fetchedRecords);
       const schema = response.schema ?? {};

@@ -29,18 +29,14 @@ class NameReadabilityProcessor(Processor):
     def should_run(
         self,
         asset: Asset,
-        changes: set[str] | None,
+        change_set,
     ) -> bool:
-        if changes and FILE_NAME in changes:
+        changes = change_set.changed_keys()
+        if FILE_NAME in changes:
             return True
-        existing = db.get_metadata_for_file(
-            asset.id,
-            provider_id=asset.provider_id,
-            metadata_key=WARNING_NAME_READABILITY,
-        )
-        return not existing
+        return False
 
-    async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
+    async def run(self, asset: Asset, change_set) -> ProcessorResult:
         name = self._resolve_file_name(asset)
         if not name:
             return ProcessorResult(status=OpStatus.SKIPPED, message="No filename found")

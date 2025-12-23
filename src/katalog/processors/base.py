@@ -8,6 +8,7 @@ from katalog.models import (
     Metadata,
     OpStatus,
     Provider,
+    MetadataChangeSet,
 )
 from katalog.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.plugins.base import PluginBase
@@ -49,26 +50,31 @@ class Processor(PluginBase, ABC):
     def should_run(
         self,
         asset: Asset,
-        changes: set[str] | None,
+        change_set: MetadataChangeSet,
     ) -> bool:
         """Return True if the processor needs to run based on record and the metadata fields that have changed in it."""
         raise NotImplementedError()
 
     @abstractmethod
-    async def run(self, asset: Asset, changes: set[str] | None) -> ProcessorResult:
+    async def run(
+        self,
+        asset: Asset,
+        change_set: MetadataChangeSet,
+    ) -> ProcessorResult:
         """Run the processor logic and return a result class with changes to persist."""
         raise NotImplementedError()
 
 
 def file_data_changed(
-    self, asset: Asset, changes: set[str] | None, allow_weak_check: bool = True
+    self,
+    asset: Asset,
+    change_set: MetadataChangeSet,
+    allow_weak_check: bool = True,
 ) -> bool:
     """Helper to determine if data or relevant fields have changed. If allow_weak_check is True, also assume data has changed if TIME_MODIFIED has changed."""
-    # TODO more hash types to check?
-    return changes is not None and (
-        DATA_KEY in changes
-        or HASH_MD5 in changes
-        or (allow_weak_check and TIME_MODIFIED in changes)
+    changes = change_set.changed_keys()
+    return DATA_KEY in changes or HASH_MD5 in changes or (
+        allow_weak_check and TIME_MODIFIED in changes
     )
 
 

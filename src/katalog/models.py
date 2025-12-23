@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from asyncio import Task
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum, IntEnum
@@ -204,18 +205,13 @@ class SnapshotStats:
         }
 
 
-@dataclass(slots=True)
-class ProcessorTaskResult:
-    """Summarizes the outcome of running the processor pipeline for one asset."""
-
-    changes: set[str]
-    failures: int = 0
+DEFAULT_TASK_CONCURRENCY = 10
 
 
 class Snapshot(Model):
     id = IntField(pk=True)
     provider = ForeignKeyField(
-        orm(Provider), related_name="snapshots", on_delete=CASCADE
+        orm(Provider), related_name="snapshots", on_delete=CASCADE, null=True
     )
     note = CharField(max_length=512, null=True)
     started_at = DatetimeField(default=lambda: datetime.now(UTC))
@@ -223,27 +219,28 @@ class Snapshot(Model):
     status = CharEnumField(OpStatus, max_length=32)
     metadata = JSONField(null=True)
 
-    # Local fields, not persisted automatically
+    # Local fields not persisted to DB
     stats = SnapshotStats()
     tasks: list[Task] = []
+    # Control concurrency of snapshot (processor) tasks
+    semaphore: asyncio.Semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
 
     @classmethod
     async def begin(
         cls,
-        provider: Provider | int,
         *,
         status: OpStatus = OpStatus.IN_PROGRESS,
         metadata: Mapping[str, Any] | None = None,
+        provider: Provider | None = None,
         snapshot_id: int | None = None,
         note: str | None = None,
     ) -> "Snapshot":
-        provider_id = provider.id if isinstance(provider, Provider) else provider
         snapshot_id = snapshot_id or int(time())
         if await cls.get_or_none(id=snapshot_id):
             raise ValueError(f"Snapshot with id {snapshot_id} already exists")
         return await cls.create(
             id=snapshot_id,
-            provider_id=provider_id,
+            provider=provider,
             status=status,
             note=note,
             metadata=dict(metadata) if metadata else None,
@@ -251,8 +248,6 @@ class Snapshot(Model):
 
     async def finalize(self, *, status: OpStatus) -> None:
         completed_at = datetime.now(UTC)
-        # Make it get provider_id even if we haven't saved the snapshot to DB yet but have assigned a Provider object
-        provider_id = int(getattr(self, "provider_id", None) or self.provider.id)
         metadata_payload: dict[str, Any] | None = None
 
         if self.tasks:
@@ -274,13 +269,66 @@ class Snapshot(Model):
             self.completed_at = completed_at
             await self.save(update_fields=update_fields)
 
-            await Asset.filter(
-                provider_id=provider_id,
-                deleted_snapshot_id__isnull=True,
-                last_snapshot_id__lt=self.id,
-            ).update(deleted_snapshot_id=self.id)
+    @classmethod
+    @asynccontextmanager
+    async def context(
+        cls,
+        *,
+        status: OpStatus = OpStatus.IN_PROGRESS,
+        metadata: Mapping[str, Any] | None = None,
+        provider: Provider | None = None,
+        snapshot_id: int | None = None,
+        note: str | None = None,
+        success_status: OpStatus = OpStatus.COMPLETED,
+        error_status: OpStatus = OpStatus.ERROR,
+    ):
+        """
+        Async context manager for Snapshot lifecycle.
 
-            await Provider.filter(id=provider_id).update(updated_at=completed_at)
+        Usage:
+            async with Snapshot.context(provider=..., metadata=...) as snap:
+                # do work, snap is a Snapshot instance
+        On normal exit -> finalize with success_status.
+        On CancelledError -> finalize with CANCELED and re-raise.
+        On other exceptions -> finalize with error_status and re-raise.
+        """
+        snapshot = await cls.begin(
+            status=status,
+            metadata=metadata,
+            provider=provider,
+            snapshot_id=snapshot_id,
+            note=note,
+        )
+        try:
+            yield snapshot
+        except asyncio.CancelledError:
+            # best-effort finalize as cancelled, then re-raise
+            try:
+                await snapshot.finalize(status=OpStatus.CANCELED)
+            except Exception as exc:  # keep exception simple and log
+                logger.opt(exception=exc).error(
+                    "Failed to finalize snapshot after cancellation"
+                )
+            raise
+        except Exception:
+            # error path: finalize as error (or custom error_status), then re-raise
+            try:
+                await snapshot.finalize(status=error_status)
+            except Exception as exc:
+                logger.opt(exception=exc).error(
+                    "Failed to finalize snapshot after error"
+                )
+            raise
+        else:
+            # normal completion
+            try:
+                await snapshot.finalize(status=success_status)
+            except Exception as exc:
+                # If finalization fails on success, log and re-raise so caller is aware
+                logger.opt(exception=exc).error(
+                    "Failed to finalize snapshot after success"
+                )
+                raise
 
     class Meta(Model.Meta):
         indexes = (("provider", "started_at"),)
@@ -325,17 +373,8 @@ class Asset(Model):
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
 
-    async def upsert(
-        self,
-        snapshot: "Snapshot",
-        metadata: Sequence["Metadata"] | None = None,
-    ) -> set[MetadataKey]:
-        """Persist this asset and apply metadata changes for the snapshot.
-
-        Returns a set of metadata keys that changed.
-        """
-        # Reuse an existing asset with the same canonical_id when unsaved to avoid
-        # duplicating rows across scans.
+    async def save_record(self, snapshot: "Snapshot") -> None:
+        """Persist the asset row, reusing an existing canonical asset when present."""
         if self.id is None:
             existing = await Asset.get_or_none(canonical_id=self.canonical_id)
             if existing:
@@ -343,55 +382,12 @@ class Asset(Model):
                 self._saved_in_db = True
                 self.created_snapshot_id = existing.created_snapshot_id
                 self.provider_id = existing.provider_id
-                # If no canonical_uri provided, keep the previous one
-                if not getattr(self, "canonical_uri", None):
-                    self.canonical_uri = existing.canonical_uri
-        # Ensure snapshot markers are set for this run.
+                self.canonical_uri = existing.canonical_uri
         if getattr(self, "created_snapshot_id", None) is None:
             self.created_snapshot = snapshot
         self.last_snapshot = snapshot
         self.deleted_snapshot = None
-
-        # Ensure the asset itself is saved first so we have an id for FKs.
         await self.save()
-
-        # No metadata to process: nothing changed.
-        if not metadata:
-            return set()
-
-        for m in metadata:
-            if m.asset is None:
-                raise ValueError("Metadata asset_id is not set for upsert")
-            if m.snapshot is None:
-                raise ValueError("Metadata snapshot_id is not set for upsert")
-            if m.provider is None:
-                raise ValueError("Metadata provider_id is not set for upsert")
-
-        existing_metadata = await self.load_metadata()
-
-        existing_index: set[tuple[int, int, Any]] = set()
-        for md in existing_metadata:
-            existing_index.add((int(md.metadata_key_id), int(md.provider_id), md.value))
-
-        to_create: list[Metadata] = []
-        changed_keys: set[MetadataKey] = set()
-
-        for md in metadata:
-            md.asset = self
-            md.snapshot = snapshot
-            key = (int(md.metadata_key_id), int(md.provider_id), md.value)
-            if key in existing_index:
-                continue
-            to_create.append(md)
-            existing_index.add(key)
-            changed_keys.add(get_metadata_def_by_id(key[0]).key)
-
-        if to_create:
-            await Metadata.bulk_create(to_create)
-            if self._metadata_cache is not None:
-                self._metadata_cache.extend(to_create)
-
-        return changed_keys
 
     async def load_metadata(self) -> Sequence["Metadata"]:
         """Fetch and cache metadata rows for this asset."""
@@ -400,6 +396,27 @@ class Asset(Model):
         await self.fetch_related("metadata")
         self._metadata_cache = list(getattr(self, "metadata", []))
         return self._metadata_cache
+
+    @classmethod
+    async def mark_unseen_as_deleted(
+        cls, *, snapshot: "Snapshot", provider_ids: Sequence[int]
+    ) -> int:
+        """
+        Mark assets from the given providers as deleted if they were not touched by this snapshot.
+        Returns the number of affected rows.
+        """
+        if not provider_ids:
+            return 0
+        provider_ids = list(provider_ids)
+        updated = (
+            await cls.filter(
+                provider_id__in=provider_ids,
+                deleted_snapshot_id__isnull=True,
+            )
+            .exclude(last_snapshot_id=snapshot.id)
+            .update(deleted_snapshot_id=snapshot.id)
+        )
+        return updated
 
     class Meta(Model.Meta):
         indexes = (("provider", "last_snapshot"),)
@@ -555,37 +572,135 @@ def make_metadata(
     return md
 
 
-def current_metadata(metadata: Sequence[Metadata]) -> dict[MetadataKey, list[Metadata]]:
-    """Get the current metadata entries by key from a list of Metadata.
-    Current means that we only keep all non-removed unique values for each key."""
-    # Sort newest-first so later snapshots win.
-    ordered = sorted(
-        metadata,
-        key=lambda m: int(getattr(m, "snapshot_id", 0) or 0),
-        reverse=True,
-    )
+class MetadataChangeSet:
+    """Track metadata state for an asset during processing (loaded + staged changes)."""
 
-    result: dict[MetadataKey, list[Metadata]] = {}
-    seen_values: dict[MetadataKey, set[Any]] = {}
+    def __init__(
+        self,
+        loaded: Sequence[Metadata],
+        staged: Sequence[Metadata] | None = None,
+    ) -> None:
+        self._loaded = list(loaded)
+        self._staged: list[Metadata] = list(staged or [])
+        self._cache_current: dict[int | None, dict[MetadataKey, list[Metadata]]] = {}
+        self._cache_changed: dict[int | None, set[MetadataKey]] = {}
 
-    for entry in ordered:
-        key = entry.key
-        seen_for_key = seen_values.setdefault(key, set())
-        value = entry.value
+    @staticmethod
+    def _current_metadata(
+        metadata: Sequence[Metadata] | None = None,
+        provider_id: int | None = None,
+    ) -> dict[MetadataKey, list[Metadata]]:
+        """Get current metadata entries by key from a list of Metadata."""
+        if not metadata:
+            return {}
 
-        # If we've already decided on this value (added or removed), skip.
-        if value in seen_for_key:
-            continue
+        ordered = sorted(
+            metadata,
+            # Metadata should always have a snapshot id, if not we assume 0 which
+            # means "oldest"
+            key=lambda m: m.snapshot_id if m.snapshot_id is not None else 0,
+            reverse=True,
+        )
 
-        # A removed entry blocks earlier additions of the same value.
-        seen_for_key.add(value)
-        if entry.removed:
-            continue
+        result: dict[MetadataKey, list[Metadata]] = {}
+        seen_values: dict[MetadataKey, set[Any]] = {}
+        for entry in ordered:
+            if provider_id is not None and int(entry.provider_id) != int(provider_id):
+                continue
+            key = entry.key
+            seen_for_key = seen_values.setdefault(key, set())
+            value = entry.value
+            if value in seen_for_key:
+                continue
+            seen_for_key.add(value)
+            if entry.removed:
+                continue
+            result.setdefault(key, []).append(entry)
+        return result
 
-        # Keep the newest non-removed value for this key/value pair.
-        result.setdefault(key, []).append(entry)
+    def add(self, metadata: Sequence[Metadata]) -> None:
+        """Stage new metadata (including removals)."""
+        self._staged.extend(metadata)
+        self._cache_current.clear()
+        self._cache_changed.clear()
 
-    return result
+    def current(
+        self, provider_id: int | None = None
+    ) -> dict[MetadataKey, list[Metadata]]:
+        """Return current metadata by key, combining loaded and staged."""
+        if provider_id in self._cache_current:
+            return self._cache_current[provider_id]
+        combined = list(self._loaded) + list(self._staged)
+        current = self._current_metadata(combined, provider_id)
+        self._cache_current[provider_id] = current
+        return current
+
+    def changed_keys(self, provider_id: int | None = None) -> set[MetadataKey]:
+        """Return keys whose current values differ from the loaded baseline."""
+        if provider_id in self._cache_changed:
+            return self._cache_changed[provider_id]
+        baseline = self._current_metadata(self._loaded, provider_id)
+        current = self.current(provider_id)
+        changed: set[MetadataKey] = set()
+        for key in set(baseline.keys()) | set(current.keys()):
+            base_values = {md.value for md in baseline.get(key, [])}
+            curr_values = {md.value for md in current.get(key, [])}
+            if base_values != curr_values:
+                changed.add(key)
+        self._cache_changed[provider_id] = changed
+        return changed
+
+    def has(self, key: MetadataKey, provider_id: int | None = None) -> bool:
+        return key in self.current(provider_id)
+
+    def pending_entries(self) -> list[Metadata]:
+        """Metadata added during processing that should be persisted."""
+        return list(self._staged)
+
+    def all_entries(self) -> list[Metadata]:
+        """Loaded + staged metadata."""
+        return list(self._loaded) + list(self._staged)
+
+    async def persist(
+        self,
+        asset: Asset,
+        snapshot: Snapshot,
+    ) -> set[MetadataKey]:
+        """Persist staged metadata entries from a change set for the given asset."""
+        staged = self.pending_entries()
+        if not staged:
+            return set()
+
+        existing_metadata = await asset.load_metadata()
+        existing_index: set[tuple[int, int, Any]] = {
+            (int(md.metadata_key_id), int(md.provider_id), md.value)
+            for md in existing_metadata
+        }
+
+        to_create: list[Metadata] = []
+        changed_keys: set[MetadataKey] = set()
+
+        for md in staged:
+            md.asset = asset
+            md.asset_id = asset.id
+            md.snapshot = snapshot
+            md.snapshot_id = snapshot.id
+            if md.provider is None and md.provider_id is None:
+                raise ValueError("Metadata provider_id is not set for persistence")
+
+            key = (int(md.metadata_key_id), int(md.provider_id), md.value)
+            if key in existing_index:
+                continue
+            to_create.append(md)
+            existing_index.add(key)
+            changed_keys.add(get_metadata_def_by_id(key[0]).key)
+
+        if to_create:
+            await Metadata.bulk_create(to_create)
+            if asset._metadata_cache is not None:
+                asset._metadata_cache.extend(to_create)
+
+        return changed_keys
 
 
 async def drain_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
@@ -598,11 +713,6 @@ async def drain_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:
         if isinstance(result, Exception):
             logger.opt(exception=result).error("Processor task failed")
             failures += 1
-            continue
-        if isinstance(result, ProcessorTaskResult):
-            if result.changes:
-                modified += 1
-            failures += result.failures
             continue
         if result:
             modified += 1

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Iterable, Sequence
+from typing import Awaitable, Sequence
 
 from loguru import logger
 
@@ -11,17 +11,16 @@ from katalog.models import (
     Metadata,
     MetadataKey,
     OpStatus,
-    ProcessorTaskResult,
     Provider,
     ProviderType,
     Snapshot,
+    MetadataChangeSet,
 )
 from katalog.processors.base import (
     Processor,
     ProcessorResult,
     make_processor_instance,
 )
-from katalog.metadata import get_metadata_def_by_id
 
 
 DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
@@ -86,16 +85,16 @@ async def sort_processors() -> list[ProcessorStage]:
 async def _run_processor(
     processor: Processor,
     asset: Asset,
-    changes: set[str],
-) -> tuple[ProcessorResult, bool]:
+    change_set,
+) -> ProcessorResult:
     try:
         logger.debug(f"Running processor {processor} for record {asset.id}")
-        result = await processor.run(asset, changes)
-        return result, False
+        result = await processor.run(asset, change_set)
+        return result
     except Exception as e:
         msg = f"Processor {processor} failed for record {asset.id}: {e}"
         logger.exception(msg)
-        return ProcessorResult(status=OpStatus.ERROR, message=msg), True
+        return ProcessorResult(status=OpStatus.ERROR, message=msg)
 
 
 async def process_asset(
@@ -103,27 +102,19 @@ async def process_asset(
     asset: Asset,
     snapshot: Snapshot,
     stages: Sequence[ProcessorStage],
-    initial_changes: Iterable[str] | None = None,
+    change_set: MetadataChangeSet,
     force_run: bool = False,
-) -> ProcessorTaskResult:
-    """Run processors per stage, returning the union of all observed changes."""
-
-    if not stages:
-        return ProcessorTaskResult(changes=set(initial_changes or []), failures=0)
+) -> set[MetadataKey]:
     stats = snapshot.stats
-    changes = set(initial_changes or [])
     failed_runs = 0
-    pending_metadata: list[Metadata] = []
-    existing_metadata = await asset.load_metadata()
-    seen_metadata: set[tuple[int, int, Any]] = {
-        (int(md.metadata_key_id), int(md.provider_id), md.value)
-        for md in existing_metadata
-    }
+
     for stage in stages:
-        coros: list[tuple[Processor, Any]] = []
+        coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
         for processor in stage:
             try:
-                should_run = True if force_run else processor.should_run(asset, changes)
+                should_run = (
+                    True if force_run else processor.should_run(asset, change_set)
+                )
             except Exception:
                 logger.exception(
                     f"Processor {processor}.should_run failed for record {asset.id}"
@@ -131,21 +122,17 @@ async def process_asset(
                 continue
             if not should_run:
                 continue
-            coros.append((processor, _run_processor(processor, asset, changes)))
+            coros.append((processor, _run_processor(processor, asset, change_set)))
             if stats:
                 stats.processings_started += 1
         if not coros:
             continue
-        results = await asyncio.gather(*(coro for _, coro in coros))
+        results: list[ProcessorResult] = await asyncio.gather(
+            *(coro for _, coro in coros)
+        )
         stage_metadata: list[Metadata] = []
-        for (processor, _), outcome in zip(coros, results):
-            produced, failed = outcome
-            if failed:
-                failed_runs += 1
-                if stats:
-                    stats.processings_error += 1
-                continue
-            status = produced.status
+        for result in results:
+            status = result.status
             if stats:
                 if status == OpStatus.COMPLETED:
                     stats.processings_completed += 1
@@ -162,27 +149,11 @@ async def process_asset(
                 continue
             if status == OpStatus.SKIPPED:
                 continue
-            for meta in produced.metadata:
+            for meta in result.metadata:
                 stage_metadata.append(meta)
-        if not stage_metadata:
-            continue
-        new_entries: list[Metadata] = []
-        for md in stage_metadata:
-            key = (int(md.metadata_key_id), int(md.provider_id), md.value)
-            if key in seen_metadata:
-                continue
-            seen_metadata.add(key)
-            new_entries.append(md)
-        if not new_entries:
-            continue
-        pending_metadata.extend(new_entries)
-        for md in new_entries:
-            changed_key = get_metadata_def_by_id(int(md.metadata_key_id)).key
-            changes.add(changed_key)
-    if pending_metadata:
-        final_changes = await asset.upsert(snapshot=snapshot, metadata=pending_metadata)
-        changes.update(final_changes)
-    return ProcessorTaskResult(changes=changes, failures=failed_runs)
+        # Add all produced metadata to the change set for the next stage.
+        change_set.add(stage_metadata)
+    return await change_set.persist(asset=asset, snapshot=snapshot)
 
 
 async def enqueue_asset_processing(
@@ -190,9 +161,7 @@ async def enqueue_asset_processing(
     asset: Asset,
     snapshot: Snapshot,
     stages: Sequence[ProcessorStage],
-    tasks: list[asyncio.Task[Any]],
-    semaphore: asyncio.Semaphore,
-    initial_changes: Iterable[str] | None = None,
+    change_set: MetadataChangeSet,
     force_run: bool = False,
 ) -> None:
     """Schedule processor pipeline for an asset with bounded concurrency."""
@@ -200,14 +169,33 @@ async def enqueue_asset_processing(
     if not stages:
         return
 
-    async def runner() -> ProcessorTaskResult:
-        async with semaphore:
+    async def runner() -> set[MetadataKey]:
+        async with snapshot.semaphore:
             return await process_asset(
                 asset=asset,
                 snapshot=snapshot,
                 stages=stages,
-                initial_changes=initial_changes,
+                change_set=change_set,
                 force_run=force_run,
             )
 
-    tasks.append(asyncio.create_task(runner()))
+    snapshot.tasks.append(asyncio.create_task(runner()))
+
+
+async def run_processors(*, snapshot: Snapshot, assets: list[Asset]):
+    """Run processors for a list of assets belonging to one provider."""
+    processor_pipeline = await sort_processors()
+
+    for asset in assets:
+        snapshot.stats.assets_seen += 1
+        snapshot.stats.assets_processed += 1
+        loaded_metadata = await asset.load_metadata()
+        change_set = MetadataChangeSet(loaded=loaded_metadata)
+        await enqueue_asset_processing(
+            asset=asset,
+            snapshot=snapshot,
+            stages=processor_pipeline,
+            change_set=change_set,
+            # Run all processors regardless of should_run because we have no prior info on changes
+            force_run=True,
+        )

@@ -1,4 +1,4 @@
-import type { AssetRecordResponse, ViewMode } from "../types/api";
+import type { AssetResponse, ViewMode } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
 const API_BASE = rawBase && rawBase.length > 0 ? rawBase : "/api";
@@ -11,10 +11,7 @@ async function handleResponse(response: Response) {
   return response.json();
 }
 
-export async function fetchFilesBySource(
-  sourceId: string,
-  view: ViewMode
-): Promise<AssetRecordResponse> {
+export async function fetchFilesBySource(sourceId: string, view: ViewMode): Promise<AssetResponse> {
   if (!sourceId) {
     throw new Error("source id is required");
   }
@@ -25,7 +22,7 @@ export async function fetchFilesBySource(
   return handleResponse(response);
 }
 
-export async function fetchRecords(view: ViewMode = "flat"): Promise<AssetRecordResponse> {
+export async function fetchRecords(view: ViewMode = "flat"): Promise<AssetResponse> {
   const url = `${API_BASE}/records?view=${view}`;
   const response = await fetch(url, {
     headers: { Accept: "application/json" },

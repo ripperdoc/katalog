@@ -16,7 +16,7 @@ from katalog.utils.utils import import_plugin_class
 
 
 @dataclass(slots=True)
-class AssetRecordResult:
+class AssetScanResult:
     asset: Asset
     provider: Provider
     metadata: list[Metadata] = field(default_factory=list)
@@ -35,7 +35,7 @@ class AssetRecordResult:
 
 @dataclass(slots=True)
 class ScanResult:
-    iterator: AsyncIterator[AssetRecordResult]
+    iterator: AsyncIterator[AssetScanResult]
     status: OpStatus = OpStatus.IN_PROGRESS
 
 
@@ -53,7 +53,7 @@ class SourcePlugin(PluginBase):
 
     def get_accessor(self, asset: Asset) -> Any:
         """
-        Returns an accessor for the file data represented by the AssetRecord.
+        Returns an accessor for the file data represented by the Asset.
         This is used to read file data.
         """
         raise NotImplementedError()
@@ -65,7 +65,7 @@ class SourcePlugin(PluginBase):
     async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
         """
         Scan the source, return a ScanResult with a status flag (that will be updated) and
-        an async iterator that yields AssetRecordResult objects with their assets and metadata to persist.
+        an async iterator that yields AssetScanResult objects with their assets and metadata to persist.
         """
         raise NotImplementedError()
 

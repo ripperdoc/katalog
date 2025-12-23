@@ -23,7 +23,7 @@ export interface MetadataDefinition {
   width: number | null;
 }
 
-export interface AssetRecord extends Row {
+export interface Asset extends Row {
   id: string;
   provider_id: string;
   canonical_uri: string;
@@ -33,8 +33,8 @@ export interface AssetRecord extends Row {
   metadata: MetadataFlat;
 }
 
-export interface AssetRecordResponse {
-  records: AssetRecord[];
+export interface AssetResponse {
+  records: Asset[];
   schema: Record<string, MetadataDefinition>;
   stats: {
     records: number;
@@ -42,7 +42,7 @@ export interface AssetRecordResponse {
   };
 }
 
-export interface AssetRecordComplete extends Omit<AssetRecord, "metadata"> {
+export interface AssetComplete extends Omit<Asset, "metadata"> {
   metadata: MetadataEntry[];
 }
 

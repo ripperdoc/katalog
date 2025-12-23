@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 
 from katalog.processors.base import Processor
 from katalog.metadata import FILE_TYPE
@@ -12,8 +11,8 @@ class ArchiveProcess(Processor):
     dependencies = frozenset({FILE_TYPE})
     outputs = frozenset({})  # TODO
 
-    # def should_run(self, record: AssetRecord, prev_cache: str | None) -> bool:
+    # def should_run(self, record: Asset, prev_cache: str | None) -> bool:
     #     return record.provider_id == "downloads" and prev_cache != self.cache_key(record)
 
-    # async def run(self, record: AssetRecord) -> AssetRecord:
+    # async def run(self, record: Asset) -> Asset:
     #     return await super().run(record)

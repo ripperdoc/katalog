@@ -1,71 +1,68 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Iterable, Optional
 
 from loguru import logger
 
-from katalog.models import OpStatus, Provider, ProviderType, Snapshot
-from katalog.processors.runtime import (
-    DEFAULT_PROCESSOR_CONCURRENCY,
-    enqueue_asset_processing,
+from katalog.models import (
+    Asset,
+    MetadataChangeSet,
+    Provider,
+    ProviderType,
+    Snapshot,
 )
+from katalog.processors.runtime import enqueue_asset_processing, sort_processors
+
 from katalog.sources.base import make_source_instance
 
 
-async def run_source_snapshot(
+async def run_sources(
     *,
-    source_record: Provider,
-    processor_pipeline,
-    since_snapshot: Snapshot | None = None,
-    max_concurrency: int = DEFAULT_PROCESSOR_CONCURRENCY,
+    sources: Iterable[Provider],
+    snapshot: Snapshot,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
-) -> Snapshot:
+) -> None:
     """Run a scan + processor pipeline for a single source and finalize its snapshot."""
-    if source_record.type != ProviderType.SOURCE:
-        raise ValueError(f"Provider {source_record.id} is not a source")
 
-    source_plugin = make_source_instance(source_record)
-    snapshot = await Snapshot.begin(source_record)
-    processor_semaphore = asyncio.Semaphore(max_concurrency)
-    scan_result = None
-    status: OpStatus = OpStatus.ERROR
-    cancelled = False
-    try:
+    processor_pipeline = await sort_processors()
+
+    for source in sources:
+        if source.type != ProviderType.SOURCE:
+            logger.warning(
+                f"Skipping provider {source.id} ({source.name}): not a source"
+            )
+            continue
+        source_plugin = make_source_instance(source)
+        scan_result = None
+        # TODO fetch previous snapshot for this source
+        since_snapshot: Optional[Snapshot] = None
+        # TODO run scans in parallel
         scan_result = await source_plugin.scan(since_snapshot=since_snapshot)
         async for result in scan_result.iterator:
             snapshot.stats.assets_seen += 1
-            changes = await result.asset.upsert(
-                snapshot=snapshot, metadata=result.metadata
-            )
+            # Ensure asset row exists and snapshot markers are updated.
+            await result.asset.save_record(snapshot=snapshot)
 
+            loaded_metadata = await result.asset.load_metadata()
+            change_set = MetadataChangeSet(
+                loaded=loaded_metadata, staged=result.metadata
+            )
             if processor_pipeline:
                 snapshot.stats.assets_processed += 1
+                # Enqueue asset for processing, which will also persist the metadata
                 await enqueue_asset_processing(
                     asset=result.asset,
                     snapshot=snapshot,
                     stages=processor_pipeline,
-                    tasks=snapshot.tasks,
-                    semaphore=processor_semaphore,
-                    initial_changes=changes,
+                    change_set=change_set,
                 )
-            if is_cancelled and await is_cancelled():
-                cancelled = True
-                break
-        status = scan_result.status if scan_result else OpStatus.ERROR
-    except asyncio.CancelledError:
-        logger.info(f"Snapshot {snapshot.id} for source {source_record} canceled by client (CancelledError)")
-        cancelled = True
-        raise
-    except Exception:
-        raise
-    finally:
-        if cancelled:
-            logger.info(
-                f"Snapshot {snapshot.id} for source {source_record} canceled by client"
-            )
-            status = OpStatus.CANCELED
-            for task in snapshot.tasks:
-                task.cancel()
-        await snapshot.finalize(status=status)
-    return snapshot
+            else:
+                # Save only metadata from the source scan.
+                await change_set.persist(asset=result.asset, snapshot=snapshot)
+        deleted_count = await Asset.mark_unseen_as_deleted(
+            snapshot=snapshot, provider_ids=[source.id]
+        )
+        if deleted_count:
+            snapshot.stats.assets_deleted += deleted_count
+            snapshot.stats.assets_changed += deleted_count
+        # status = scan_result.status if scan_result else OpStatus.ERROR

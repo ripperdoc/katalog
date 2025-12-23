@@ -43,7 +43,7 @@ from katalog.metadata import (
     define_metadata,
 )
 from katalog.sources.base import (
-    AssetRecordResult,
+    AssetScanResult,
     ScanResult,
     SourcePlugin,
 )
@@ -171,7 +171,7 @@ class GoogleDriveClient(SourcePlugin):
         return None
 
     async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
-        """Asynchronously scan Google Drive and yield AssetRecord objects."""
+        """Asynchronously scan Google Drive and yield AssetScanResults."""
 
         limit_reached = False
         cutoff_reached = False
@@ -244,8 +244,8 @@ class GoogleDriveClient(SourcePlugin):
         scan_result = ScanResult(iterator=inner())
         return scan_result
 
-    def _build_result(self, file: Dict[str, Any]) -> AssetRecordResult:
-        """Transform a Drive file payload into a AssetRecord and metadata, guarding errors."""
+    def _build_result(self, file: Dict[str, Any]) -> AssetScanResult:
+        """Transform a Drive file payload into a Asset and metadata, guarding errors."""
         file_id = file.get("id", "")
         canonical_uri = f"https://drive.google.com/file/d/{file_id}"
 
@@ -255,7 +255,7 @@ class GoogleDriveClient(SourcePlugin):
             canonical_uri=canonical_uri,
         )
         asset.attach_accessor(self.get_accessor(asset))
-        result = AssetRecordResult(asset=asset, provider=self.provider)
+        result = AssetScanResult(asset=asset, provider=self.provider)
 
         name_paths, id_paths = self._resolve_paths(file)
         result.add_metadata_set(FILE_ID_PATH, id_paths)
