@@ -1,44 +1,31 @@
-import type { AssetResponse, MetadataEntry, MetadataFlat, ViewMode } from "../types/api";
+import type { Asset } from "../types/api";
 
 type Props = {
-  files: AssetResponse[];
-  view: ViewMode;
+  assets: Asset[];
 };
 
-function formatMetadataFlat(metadata: MetadataFlat) {
-  return JSON.stringify(metadata, null, 2);
-}
-
-function formatMetadataEntries(entries: MetadataEntry[]) {
-  return JSON.stringify(entries, null, 2);
-}
-
-function FileTable({ files, view }: Props) {
-  if (!files.length) {
+function FileTable({ assets }: Props) {
+  if (!assets.length) {
     return null;
   }
 
   return (
     <div className="file-list">
-      {files.map((file) => (
-        <article key={file.id} className="file-card">
-          <h3>{file.canonical_uri}</h3>
+      {assets.map((asset) => (
+        <article key={asset.id} className="file-card">
+          <h3>{asset.canonical_uri}</h3>
           <p>
-            <strong>File ID:</strong> {file.id}
+            <strong>File ID:</strong> {asset.id}
           </p>
           <p>
-            <strong>Snapshot:</strong> {file.last_snapshot_id} (created {file.created_snapshot_id})
+            <strong>Snapshot:</strong> {asset.seen} (created {asset.created})
           </p>
-          {file.deleted_snapshot_id && (
+          {asset.deleted !== null && (
             <p>
-              <strong>Deleted Snapshot:</strong> {file.deleted_snapshot_id}
+              <strong>Deleted Snapshot:</strong> {asset.deleted}
             </p>
           )}
-          <pre>
-            {view === "flat"
-              ? formatMetadataFlat(file.metadata as MetadataFlat)
-              : formatMetadataEntries(file.metadata as MetadataEntry[])}
-          </pre>
+          <pre>{JSON.stringify(asset.metadata, null, 2)}</pre>
         </article>
       ))}
     </div>

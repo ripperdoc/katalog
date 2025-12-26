@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchRecords } from "../api/client";
-import type { AssetResponse, Asset, MetadataEntry } from "../types/api";
+import { fetchAssets } from "../api/client";
+import type { AssetResponse, Asset, MetadataValueEntry } from "../types/api";
 import {
   SimpleTable,
   HeaderObject,
@@ -12,15 +12,10 @@ import "simple-table-core/styles.css";
 
 const headers: HeaderObject[] = [
   // Fixed width in pixels
-  { accessor: "id", label: "ID", width: "1fr", type: "string", isSortable: true, filterable: true },
-  {
-    accessor: "provider_id",
-    label: "Source",
-    width: "90px",
-    type: "string",
-    isSortable: true,
-    filterable: true,
-  },
+  { accessor: "id", label: "ID", width: "90px", type: "number", isSortable: true, filterable: true },
+  { accessor: "canonical_id", label: "Canonical ID", width: "1fr", type: "string", isSortable: true, filterable: true },
+  { accessor: "canonical_uri", label: "URI", width: "2fr", type: "string", isSortable: true, filterable: true },
+  { accessor: "seen", label: "Last Snapshot", width: "1fr", type: "number", isSortable: true, filterable: true },
 ];
 
 const valueGetter = (props: ValueGetterProps) => {
@@ -28,33 +23,28 @@ const valueGetter = (props: ValueGetterProps) => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return "";
   }
-  const meta = (metadata as Record<string, MetadataEntry[]>)[props.accessor];
-  if (!meta || !Array.isArray(meta)) {
+  const meta = (metadata as Record<string, MetadataValueEntry>)[props.accessor];
+  if (!meta || typeof meta !== "object") {
     return "";
   }
-  // const value = meta.map((entry) => JSON.stringify(entry.value)).join(", ");
-  const value = meta[0]?.value;
-  return value;
+  return meta.value;
 };
 
 const valueFormatter = (props: ValueFormatterProps) => {
-  const metadata = props.row["metadata"];
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+  const raw = valueGetter(props);
+  if (raw === null || raw === undefined) {
     return "";
   }
-  const meta = (metadata as Record<string, MetadataEntry[]>)[props.accessor];
-  if (!meta || !Array.isArray(meta)) {
-    return "";
+  if (typeof raw === "object") {
+    return JSON.stringify(raw);
   }
-  // const value = meta.map((entry) => JSON.stringify(entry.value)).join(", ");
-  const value = `${meta[0]?.value}`;
-  return value;
+  return `${raw}`;
 };
 
-const getSimpleTableType = (metadataType?: string): ColumnType => {
-  if (metadataType === "int" || metadataType === "float") {
+const getSimpleTableType = (metadataType?: number): ColumnType => {
+  if (metadataType === 1 || metadataType === 2) {
     return "number";
-  } else if (metadataType === "datetime") {
+  } else if (metadataType === 3) {
     return "date";
   }
   return "string";
@@ -84,10 +74,11 @@ const collectSearchableParts = (value: unknown, parts: string[]) => {
 const buildSearchString = (record: Asset): string => {
   const parts: string[] = [
     record.id,
-    record.provider_id,
+    record.canonical_id,
     record.canonical_uri,
-    record.created_snapshot_id,
-    record.last_snapshot_id,
+    record.created,
+    record.seen,
+    record.deleted,
   ]
     .filter((part) => part !== undefined && part !== null)
     .map((part) => String(part));
@@ -127,8 +118,8 @@ function RecordsRoute() {
     setLoading(true);
     setError(null);
     try {
-      const response: AssetResponse = await fetchRecords();
-      const fetchedRecords = response.records ?? [];
+      const response: AssetResponse = await fetchAssets();
+      const fetchedRecords = response.assets ?? [];
       setRecords(fetchedRecords);
       const schema = response.schema ?? {};
       setSeenHeaders(

@@ -1,4 +1,4 @@
-import type { AssetResponse, ViewMode } from "../types/api";
+import type { AssetResponse } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
 const API_BASE = rawBase && rawBase.length > 0 ? rawBase : "/api";
@@ -11,19 +11,9 @@ async function handleResponse(response: Response) {
   return response.json();
 }
 
-export async function fetchFilesBySource(sourceId: string, view: ViewMode): Promise<AssetResponse> {
-  if (!sourceId) {
-    throw new Error("source id is required");
-  }
-  const url = `${API_BASE}/files/${encodeURIComponent(sourceId)}?view=${view}`;
-  const response = await fetch(url, {
-    headers: { Accept: "application/json" },
-  });
-  return handleResponse(response);
-}
-
-export async function fetchRecords(view: ViewMode = "flat"): Promise<AssetResponse> {
-  const url = `${API_BASE}/records?view=${view}`;
+export async function fetchAssets(providerId?: number): Promise<AssetResponse> {
+  const search = providerId !== undefined ? `?provider_id=${encodeURIComponent(providerId)}` : "";
+  const url = `${API_BASE}/assets${search}`;
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
   });

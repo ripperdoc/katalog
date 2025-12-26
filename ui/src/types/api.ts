@@ -1,49 +1,36 @@
 import type { Row } from "simple-table-core";
 
-export type MetadataValue = string | number | boolean | null;
+export type MetadataValue = string | number | boolean | null | Record<string, unknown> | unknown[];
 
-export type MetadataFlat = Record<string, MetadataValue>;
-
-export interface MetadataEntry {
-  id: number;
-  asset_id: string;
-  provider_id: string;
-  snapshot_id: number;
-  plugin_id: string;
-  metadata_key: string;
+export interface MetadataValueEntry {
   value: MetadataValue;
-  confidence: number;
+  count: number;
 }
 
 export interface MetadataDefinition {
+  plugin_id: string;
   key: string;
-  value_type: string;
+  registry_id: number | null;
+  value_type: number;
   title: string;
   description: string;
   width: number | null;
 }
 
 export interface Asset extends Row {
-  id: string;
-  provider_id: string;
+  id: number;
+  canonical_id: string;
   canonical_uri: string;
-  created_snapshot_id: number;
-  last_snapshot_id: number;
-  deleted_snapshot_id: number | null;
-  metadata: MetadataFlat;
+  created: number;
+  seen: number;
+  deleted: number | null;
+  metadata: Record<string, MetadataValueEntry>;
 }
 
 export interface AssetResponse {
-  records: Asset[];
+  assets: Asset[];
   schema: Record<string, MetadataDefinition>;
   stats: {
-    records: number;
-    metadata: Record<string, number>;
+    assets: number;
   };
 }
-
-export interface AssetComplete extends Omit<Asset, "metadata"> {
-  metadata: MetadataEntry[];
-}
-
-export type ViewMode = "flat" | "complete";

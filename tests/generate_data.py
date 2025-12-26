@@ -71,9 +71,14 @@ async def populate_test_data(
     """
 
     workspace_dir = db_path.expanduser().resolve().parent
-    if workspace_dir.exists() and workspace_dir.name == "test_workspace":
+    reset_workspace = workspace_dir.exists() and workspace_dir.name == "test_workspace"
+    if reset_workspace:
         shutil.rmtree(workspace_dir)
     workspace_dir.mkdir(parents=True, exist_ok=True)
+    if reset_workspace:
+        print(f"Reset workspace at {workspace_dir}")
+    else:
+        print(f"Preparing workspace at {workspace_dir}")
 
     await setup(db_path)
 
@@ -122,7 +127,7 @@ async def populate_test_data(
         ("application/vnd.apple.keynote", 0.01),
     ]
 
-    all_assets: list[Asset] = []
+    total_metadata_entries = 0
 
     for provider_idx in range(providers):
         provider = await Provider.create(
@@ -173,7 +178,6 @@ async def populate_test_data(
 
         # Re-load IDs after bulk_create so we can FK from metadata/relationships.
         assets = await Asset.filter(provider=provider).order_by("id")
-        all_assets.extend(assets)
 
         # Metadata (inserted for the last snapshot only by default)
         metadata_entries: list[Metadata] = []
@@ -260,7 +264,16 @@ async def populate_test_data(
                         )
                     )
         if metadata_entries:
+            total_metadata_entries += len(metadata_entries)
             await Metadata.bulk_create(metadata_entries)
+
+    total_assets = providers * assets_per_provider
+    total_snapshots = providers * snapshots_per_provider
+    print(
+        f"Generated {total_assets} assets and {total_metadata_entries} metadata rows "
+        f"across {providers} providers and {total_snapshots} snapshots"
+    )
+    print(f"Database written to {db_path.resolve()}")
 
     return db_path
 
@@ -418,7 +431,16 @@ def analyze_sqlite(db_path: Path) -> None:
 def _parse_args() -> object:
     parser = ArgumentParser()
     parser.add_argument("--db", type=Path, default=Path("test_workspace/katalog.db"))
-    parser.add_argument("--populate", action="store_true")
+    parser.add_argument(
+        "--populate",
+        action="store_true",
+        help="Populate the database (default behavior).",
+    )
+    parser.add_argument(
+        "--setup-only",
+        action="store_true",
+        help="Only initialize the schema without inserting data.",
+    )
     parser.add_argument("--analyze", action="store_true")
     parser.add_argument("--providers", type=int, default=1)
     parser.add_argument("--snapshots-per-provider", type=int, default=3)
@@ -431,7 +453,9 @@ def _parse_args() -> object:
 
 async def main_async(args: object) -> None:
     # argparse.Namespace, but keep it untyped to avoid importing typing_extensions.
-    if getattr(args, "populate"):
+    populate_flag = getattr(args, "populate")
+    setup_only = getattr(args, "setup_only")
+    if populate_flag or not setup_only:
         await populate_test_data(
             getattr(args, "db"),
             providers=getattr(args, "providers"),

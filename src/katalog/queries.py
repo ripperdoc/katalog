@@ -171,7 +171,7 @@ async def list_assets_with_metadata(
         r.value_text,
         r.value_int,
         r.value_real,
-        r.value_datetime,
+        strftime('%Y-%m-%dT%H:%M:%fZ', r.value_datetime) AS value_datetime,
         r.value_json,
         r.value_relation_id,
         r.cnt AS metadata_count
@@ -219,8 +219,7 @@ async def list_assets_with_metadata(
         elif value_type == MetadataType.FLOAT:
             value = row["value_real"]
         elif value_type == MetadataType.DATETIME:
-            dt = row["value_datetime"]
-            value = dt.isoformat() if dt is not None else None
+            value = row["value_datetime"]
         elif value_type == MetadataType.JSON:
             value = row["value_json"]
         elif value_type == MetadataType.RELATION:
