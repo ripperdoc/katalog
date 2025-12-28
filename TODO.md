@@ -2,8 +2,10 @@
 
 # Next up
 
+- [ ] Improve logging for scan and process output
+- [ ] Test that we can correctly check equality of lists and dicts saved as JSON data
+- [ ] Restore so source plugins can look only at files modified since last snapshot
 - [ ] Ignore certain paths in Google Drive plugin, e.g. whitelist by id path
-- [ ] Stream progress events to HTTP caller or TQDM by reusing logger
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
@@ -13,6 +15,7 @@
 
 - [ ] UI to run scans and show progress
 - [ ] UI to run analysis
+- [ ] Stream progress events to HTTP caller or TQDM by reusing logger
 - [ ] Path and filename Unicode normalization
 - [ ] Read permissions for files in Google Shared Drives
 - [ ] Handle remote file data access with caching
@@ -32,6 +35,27 @@ E.g. what do I need `katalog` to do now for White Wolf?
       in library
 - [ ] Automatically move files to Shared Drive but keeping owners? (Seems too hard or risky to do
       with my code?)
+
+# Filesystem efficient scan
+
+Use journalling system of file systems to only scan what has changed since last.
+
+- [ ] **Windows (NTFS)**: Use **USN Change Journal**
+
+  - Kernel-maintained log of file changes
+  - Extremely fast, reliable
+  - Journal can truncate → need fallback scan
+
+- [ ] **macOS (APFS)**: Use **FSEvents**
+
+  - Persistent directory-level change events
+  - Efficient, survives reboots
+  - Coarse-grained → may need verification
+
+- [ ] **Linux**: Use **inotify / fanotify**
+  - Real-time file change notifications
+  - Low overhead
+  - Not persistent → rescan after restart
 
 # Ideas
 

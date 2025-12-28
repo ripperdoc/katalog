@@ -12,10 +12,38 @@ import "simple-table-core/styles.css";
 
 const headers: HeaderObject[] = [
   // Fixed width in pixels
-  { accessor: "id", label: "ID", width: "90px", type: "number", isSortable: true, filterable: true },
-  { accessor: "canonical_id", label: "Canonical ID", width: "1fr", type: "string", isSortable: true, filterable: true },
-  { accessor: "canonical_uri", label: "URI", width: "2fr", type: "string", isSortable: true, filterable: true },
-  { accessor: "seen", label: "Last Snapshot", width: "1fr", type: "number", isSortable: true, filterable: true },
+  {
+    accessor: "id",
+    label: "ID",
+    width: "90px",
+    type: "number",
+    isSortable: true,
+    filterable: true,
+  },
+  {
+    accessor: "canonical_id",
+    label: "Canonical ID",
+    width: "1fr",
+    type: "string",
+    isSortable: true,
+    filterable: true,
+  },
+  {
+    accessor: "canonical_uri",
+    label: "URI",
+    width: "2fr",
+    type: "string",
+    isSortable: true,
+    filterable: true,
+  },
+  {
+    accessor: "seen",
+    label: "Last Snapshot",
+    width: "1fr",
+    type: "number",
+    isSortable: true,
+    filterable: true,
+  },
 ];
 
 const valueGetter = (props: ValueGetterProps) => {
@@ -164,6 +192,7 @@ function RecordsRoute() {
           placeholder="Search records…"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
+          onKeyDown={(event) => event.stopPropagation()}
           aria-label="Search records"
         />
       </div>
