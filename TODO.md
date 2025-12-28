@@ -4,7 +4,6 @@
 
 - [ ] Improve logging for scan and process output
 - [ ] Test that we can correctly check equality of lists and dicts saved as JSON data
-- [ ] Restore so source plugins can look only at files modified since last snapshot
 - [ ] Ignore certain paths in Google Drive plugin, e.g. whitelist by id path
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to

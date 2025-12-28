@@ -214,6 +214,32 @@ class Snapshot(Model):
         self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
 
     @classmethod
+    async def find_partial_resume_point(cls, *, provider: Provider) -> "Snapshot | None":
+        """
+        Return the most recent PARTIAL snapshot that occurred after the latest
+        COMPLETED snapshot for this provider. If no COMPLETED snapshot exists,
+        return None (treat as full scan).
+        """
+        snapshots = list(
+            await cls.filter(provider=provider).order_by(
+                "-completed_at", "-started_at"
+            )
+        )
+        latest_full = next(
+            (s for s in snapshots if s.status == OpStatus.COMPLETED), None
+        )
+        if latest_full is None:
+            return None
+        full_mark = latest_full.completed_at or latest_full.started_at
+        for snap in snapshots:
+            if snap.status != OpStatus.PARTIAL:
+                continue
+            snap_mark = snap.completed_at or snap.started_at
+            if full_mark is None or (snap_mark and snap_mark >= full_mark):
+                return snap
+        return None
+
+    @classmethod
     async def begin(
         cls,
         *,

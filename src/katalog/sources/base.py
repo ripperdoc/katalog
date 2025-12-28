@@ -62,10 +62,11 @@ class SourcePlugin(PluginBase):
         """Check if the client can connect to the given URI."""
         raise NotImplementedError()
 
-    async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
+    async def scan(self) -> ScanResult:
         """
-        Scan the source, return a ScanResult with a status flag (that will be updated) and
-        an async iterator that yields AssetScanResult objects with their assets and metadata to persist.
+        Scan the source, return a ScanResult with a status flag (that will be updated)
+        and an async iterator that yields AssetScanResult objects with their assets and
+        metadata to persist.
         """
         raise NotImplementedError()
 

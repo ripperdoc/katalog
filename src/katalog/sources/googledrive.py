@@ -170,11 +170,14 @@ class GoogleDriveClient(SourcePlugin):
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
-    async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
+    async def scan(self) -> ScanResult:
         """Asynchronously scan Google Drive and yield AssetScanResults."""
 
         limit_reached = False
         cutoff_reached = False
+        cutoff_snapshot: Snapshot | None = await Snapshot.find_partial_resume_point(
+            provider=self.provider
+        )
 
         async def inner():
             nonlocal limit_reached, cutoff_reached
@@ -182,8 +185,8 @@ class GoogleDriveClient(SourcePlugin):
             page_token: Optional[str] = None
             count = 0
             cutoff = None
-            if since_snapshot:
-                cutoff = since_snapshot.completed_at or since_snapshot.started_at
+            if cutoff_snapshot:
+                cutoff = cutoff_snapshot.completed_at or cutoff_snapshot.started_at
                 if cutoff:
                     logger.info(
                         f"Incremental scan for source {self.provider.id} — cutoff {cutoff}"

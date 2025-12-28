@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Iterable, Optional
+from typing import Awaitable, Callable, Iterable
 
 from loguru import logger
 
@@ -33,11 +33,7 @@ async def run_sources(
             )
             continue
         source_plugin = make_source_instance(source)
-        scan_result = None
-        # TODO fetch previous snapshot for this source
-        since_snapshot: Optional[Snapshot] = None
-        # TODO run scans in parallel
-        scan_result = await source_plugin.scan(since_snapshot=since_snapshot)
+        scan_result = await source_plugin.scan()
         async for result in scan_result.iterator:
             snapshot.stats.assets_seen += 1
             # Ensure asset row exists and snapshot markers are updated.

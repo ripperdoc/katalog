@@ -72,7 +72,7 @@ class FilesystemClient(SourcePlugin):
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
 
-    async def scan(self, *, since_snapshot: Snapshot | None = None) -> ScanResult:
+    async def scan(self) -> ScanResult:
         """
         Recursively scan the directory and yield AssetScanResults.
         """
