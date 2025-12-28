@@ -42,7 +42,7 @@ def import_plugin_class(
 def timestamp_to_utc(ts: float | None) -> datetime | None:
     if ts is None:
         return None
-    return datetime.utcfromtimestamp(ts)
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 
 def parse_google_drive_datetime(dt_str: Optional[str]) -> Optional[datetime]:

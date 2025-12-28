@@ -20,7 +20,7 @@ from katalog.queries import sync_metadata_registry
 
 async def init_db() -> None:
     await Tortoise.init(
-        db_url="sqlite://:memory:", modules={"models": ["katalog.models"]}
+        db_url="sqlite://:memory:", modules={"models": ["katalog.models"]}, use_tz=False
     )
     await Tortoise.generate_schemas()
     await sync_metadata_registry()

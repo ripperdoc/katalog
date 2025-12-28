@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from random import Random
 from time import time
@@ -217,6 +217,14 @@ async def populate_test_data(
                         )
                     )
                 elif value_type == MetadataType.DATETIME:
+                    tz_offsets = [-12, -5, 0, 3, 5, 9, 12]
+                    offset_hours = rng.choice(tz_offsets)
+                    tz = timezone(timedelta(hours=offset_hours))
+                    start = datetime(2020, 1, 1, tzinfo=UTC)
+                    end = datetime.now(UTC)
+                    span_seconds = (end - start).total_seconds()
+                    chosen = start + timedelta(seconds=int(rng.random() * span_seconds))
+                    aware_dt = chosen.astimezone(tz)
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
@@ -224,7 +232,7 @@ async def populate_test_data(
                             snapshot=last_snapshot,
                             metadata_key=registry,
                             value_type=value_type,
-                            value_datetime=datetime.now(UTC),
+                            value_datetime=aware_dt,
                             removed=False,
                         )
                     )

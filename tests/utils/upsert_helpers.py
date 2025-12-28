@@ -26,7 +26,7 @@ def md(key: MetadataKey, value: Any, removed: bool = False) -> Metadata:
 
 async def _init_db() -> None:
     await Tortoise.init(
-        db_url="sqlite://:memory:", modules={"models": ["katalog.models"]}
+        db_url="sqlite://:memory:", modules={"models": ["katalog.models"]}, use_tz=False
     )
     await Tortoise.generate_schemas()
     await sync_metadata_registry()

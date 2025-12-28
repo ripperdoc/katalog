@@ -87,6 +87,7 @@ class FilesystemClient(SourcePlugin):
                         )
                         # TODO mark scan result accordingly
                         return
+                    count += 1
                     full_path = os.path.join(dirpath, filename)
                     try:
                         stat = os.stat(full_path)
@@ -122,7 +123,6 @@ class FilesystemClient(SourcePlugin):
                         )
                         continue
                     yield result
-                    count += 1
 
         return ScanResult(iterator=inner())
 

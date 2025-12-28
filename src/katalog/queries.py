@@ -1,8 +1,11 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from loguru import logger
 from tortoise import Tortoise
 
+from katalog.config import read_config_file
 from katalog.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
@@ -17,16 +20,28 @@ from katalog.metadata import (
     MetadataDef,
     MetadataKey,
 )
-from katalog.models import Asset, Metadata, MetadataRegistry, MetadataType, Provider
+from katalog.models import (
+    Asset,
+    Metadata,
+    MetadataRegistry,
+    MetadataType,
+    Provider,
+    ProviderType,
+)
 
 
 async def setup(db_path: Path) -> Path:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite://{db_path}"
-    await Tortoise.init(db_url=db_url, modules={"models": ["katalog.models"]})
+    await Tortoise.init(
+        db_url=db_url,
+        modules={"models": ["katalog.models"]},
+        # NOTE means that we convert metadata to UTC tz on write,
+        # losing original TZ info but getting the same actual time
+        use_tz=True,
+        timezone="UTC",
+    )
     await Tortoise.generate_schemas()
-    await sync_metadata_registry()
-    await Provider.sync_db()
 
     # Ensure composite index for fast latest-metadata lookups.
     conn = Tortoise.get_connection("default")
@@ -68,6 +83,42 @@ async def sync_metadata_registry() -> None:
         )
         METADATA_REGISTRY[updated.key] = updated
         METADATA_REGISTRY_BY_ID[int(row.id)] = updated
+
+
+async def sync_providers():
+    """Reads current config file and consolidates with in-DB providers."""
+    config_file = read_config_file()
+    for section, ptype in (
+        ("sources", ProviderType.SOURCE),
+        ("processors", ProviderType.PROCESSOR),
+        ("analyzers", ProviderType.ANALYZER),
+    ):
+        for entry in config_file.get(section, []) or []:
+            entry_name = entry.get("name") or entry.get("plugin_id")
+            if not entry_name:
+                logger.warning(
+                    f"Ignoring config entry as it's missing a name or plugin_id: {entry}"
+                )
+                continue
+            # TODO recreating Provider may be wasteful as it may mean recreating expensive SDK clients
+            prov = await Provider.get_or_none(name=entry_name)
+            if prov:
+                prov.config = dict(entry)
+                prov.updated_at = datetime.now(UTC)
+                await prov.save()
+            else:
+                await Provider.create(
+                    name=entry_name,
+                    type=ptype,
+                    plugin_id=entry.get("plugin_id"),
+                    config=dict(entry),
+                )
+
+
+async def sync_config():
+    await sync_metadata_registry()
+    await sync_providers()
+    logger.info("Synchronized configuration with database")
 
 
 example_asset_response = {

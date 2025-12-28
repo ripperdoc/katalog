@@ -32,7 +32,6 @@ from tortoise.fields import (
 )
 from tortoise.models import Model
 
-from katalog.config import config_file
 from katalog.metadata import (
     MetadataKey,
     MetadataScalar,
@@ -80,26 +79,6 @@ class Provider(Model):
     type = IntEnumField(ProviderType)
     created_at = DatetimeField(auto_now_add=True)
     updated_at = DatetimeField(auto_now=True)
-
-    @classmethod
-    async def sync_db(cls) -> None:
-        for section, ptype in (
-            ("sources", ProviderType.SOURCE),
-            ("processors", ProviderType.PROCESSOR),
-            ("analyzers", ProviderType.ANALYZER),
-        ):
-            for entry in (config_file or {}).get(section, []) or []:
-                entry_name = entry.get("name") or entry.get("plugin_id")
-                if not entry_name:
-                    continue
-                if await cls.get_or_none(name=entry_name):
-                    continue
-                await cls.create(
-                    name=entry_name,
-                    type=ptype,
-                    plugin_id=entry.get("plugin_id"),
-                    config=dict(entry),
-                )
 
 
 @dataclass(slots=True)
@@ -220,10 +199,19 @@ class Snapshot(Model):
     metadata = JSONField(null=True)
 
     # Local fields not persisted to DB
-    stats = SnapshotStats()
-    tasks: list[Task] = []
+    stats: SnapshotStats
+    tasks: list[Task]
     # Control concurrency of snapshot (processor) tasks
-    semaphore: asyncio.Semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+    semaphore: asyncio.Semaphore
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._init_runtime_state()
+
+    def _init_runtime_state(self) -> None:
+        self.stats = SnapshotStats()
+        self.tasks = []
+        self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
 
     @classmethod
     async def begin(
@@ -511,7 +499,19 @@ class Metadata(Model):
         elif self.value_type == MetadataType.FLOAT:
             self.value_real = float(value)
         elif self.value_type == MetadataType.DATETIME:
-            self.value_datetime = value
+            if value is None:
+                self.value_datetime = None
+            else:
+                if not isinstance(value, datetime):
+                    raise ValueError(
+                        f"Expected datetime for MetadataType.DATETIME, got {type(value)}"
+                    )
+                if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+                    raise ValueError(
+                        "value_datetime must be timezone-aware (e.g. UTC). "
+                        "Provide an aware datetime."
+                    )
+                self.value_datetime = value
         elif self.value_type == MetadataType.JSON:
             self.value_json = value
         elif self.value_type == MetadataType.RELATION:

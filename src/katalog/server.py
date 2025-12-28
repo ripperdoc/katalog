@@ -8,7 +8,7 @@ from tortoise import Tortoise
 from katalog.analyzers.runtime import run_analyzers
 from katalog.config import WORKSPACE
 from katalog.models import Asset, Provider, ProviderType, Snapshot
-from katalog.queries import list_assets_with_metadata, setup
+from katalog.queries import list_assets_with_metadata, setup, sync_config
 from katalog.processors.runtime import run_processors, sort_processors
 from katalog.sources.runtime import run_sources
 
@@ -66,6 +66,7 @@ async def update_asset(asset_id: int):
 async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
     """Scan selected or all sources and run processors for changed assets."""
     target_ids = set(ids or [])
+    await sync_config()
 
     if target_ids:
         sources = await Provider.filter(
