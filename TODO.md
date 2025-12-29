@@ -2,8 +2,13 @@
 
 # Next up
 
-- [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID?
+- [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
+      status? Also, currently the cutoff logic assuemes there is always one scan per snapshot.
+- [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
+      if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] Improve logging for scan and process output
+- [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
+      that ok?
 - [ ] Test that we can correctly check equality of lists and dicts saved as JSON data
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
@@ -127,6 +132,8 @@ Various ideas for sources that can be connected to katalog.
 - AI similarity - let an LLM group files that are deemed similar, based on selected metadata
 - Stats: produce a stats report, e.g. stats over some metadata, file type, file sizes, file counts,
   etc.
+- Analyze potential compression, e.g. for a set of files with size, what could we expect to compress
+  them to
 
 ## UI ideas
 

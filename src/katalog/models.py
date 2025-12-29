@@ -225,19 +225,22 @@ class Snapshot(Model):
         snapshots = list(
             await cls.filter(provider=provider).order_by("-completed_at", "-started_at")
         )
-        latest_full = next(
-            (s for s in snapshots if s.status == OpStatus.COMPLETED), None
-        )
-        if latest_full is None:
+        last_full = None
+        last_partial = None
+        for s in reversed(snapshots):
+            if s.status == OpStatus.COMPLETED:
+                last_full = s
+                break
+            elif last_partial is None and s.status == OpStatus.PARTIAL:
+                last_partial = s
+
+        if last_full is None:
             return None
-        full_mark = latest_full.completed_at or latest_full.started_at
-        for snap in snapshots:
-            if snap.status != OpStatus.PARTIAL:
-                continue
-            snap_mark = snap.completed_at or snap.started_at
-            if full_mark is None or (snap_mark and snap_mark >= full_mark):
-                return snap
-        return None
+
+        if last_partial is not None:
+            return last_partial
+        else:
+            return last_full
 
     @classmethod
     async def begin(

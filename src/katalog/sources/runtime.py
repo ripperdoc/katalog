@@ -18,7 +18,7 @@ from katalog.sources.base import make_source_instance
 
 async def run_sources(
     *,
-    sources: Iterable[Provider],
+    sources: list[Provider],
     snapshot: Snapshot,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
@@ -54,7 +54,11 @@ async def run_sources(
                 )
             else:
                 # Save only metadata from the source scan.
-                await change_set.persist(asset=result.asset, snapshot=snapshot)
+                changes = await change_set.persist(
+                    asset=result.asset, snapshot=snapshot
+                )
+                if changes:
+                    snapshot.stats.assets_changed += 1
         deleted_count = await Asset.mark_unseen_as_deleted(
             snapshot=snapshot, provider_ids=[source.id]
         )
@@ -65,4 +69,7 @@ async def run_sources(
         if ignored:
             snapshot.stats.assets_seen += ignored
             snapshot.stats.assets_ignored += ignored
-        # status = scan_result.status if scan_result else OpStatus.ERROR
+        if len(sources) == 1:
+            # Assume the snapshot status is that of the single source
+            # TODO this is currently overwritten by Snapshot.finalize
+            snapshot.status = scan_result.status

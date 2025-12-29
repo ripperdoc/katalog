@@ -126,14 +126,18 @@ class GoogleDriveClient(SourcePlugin):
         self,
         provider: Provider,
         max_files: int = 500,
+        corpora: str = "user",
+        allow_incremental: bool = False,
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(provider, **kwargs)
         self.max_files = max_files
+        self.corpora = corpora or "user"
         self.include_patterns = normalize_glob_patterns(include)
         self.exclude_patterns = normalize_glob_patterns(exclude)
+        self.allow_incremental = allow_incremental
 
         creds: Optional[Credentials] = None
         workspace_token = WORKSPACE / "token.json"
@@ -176,8 +180,10 @@ class GoogleDriveClient(SourcePlugin):
 
         limit_reached = False
         cutoff_reached = False
-        cutoff_snapshot: Snapshot | None = await Snapshot.find_partial_resume_point(
-            provider=self.provider
+        cutoff_snapshot: Snapshot | None = (
+            await Snapshot.find_partial_resume_point(provider=self.provider)
+            if self.allow_incremental
+            else None
         )
         ignored = 0
 
@@ -191,7 +197,7 @@ class GoogleDriveClient(SourcePlugin):
                 cutoff = cutoff_snapshot.completed_at or cutoff_snapshot.started_at
                 if cutoff:
                     logger.info(
-                        f"Incremental scan for source {self.provider.id} — cutoff {cutoff}"
+                        f"Incremental scan for source {self.provider.id} — changes since {cutoff}"
                     )
             try:
                 while True:
@@ -230,7 +236,7 @@ class GoogleDriveClient(SourcePlugin):
                             )
 
                     logger.info(
-                        f"Scanning Google Drive source {self.provider.id} — processed {count} files so far"
+                        f"Scanning Google Drive source {self.provider.id} — {count} files seen so far"
                     )
 
                     if cutoff_reached or limit_reached:
@@ -245,6 +251,8 @@ class GoogleDriveClient(SourcePlugin):
                     scan_result.status = OpStatus.CANCELED
                 elif cutoff_reached:
                     scan_result.status = OpStatus.PARTIAL
+                elif page_token is None:
+                    scan_result.status = OpStatus.COMPLETED
                 else:
                     scan_result.status = OpStatus.COMPLETED
                 scan_result.ignored = ignored
@@ -355,11 +363,20 @@ class GoogleDriveClient(SourcePlugin):
         page_token: Optional[str],
         page_size: int = 500,
     ) -> Optional[Dict[str, Any]]:
+        drive_id = None
+        corpora = self.corpora
+        if corpora.startswith("drive:"):
+            drive_id = corpora.split(":", 1)[1]
+            corpora = "drive"
+        supports_all_drives = corpora in {"drive", "allDrives"}
         try:
             response = (
                 self.service.files()
                 .list(
-                    corpora="user",
+                    corpora=corpora,
+                    driveId=drive_id,
+                    includeItemsFromAllDrives=supports_all_drives,
+                    supportsAllDrives=supports_all_drives,
                     pageSize=page_size,
                     fields=(
                         "nextPageToken, files(" + ", ".join(sorted(_API_FIELDS)) + ")"
@@ -480,12 +497,21 @@ class GoogleDriveClient(SourcePlugin):
         if self._folders_exhausted:
             return
         logger.info(f"Google Drive API: listing next {page_size} folders")
+        drive_id = None
+        corpora = self.corpora
+        if corpora.startswith("drive:"):
+            drive_id = corpora.split(":", 1)[1]
+            corpora = "drive"
+        supports_all_drives = corpora in {"drive", "allDrives"}
         response = (
             self.service.files()
             .list(
                 q="mimeType='application/vnd.google-apps.folder'",
                 fields="nextPageToken, files(id, name, parents)",
-                corpora="user",
+                corpora=corpora,
+                driveId=drive_id,
+                includeItemsFromAllDrives=supports_all_drives,
+                supportsAllDrives=supports_all_drives,
                 pageSize=page_size,
                 pageToken=self._folder_page_token,
             )
@@ -508,11 +534,38 @@ class GoogleDriveClient(SourcePlugin):
         cached = self._folder_cache.get(folder_id)
         if cached:
             return cached
+        direct = self._fetch_folder_by_id(folder_id)
+        if direct:
+            self._folder_cache[folder_id] = direct
+            return direct
         while not self._folders_exhausted:
             self._fetch_next_folder_page()
             cached = self._folder_cache.get(folder_id)
             if cached:
                 return cached
+        return None
+
+    def _fetch_folder_by_id(self, folder_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            folder = (
+                self.service.files()
+                .get(
+                    fileId=folder_id,
+                    fields="id, name, parents",
+                    supportsAllDrives=True,
+                    # includeItemsFromAllDrives=supports_all_drives,
+                )
+                .execute()
+            )
+            if folder:
+                return {
+                    "name": folder.get("name") or folder_id,
+                    "parents": folder.get("parents", []),
+                }
+        except HttpError as error:
+            logger.debug(
+                f"Failed to fetch folder {folder_id} for source {self.provider.id}: {error}"
+            )
         return None
 
 
