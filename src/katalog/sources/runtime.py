@@ -61,4 +61,8 @@ async def run_sources(
         if deleted_count:
             snapshot.stats.assets_deleted += deleted_count
             snapshot.stats.assets_changed += deleted_count
+        ignored = getattr(scan_result, "ignored", 0)
+        if ignored:
+            snapshot.stats.assets_seen += ignored
+            snapshot.stats.assets_ignored += ignored
         # status = scan_result.status if scan_result else OpStatus.ERROR

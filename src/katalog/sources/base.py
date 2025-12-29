@@ -37,6 +37,7 @@ class AssetScanResult:
 class ScanResult:
     iterator: AsyncIterator[AssetScanResult]
     status: OpStatus = OpStatus.IN_PROGRESS
+    ignored: int = 0
 
 
 class SourcePlugin(PluginBase):

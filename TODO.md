@@ -2,9 +2,9 @@
 
 # Next up
 
+- [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID?
 - [ ] Improve logging for scan and process output
 - [ ] Test that we can correctly check equality of lists and dicts saved as JSON data
-- [ ] Ignore certain paths in Google Drive plugin, e.g. whitelist by id path
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated

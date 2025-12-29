@@ -154,7 +154,7 @@ function RecordsRoute() {
         Object.keys(schema).map((key) => ({
           accessor: key,
           label: schema[key]?.title || key,
-          width: schema[key]?.width || "1fr",
+          width: schema[key]?.width || "100px",
           type: getSimpleTableType(schema[key]?.value_type),
           isSortable: true,
           filterable: true,

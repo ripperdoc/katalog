@@ -3,7 +3,8 @@ import base64
 import importlib
 from datetime import datetime, timezone
 import json
-from typing import Any, Mapping, Optional
+from fnmatch import fnmatch
+from typing import Any, Iterable, Mapping, Optional
 
 from loguru import logger
 
@@ -90,3 +91,48 @@ def orm(cls: type) -> str:
 def fqn(cls: type) -> str:
     """Get the fully qualified name of a class."""
     return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        value = stripped
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_glob_patterns(raw: list[str] | str | None) -> list[str]:
+    """Return a cleaned list of glob patterns."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    return [p for p in raw if isinstance(p, str) and p.strip()]
+
+
+def match_paths(
+    *,
+    paths: Iterable[str],
+    include: list[str],
+    exclude: list[str],
+) -> bool:
+    """
+    Return True if any of the `paths` pass include/exclude rules.
+    - Exclude patterns take priority (if any match, reject).
+    - If include is empty, everything not excluded matches.
+    - If include is non-empty, require at least one match.
+    """
+    path_list = list(paths)
+    if exclude and any(
+        fnmatch(path, pattern) for path in path_list for pattern in exclude
+    ):
+        return False
+    if not include:
+        return True
+    return any(fnmatch(path, pattern) for path in path_list for pattern in include)

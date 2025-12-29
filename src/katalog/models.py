@@ -214,16 +214,16 @@ class Snapshot(Model):
         self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
 
     @classmethod
-    async def find_partial_resume_point(cls, *, provider: Provider) -> "Snapshot | None":
+    async def find_partial_resume_point(
+        cls, *, provider: Provider
+    ) -> "Snapshot | None":
         """
         Return the most recent PARTIAL snapshot that occurred after the latest
         COMPLETED snapshot for this provider. If no COMPLETED snapshot exists,
         return None (treat as full scan).
         """
         snapshots = list(
-            await cls.filter(provider=provider).order_by(
-                "-completed_at", "-started_at"
-            )
+            await cls.filter(provider=provider).order_by("-completed_at", "-started_at")
         )
         latest_full = next(
             (s for s in snapshots if s.status == OpStatus.COMPLETED), None
@@ -518,6 +518,14 @@ class Metadata(Model):
             raise ValueError(f"Unsupported metadata value_type {self.value_type}")
 
     def set_value(self, value: Any) -> None:
+        if value is None:
+            self.value_text = None
+            self.value_int = None
+            self.value_real = None
+            self.value_datetime = None
+            self.value_json = None
+            self.value_relation_id = None
+            return
         if self.value_type == MetadataType.STRING:
             self.value_text = str(value)
         elif self.value_type == MetadataType.INT:
@@ -525,19 +533,16 @@ class Metadata(Model):
         elif self.value_type == MetadataType.FLOAT:
             self.value_real = float(value)
         elif self.value_type == MetadataType.DATETIME:
-            if value is None:
-                self.value_datetime = None
-            else:
-                if not isinstance(value, datetime):
-                    raise ValueError(
-                        f"Expected datetime for MetadataType.DATETIME, got {type(value)}"
-                    )
-                if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-                    raise ValueError(
-                        "value_datetime must be timezone-aware (e.g. UTC). "
-                        "Provide an aware datetime."
-                    )
-                self.value_datetime = value
+            if not isinstance(value, datetime):
+                raise ValueError(
+                    f"Expected datetime for MetadataType.DATETIME, got {type(value)}"
+                )
+            if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+                raise ValueError(
+                    "value_datetime must be timezone-aware (e.g. UTC). "
+                    "Provide an aware datetime."
+                )
+            self.value_datetime = value
         elif self.value_type == MetadataType.JSON:
             self.value_json = value
         elif self.value_type == MetadataType.RELATION:

@@ -47,7 +47,13 @@ from katalog.sources.base import (
     ScanResult,
     SourcePlugin,
 )
-from katalog.utils.utils import fqn, parse_google_drive_datetime
+from katalog.utils.utils import (
+    coerce_int,
+    fqn,
+    match_paths,
+    normalize_glob_patterns,
+    parse_google_drive_datetime,
+)
 
 
 def get_user_email(user_like_object: Any) -> Optional[str]:
@@ -70,20 +76,6 @@ def get_many_user_emails(user_like_objects: Any) -> set[str]:
         if email:
             emails.add(email)
     return emails
-
-
-def _coerce_int(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        value = stripped
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _extract_modified(metadata: list[Metadata]) -> Optional[Any]:
@@ -130,9 +122,18 @@ _API_FIELDS = {
 class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive."""
 
-    def __init__(self, provider: Provider, max_files: int = 500, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        provider: Provider,
+        max_files: int = 500,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(provider, **kwargs)
         self.max_files = max_files
+        self.include_patterns = normalize_glob_patterns(include)
+        self.exclude_patterns = normalize_glob_patterns(exclude)
 
         creds: Optional[Credentials] = None
         workspace_token = WORKSPACE / "token.json"
@@ -178,9 +179,10 @@ class GoogleDriveClient(SourcePlugin):
         cutoff_snapshot: Snapshot | None = await Snapshot.find_partial_resume_point(
             provider=self.provider
         )
+        ignored = 0
 
         async def inner():
-            nonlocal limit_reached, cutoff_reached
+            nonlocal limit_reached, cutoff_reached, ignored
             self._prime_folder_cache()
             page_token: Optional[str] = None
             count = 0
@@ -207,7 +209,10 @@ class GoogleDriveClient(SourcePlugin):
                             )
                             break
 
-                        result = self._build_result(file)
+                        result, name_paths, id_paths = self._build_result(file)
+                        if not self._path_matches(name_paths, id_paths):
+                            ignored += 1
+                            continue
                         if result.asset and result.metadata:
                             if cutoff:
                                 modified_dt = _extract_modified(result.metadata)
@@ -242,12 +247,15 @@ class GoogleDriveClient(SourcePlugin):
                     scan_result.status = OpStatus.PARTIAL
                 else:
                     scan_result.status = OpStatus.COMPLETED
+                scan_result.ignored = ignored
                 self._persist_folder_cache()
 
         scan_result = ScanResult(iterator=inner())
         return scan_result
 
-    def _build_result(self, file: Dict[str, Any]) -> AssetScanResult:
+    def _build_result(
+        self, file: Dict[str, Any]
+    ) -> tuple[AssetScanResult, list[str], list[str]]:
         """Transform a Drive file payload into a Asset and metadata, guarding errors."""
         file_id = file.get("id", "")
         canonical_uri = f"https://drive.google.com/file/d/{file_id}"
@@ -294,7 +302,7 @@ class GoogleDriveClient(SourcePlugin):
 
         result.add_metadata(HASH_MD5, file.get("md5Checksum"))
 
-        result.add_metadata(FILE_SIZE, _coerce_int(file.get("size")))
+        result.add_metadata(FILE_SIZE, coerce_int(file.get("size")))
 
         result.add_metadata(FILE_DESCRIPTION, file.get("description"))
 
@@ -318,10 +326,10 @@ class GoogleDriveClient(SourcePlugin):
         )
 
         result.add_metadata(
-            FILE_QUOTA_BYTES_USED, _coerce_int(file.get("quotaBytesUsed"))
+            FILE_QUOTA_BYTES_USED, coerce_int(file.get("quotaBytesUsed"))
         )
 
-        result.add_metadata(FILE_VERSION, _coerce_int(file.get("version")))
+        result.add_metadata(FILE_VERSION, coerce_int(file.get("version")))
 
         result.add_metadata(FLAG_FAVORITE, int(bool(file.get("starred"))))
 
@@ -331,7 +339,16 @@ class GoogleDriveClient(SourcePlugin):
         shared_with = get_many_user_emails(file.get("permissions"))
         result.add_metadata_set(ACCESS_SHARED_WITH, shared_with)
 
-        return result
+        return result, name_paths, id_paths
+
+    def _path_matches(self, name_paths: list[str], id_paths: list[str]) -> bool:
+        """Return True when the file matches include/exclude rules."""
+        haystack = list(name_paths) + list(id_paths)
+        return match_paths(
+            paths=haystack,
+            include=self.include_patterns,
+            exclude=self.exclude_patterns,
+        )
 
     def _fetch_files_page(
         self,
