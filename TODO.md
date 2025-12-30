@@ -2,14 +2,19 @@
 
 # Next up
 
+- [ ] When resolving the path for a Shared Drive, get the real name of the drive, not just "Drive"
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
-      status? Also, currently the cutoff logic assuemes there is always one scan per snapshot.
+      status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
+- [ ] Can `should_run` be removed and simply let `run` return None or equivalent early? When would
+      `should_run` offer something that `run` cannot? How can we separate `didn't run` from
+      `ran but found 0 changes`, and do we need to?
 - [ ] Improve logging for scan and process output
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
       that ok?
-- [ ] Test that we can correctly check equality of lists and dicts saved as JSON data
+- [ ] Test that we can correctly check equality of lists and dicts saved as JSON data. persist() is
+      failing on it.
 - [ ] Store parent/child relationships from Google drive into relationships table
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
@@ -17,8 +22,16 @@
 
 # Backlog
 
+- [ ] Replace TortoiseORM with [SQLSpec](https://sqlspec.dev/usage/data_flow.html) for more
+      efficient, decoupled database usage
+- [ ] Show in errors which provider, asset and/or metadata that was being processed
+- [ ] If folders or shared drives are renamed the Google Drive cache will still use old names. We
+      could detect name changes using our metadata system, and update the cache, but at that time we
+      might still have some incorrect paths stored in metadata.
 - [ ] UI to run scans and show progress
 - [ ] UI to run analysis
+- [ ] Icons for UI
+- [ ] Use Google Drive Changes API to more efficiently (or is it?) fetch changes
 - [ ] Stream progress events to HTTP caller or TQDM by reusing logger
 - [ ] Path and filename Unicode normalization
 - [ ] Read permissions for files in Google Shared Drives

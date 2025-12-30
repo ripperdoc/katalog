@@ -400,7 +400,7 @@ class Asset(Model):
                 self.created_snapshot_id = existing.created_snapshot_id
                 self.provider_id = existing.provider_id
                 self.canonical_uri = existing.canonical_uri
-        if getattr(self, "created_snapshot_id", None) is None:
+        if self.created_snapshot_id is None:
             self.created_snapshot = snapshot
         self.last_snapshot = snapshot
         self.deleted_snapshot = None
@@ -555,6 +555,12 @@ class Metadata(Model):
                 f"Unsupported value to set '{value}' of type '{type(value)} for Metadata of type {self.value_type}"
             )
 
+    def __str__(self) -> str:
+        return f"Metadata('{self.key}'='{self.value}', id={self.id}, provider={self.provider_id}, removed={self.removed})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
     @classmethod
     async def for_asset(
         cls,
@@ -606,18 +612,28 @@ def make_metadata(
     return md
 
 
+@dataclass(slots=True)
 class MetadataChangeSet:
     """Track metadata state for an asset during processing (loaded + staged changes)."""
 
-    def __init__(
-        self,
-        loaded: Sequence[Metadata],
-        staged: Sequence[Metadata] | None = None,
-    ) -> None:
-        self._loaded = list(loaded)
-        self._staged: list[Metadata] = list(staged or [])
-        self._cache_current: dict[int | None, dict[MetadataKey, list[Metadata]]] = {}
-        self._cache_changed: dict[int | None, set[MetadataKey]] = {}
+    loaded: Sequence[Metadata]
+    staged: Sequence[Metadata] | None = None
+
+    # Internal runtime fields (not part of the generated init)
+    _loaded: list[Metadata] = field(init=False)
+    _staged: list[Metadata] = field(init=False)
+    _cache_current: dict[int | None, dict[MetadataKey, list[Metadata]]] = field(
+        default_factory=dict, init=False
+    )
+    _cache_changed: dict[int | None, set[MetadataKey]] = field(
+        default_factory=dict, init=False
+    )
+
+    def __post_init__(self) -> None:
+        self._loaded = list(self.loaded)
+        self._staged = list(self.staged or [])
+        self._cache_current = {}
+        self._cache_changed = {}
 
     @staticmethod
     def _current_metadata(

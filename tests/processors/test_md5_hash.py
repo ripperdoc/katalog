@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import hashlib
 
 import pytest
@@ -97,7 +98,11 @@ def test_runs_when_fingerprint_changed_even_with_existing_hash():
     cs.add([md])
     assert processor.should_run(record, cs) is True
     cs = MetadataChangeSet(record._metadata_cache or [], staged=[])
-    md = make_metadata(TIME_MODIFIED, 1, provider_id=record.provider_id)
+    md = make_metadata(
+        TIME_MODIFIED,
+        datetime(2001, 1, 1, tzinfo=UTC),
+        provider_id=record.provider_id,
+    )
     md.metadata_key_id = METADATA_REGISTRY[TIME_MODIFIED].registry_id
     md.snapshot_id = 2
     cs.add([md])

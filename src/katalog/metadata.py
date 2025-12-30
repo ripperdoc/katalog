@@ -134,7 +134,7 @@ ACCESS_SHARED_WITH = define_metadata(
     "access/shared_with", MetadataType.STRING, "Shared with"
 )
 ACCESS_SHARING_USER = define_metadata(
-    "access/sharing_user", MetadataType.JSON, "Sharing user"
+    "access/sharing_user", MetadataType.STRING, "Sharing user"
 )
 ACCESS_LAST_MODIFYING_USER = define_metadata(
     "access/last_modifying_user", MetadataType.STRING, "Last modifying user"

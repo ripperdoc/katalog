@@ -21,14 +21,16 @@ class AssetScanResult:
     provider: Provider
     metadata: list[Metadata] = field(default_factory=list)
 
-    def add_metadata(self, metadata_key: MetadataKey, value: MetadataScalar) -> None:
+    def set_metadata(self, metadata_key: MetadataKey, value: MetadataScalar) -> None:
+        """Sets e.g. replaces the metadata value on this provider for the given key with a scalar value."""
         self.metadata.append(make_metadata(metadata_key, value, self.provider.id))
 
-    def add_metadata_set(
+    def set_metadata_list(
         self,
         metadata_key: MetadataKey,
         value: Collection[MetadataScalar],
     ) -> None:
+        """Sets e.g. replaces the metadata value on this provider for the given key with a collection value."""
         for v in value:
             self.metadata.append(make_metadata(metadata_key, v, self.provider.id))
 

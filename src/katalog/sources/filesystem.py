@@ -107,14 +107,15 @@ class FilesystemClient(SourcePlugin):
                             canonical_uri=abs_path.as_uri(),
                             provider_id=self.provider.id,
                         )
+
                         asset.attach_accessor(self.get_accessor(asset))
 
                         result = AssetScanResult(asset=asset, provider=self.provider)
-                        result.add_metadata(FILE_PATH, str(abs_path))
-                        result.add_metadata(TIME_MODIFIED, modified)
-                        result.add_metadata(TIME_CREATED, created)
-                        result.add_metadata(FILE_SIZE, int(stat.st_size))
-                        result.add_metadata(
+                        result.set_metadata(FILE_PATH, str(abs_path))
+                        result.set_metadata(TIME_MODIFIED, modified)
+                        result.set_metadata(TIME_CREATED, created)
+                        result.set_metadata(FILE_SIZE, int(stat.st_size))
+                        result.set_metadata(
                             FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
                         )
                     except Exception as e:

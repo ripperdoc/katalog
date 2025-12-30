@@ -361,3 +361,22 @@ whose modification time is newer than that value. The scanner then:
 
 Because the tables already expose the timestamps and uniqueness constraints we need, comparing the
 incremental payload to existing `assets` becomes an O(changes) operation—no full rescan is required.
+
+# Plugin guidelines
+
+## Sources
+
+- Should not attempt to look up Assets from database, can just create a new Asset and it will be
+  fixed when the snapshot is saved.
+- Must return correct scan results based on if the scan was cancelled, completed, etc
+- Sources are not currently meant to know anything about the Asset and it's metadat from earlier
+  scans. We also assume any metadata set from a scan are intended to replace any previous value from
+  the same provider id.
+
+## Processors
+
+- Strive for `run` be a pure functions that can be paralellized. We cannot block access to the
+  database through TortoiseORM it should not be done
+- Should run must not be 100% precise - it can return false positives (e.g. said should run but
+  wasn't necessary), but not false negatives (e.g. said shouldn't run but should've). Sometimes only
+  the full algorithm in run can determine if a run was necessary or not

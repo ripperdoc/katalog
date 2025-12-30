@@ -128,15 +128,15 @@ class GoogleDriveClient(SourcePlugin):
         max_files: int = 500,
         corpora: str = "user",
         allow_incremental: bool = False,
-        include: list[str] | str | None = None,
-        exclude: list[str] | str | None = None,
+        include_paths: list[str] | str | None = None,
+        exclude_paths: list[str] | str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(provider, **kwargs)
         self.max_files = max_files
         self.corpora = corpora or "user"
-        self.include_patterns = normalize_glob_patterns(include)
-        self.exclude_patterns = normalize_glob_patterns(exclude)
+        self.include_paths = normalize_glob_patterns(include_paths)
+        self.exclude_paths = normalize_glob_patterns(exclude_paths)
         self.allow_incremental = allow_incremental
 
         creds: Optional[Credentials] = None
@@ -273,46 +273,47 @@ class GoogleDriveClient(SourcePlugin):
             provider_id=self.provider.id,
             canonical_uri=canonical_uri,
         )
+
         asset.attach_accessor(self.get_accessor(asset))
         result = AssetScanResult(asset=asset, provider=self.provider)
 
         name_paths, id_paths = self._resolve_paths(file)
-        result.add_metadata_set(FILE_ID_PATH, id_paths)
-        result.add_metadata_set(FILE_PATH, name_paths)
+        result.set_metadata_list(FILE_ID_PATH, id_paths)
+        result.set_metadata_list(FILE_PATH, name_paths)
 
-        result.add_metadata(
+        result.set_metadata(
             FILE_NAME, file.get("originalFilename", file.get("name", ""))
         )
 
-        result.add_metadata(
+        result.set_metadata(
             TIME_CREATED, parse_google_drive_datetime(file.get("createdTime"))
         )
 
-        result.add_metadata(
+        result.set_metadata(
             TIME_MODIFIED, parse_google_drive_datetime(file.get("modifiedTime"))
         )
 
-        result.add_metadata(
+        result.set_metadata(
             TIME_MODIFIED_BY_ME,
             parse_google_drive_datetime(file.get("modifiedByMeTime")),
         )
 
-        result.add_metadata(
+        result.set_metadata(
             TIME_ACCESSED_BY_ME, parse_google_drive_datetime(file.get("viewedByMeTime"))
         )
 
-        result.add_metadata(
+        result.set_metadata(
             TIME_SHARED_WITH_ME,
             parse_google_drive_datetime(file.get("viewedByMesharedWithMeTimeTime")),
         )
 
-        result.add_metadata(FILE_TYPE, file.get("mimeType"))
+        result.set_metadata(FILE_TYPE, file.get("mimeType"))
 
-        result.add_metadata(HASH_MD5, file.get("md5Checksum"))
+        result.set_metadata(HASH_MD5, file.get("md5Checksum"))
 
-        result.add_metadata(FILE_SIZE, coerce_int(file.get("size")))
+        result.set_metadata(FILE_SIZE, coerce_int(file.get("size")))
 
-        result.add_metadata(FILE_DESCRIPTION, file.get("description"))
+        result.set_metadata(FILE_DESCRIPTION, file.get("description"))
 
         # web_view_link = file.get("webViewLink")
         # if web_view_link:
@@ -320,32 +321,34 @@ class GoogleDriveClient(SourcePlugin):
         #         make_metadata(self.provider.id, FILE_WEB_VIEW_LINK, web_view_link)
         #     )
 
-        result.add_metadata(FLAG_SHARED, int(bool(file.get("shared"))))
+        result.set_metadata(FLAG_SHARED, int(bool(file.get("shared"))))
 
-        result.add_metadata(
+        result.set_metadata(
             ACCESS_LAST_MODIFYING_USER,
             get_user_email(file.get("lastModifyingUser")),
         )
 
-        result.add_metadata(ACCESS_SHARING_USER, file.get("sharingUser"))
+        result.set_metadata(
+            ACCESS_SHARING_USER, get_user_email(file.get("sharingUser"))
+        )
 
-        result.add_metadata(
+        result.set_metadata(
             TIME_TRASHED, parse_google_drive_datetime(file.get("trashedTime"))
         )
 
-        result.add_metadata(
+        result.set_metadata(
             FILE_QUOTA_BYTES_USED, coerce_int(file.get("quotaBytesUsed"))
         )
 
-        result.add_metadata(FILE_VERSION, coerce_int(file.get("version")))
+        result.set_metadata(FILE_VERSION, coerce_int(file.get("version")))
 
-        result.add_metadata(FLAG_FAVORITE, int(bool(file.get("starred"))))
+        result.set_metadata(FLAG_FAVORITE, int(bool(file.get("starred"))))
 
         owners = get_many_user_emails(file.get("owners"))
-        result.add_metadata_set(ACCESS_OWNER, owners)
+        result.set_metadata_list(ACCESS_OWNER, owners)
 
         shared_with = get_many_user_emails(file.get("permissions"))
-        result.add_metadata_set(ACCESS_SHARED_WITH, shared_with)
+        result.set_metadata_list(ACCESS_SHARED_WITH, shared_with)
 
         return result, name_paths, id_paths
 
@@ -354,8 +357,8 @@ class GoogleDriveClient(SourcePlugin):
         haystack = list(name_paths) + list(id_paths)
         return match_paths(
             paths=haystack,
-            include=self.include_patterns,
-            exclude=self.exclude_patterns,
+            include=self.include_paths,
+            exclude=self.exclude_paths,
         )
 
     def _fetch_files_page(
@@ -377,7 +380,9 @@ class GoogleDriveClient(SourcePlugin):
                     driveId=drive_id,
                     includeItemsFromAllDrives=supports_all_drives,
                     supportsAllDrives=supports_all_drives,
+                    # NOTE Google currently does max 100 page size
                     pageSize=page_size,
+                    q="mimeType='application/vnd.google-apps.folder'",
                     fields=(
                         "nextPageToken, files(" + ", ".join(sorted(_API_FIELDS)) + ")"
                     ),
@@ -558,6 +563,17 @@ class GoogleDriveClient(SourcePlugin):
                 .execute()
             )
             if folder:
+                if folder.get("name") == "Drive":
+                    try:
+                        logger.debug(f"Fetching Shared Drive name for {folder_id}")
+                        drive = self.service.drives().get(driveId=folder_id).execute()
+                        return {
+                            "name": drive.get("name") or folder_id,
+                            "parents": [],
+                        }
+                    except HttpError as error:
+                        pass
+
                 return {
                     "name": folder.get("name") or folder_id,
                     "parents": folder.get("parents", []),
