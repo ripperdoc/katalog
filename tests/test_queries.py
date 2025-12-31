@@ -8,13 +8,13 @@ from tortoise import Tortoise
 
 from katalog.metadata import FILE_PATH, METADATA_REGISTRY, get_metadata_id
 from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Snapshot
-from katalog.queries import list_assets_with_metadata, setup
+from katalog.queries import list_assets_with_metadata, setup_db
 
 
 @pytest_asyncio.fixture
 async def db(tmp_path: Path):
     db_path = tmp_path / "katalog_test.sqlite3"
-    await setup(db_path)
+    await setup_db(db_path)
     try:
         yield
     finally:

@@ -3,8 +3,8 @@
 - Always respond in text before changing code if the user seem to not be sure or asking something.
 - Always ask the user if a requirement is unclear.
 - Strive for minimal, iterative changes instead of sweeping
-- Don't remove comments unless no longer relevant
-- Make comments if some change is not obvious
+- Don't remove comments or commented out code unless explicitly told to
+- Write comments if some change you are doing is not obvious
 - This is a `uv` based project, always use `uv` to install and run things. Use
   `UV_CACHE_DIR=.uv-cache` to avoid permissions issues.
 - When logging and creating strings, prefer f-strings vs other ways

@@ -5,7 +5,7 @@ from typing import Any, Mapping
 from loguru import logger
 from tortoise import Tortoise
 
-from katalog.config import read_config_file
+from katalog.config import DB_PATH, read_config_file
 from katalog.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
@@ -30,17 +30,28 @@ from katalog.models import (
 )
 
 
-async def setup(db_path: Path) -> Path:
+async def setup_db(db_path: Path) -> Path:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite://{db_path}"
-    await Tortoise.init(
-        db_url=db_url,
-        modules={"models": ["katalog.models"]},
-        # NOTE means that we convert metadata to UTC tz on write,
-        # losing original TZ info but getting the same actual time
-        use_tz=True,
-        timezone="UTC",
-    )
+
+    db_missing = not db_path.exists()
+    try:
+        conn = Tortoise.get_connection("default")
+    except Exception:
+        conn = None
+
+    needs_init = db_missing or conn is None
+
+    if needs_init and conn is not None:
+        await Tortoise.close_connections()
+
+    if needs_init:
+        await Tortoise.init(
+            db_url=db_url,
+            modules={"models": ["katalog.models"]},
+            use_tz=False,  # Preserve whatever tzinfo we hand in; no UTC normalization.
+        )
+
     await Tortoise.generate_schemas()
 
     # Ensure composite index for fast latest-metadata lookups.
@@ -116,6 +127,7 @@ async def sync_providers():
 
 
 async def sync_config():
+    await setup_db(DB_PATH)
     await sync_metadata_registry()
     await sync_providers()
     logger.info("Synchronized configuration with database")

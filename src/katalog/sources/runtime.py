@@ -44,7 +44,6 @@ async def run_sources(
                 loaded=loaded_metadata, staged=result.metadata
             )
             if processor_pipeline:
-                snapshot.stats.assets_processed += 1
                 # Enqueue asset for processing, which will also persist the metadata
                 await enqueue_asset_processing(
                     asset=result.asset,

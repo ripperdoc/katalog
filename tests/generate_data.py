@@ -26,7 +26,7 @@ from katalog.metadata import (
     TIME_CREATED,
     TIME_MODIFIED,
 )
-from katalog.queries import setup
+from katalog.queries import setup_db
 
 
 def _pick_weighted(rng: Random, items: list[tuple[str, float]]) -> str:
@@ -80,7 +80,7 @@ async def populate_test_data(
     else:
         print(f"Preparing workspace at {workspace_dir}")
 
-    await setup(db_path)
+    await setup_db(db_path)
 
     rng = Random(seed)
 
@@ -474,7 +474,7 @@ async def main_async(args: object) -> None:
             seed=getattr(args, "seed"),
         )
     else:
-        await setup(getattr(args, "db"))
+        await setup_db(getattr(args, "db"))
 
 
 def cli() -> None:

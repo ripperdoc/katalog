@@ -171,6 +171,7 @@ async def enqueue_asset_processing(
 
     async def runner() -> set[MetadataKey]:
         async with snapshot.semaphore:
+            snapshot.stats.assets_processed += 1
             return await process_asset(
                 asset=asset,
                 snapshot=snapshot,
@@ -188,7 +189,6 @@ async def run_processors(*, snapshot: Snapshot, assets: list[Asset]):
 
     for asset in assets:
         snapshot.stats.assets_seen += 1
-        snapshot.stats.assets_processed += 1
         loaded_metadata = await asset.load_metadata()
         change_set = MetadataChangeSet(loaded=loaded_metadata)
         await enqueue_asset_processing(

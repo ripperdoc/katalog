@@ -6,17 +6,20 @@ from loguru import logger
 from tortoise import Tortoise
 
 from katalog.analyzers.runtime import run_analyzers
-from katalog.config import WORKSPACE
+from katalog.config import WORKSPACE, DB_URL, DB_PATH
 from katalog.models import Asset, Provider, ProviderType, Snapshot
-from katalog.queries import list_assets_with_metadata, setup, sync_config
+from katalog.queries import list_assets_with_metadata, sync_config
 from katalog.processors.runtime import run_processors, sort_processors
 from katalog.sources.runtime import run_sources
+
+logger.info(f"Using workspace: {WORKSPACE}")
+logger.info(f"Using database: {DB_URL}")
 
 
 @asynccontextmanager
 async def lifespan(app):
     # run startup logic
-    await setup(db_path)
+    await sync_config()
     try:
         yield
     finally:
@@ -25,13 +28,6 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
-
-
-db_path = WORKSPACE / "katalog.db"
-DATABASE_URL = f"sqlite:///{db_path}"
-
-logger.info(f"Using workspace: {WORKSPACE}")
-logger.info(f"Using database: {DATABASE_URL}")
 
 
 # region ASSETS

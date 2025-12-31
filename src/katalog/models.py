@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from asyncio import Task
 import asyncio
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, UTC
 from enum import Enum, IntEnum
 from time import time
@@ -83,105 +83,35 @@ class Provider(Model):
 
 @dataclass(slots=True)
 class SnapshotStats:
-    assets_seen: int = 0
-    assets_changed: int = 0
-    assets_added: int = 0
-    assets_modified: int = 0
-    assets_deleted: int = 0
-    assets_ignored: int = 0
-    assets_processed: int = 0
+    """Seen"""
 
-    metadata_values_affected: int = 0
-    metadata_values_added: int = 0
-    metadata_values_removed: int = 0
+    assets_seen: int = 0  # Yielded in a scan
+    assets_ignored: int = 0  # Skipped during scan (e.g. filtered by provider settings)
 
-    relations_affected: int = 0
-    relations_added: int = 0
-    relations_removed: int = 0
+    assets_changed: int = 0  # Assets that had metadata changes
+    assets_added: int = 0  # New assets seen for the first time
+    assets_deleted: int = 0  # Assets marked as deleted (not seen in scan)
+    assets_processed: int = 0  # Assets that had processors run on them
 
-    processings_started: int = 0
-    processings_completed: int = 0
-    processings_partial: int = 0
-    processings_cancelled: int = 0
-    processings_skipped: int = 0
-    processings_error: int = 0
+    metadata_values_changed: int = 0  # Total metadata values added or removed
+    metadata_values_added: int = 0  # Metadata values added
+    metadata_values_removed: int = 0  # Metadata values removed
+    # TODO how to correctly count unique keys affected across
+    # a snapshot when we persist paralell async operations?
+    # metadata_keys_affected: int = 0
 
-    _changed_assets: set[int] = field(default_factory=set, init=False, repr=False)
-    _added_assets: set[int] = field(default_factory=set, init=False, repr=False)
-    _modified_assets: set[int] = field(default_factory=set, init=False, repr=False)
+    processings_started: int = 0  # Total processing operations started
+    processings_completed: int = 0  # Total processing operations completed successfully
+    processings_partial: int = 0  # Total processing operations completed partially
+    processings_cancelled: int = 0  # Total processing operations cancelled
+    processings_skipped: int = 0  # Total processing operations skipped
+    processings_error: int = 0  # Total processing operations failed with error
 
-    def record_asset_change(self, asset_id: int, *, added: bool) -> None:
-        if added:
-            if asset_id not in self._added_assets:
-                self.assets_added += 1
-                self._added_assets.add(asset_id)
-        else:
-            if (
-                asset_id not in self._added_assets
-                and asset_id not in self._modified_assets
-            ):
-                self.assets_modified += 1
-                self._modified_assets.add(asset_id)
-        if asset_id not in self._changed_assets:
-            self.assets_changed += 1
-            self._changed_assets.add(asset_id)
-
-    def record_metadata_diff(self, added: int, removed: int) -> None:
-        if not added and not removed:
-            return
-        self.metadata_values_added += added
-        self.metadata_values_removed += removed
-        self.metadata_values_affected += added + removed
-
-    def record_relationship_diff(self, added: int, removed: int) -> None:
-        if not added and not removed:
-            return
-        self.relations_added += added
-        self.relations_removed += removed
-        self.relations_affected += added + removed
+    # def validate(self) -> None:
+    #     assert self.ass
 
     def to_dict(self) -> dict[str, Any]:
-        assets_not_changed = max(
-            self.assets_seen - self.assets_changed - self.assets_ignored, 0
-        )
-        assets_not_processed = max(
-            self.assets_seen - self.assets_processed - self.assets_ignored, 0
-        )
-        return {
-            "assets": {
-                "seen": self.assets_seen,
-                "changed": {
-                    "total": self.assets_changed,
-                    "added": self.assets_added,
-                    "modified": self.assets_modified,
-                    "deleted": self.assets_deleted,
-                },
-                "not_changed": assets_not_changed,
-                "ignored": self.assets_ignored,
-                "processed": {
-                    "processed": self.assets_processed,
-                    "not_processed": assets_not_processed,
-                },
-            },
-            "metadata": {
-                "values_affected": self.metadata_values_affected,
-                "added": self.metadata_values_added,
-                "removed": self.metadata_values_removed,
-            },
-            "relationships": {
-                "affected": self.relations_affected,
-                "added": self.relations_added,
-                "removed": self.relations_removed,
-            },
-            "processors": {
-                "started": self.processings_started,
-                "completed": self.processings_completed,
-                "partial": self.processings_partial,
-                "cancelled": self.processings_cancelled,
-                "skipped": self.processings_skipped,
-                "error": self.processings_error,
-            },
-        }
+        return asdict(self)
 
 
 DEFAULT_TASK_CONCURRENCY = 10
@@ -746,10 +676,13 @@ class MetadataChangeSet:
             changed_keys.add(get_metadata_def_by_id(key[0]).key)
 
         if to_create:
+            removed = sum(1 for md in to_create if md.removed is True)
+            snapshot.stats.metadata_values_added += len(to_create) - removed
+            snapshot.stats.metadata_values_removed += removed
+            snapshot.stats.metadata_values_changed += len(to_create)
             await Metadata.bulk_create(to_create)
             if asset._metadata_cache is not None:
                 asset._metadata_cache.extend(to_create)
-
         return changed_keys
 
 
