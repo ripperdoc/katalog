@@ -232,7 +232,7 @@ class ConcurrentSliceFetcher:
                 except httpx.HTTPStatusError as exc:
                     body = exc.response.text
                     logger.error(
-                        f"HTTP {exc.response.status_code} for {spec.method} {spec.url}{log_line} "
+                        f"HTTP {exc.response.status_code} for {spec.method} {spec.url} {log_line} "
                         f"body={body[:500]}"
                     )
                     raise

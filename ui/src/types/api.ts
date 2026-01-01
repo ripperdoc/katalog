@@ -34,3 +34,51 @@ export interface AssetResponse {
     assets: number;
   };
 }
+
+export interface Provider {
+  id: number;
+  name: string;
+  type: string;
+  plugin_id: string | null;
+  config: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type SnapshotStatus =
+  | "in_progress"
+  | "partial"
+  | "completed"
+  | "canceled"
+  | "skipped"
+  | "error";
+
+export interface Snapshot {
+  id: number;
+  provider_id: number | null;
+  provider_name: string | null;
+  note: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  status: SnapshotStatus;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ProviderListResponse {
+  providers: Provider[];
+}
+
+export interface ProviderResponse {
+  provider: Provider;
+  snapshots: Snapshot[];
+}
+
+export interface SnapshotListResponse {
+  snapshots: Snapshot[];
+}
+
+export interface SnapshotResponse {
+  snapshot: Snapshot;
+  logs: string[];
+  running: boolean;
+}

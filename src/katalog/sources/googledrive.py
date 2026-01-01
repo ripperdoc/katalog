@@ -686,7 +686,7 @@ class GoogleDriveClient(SourcePlugin):
                 seen.add(current)
                 folder_info = await self._get_folder(current, client)
                 names.append(folder_info.get("name", ""))
-                ids.append(folder_info.get("id", ""))
+                ids.append(current)
                 parent_list = folder_info.get("parents") or []
                 current = parent_list[0] if parent_list else None
             names.reverse()

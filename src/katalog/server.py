@@ -1,16 +1,23 @@
+import asyncio
+import json
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from loguru import logger
 from tortoise import Tortoise
 
-from katalog.config import WORKSPACE, DB_URL
-from katalog.models import Asset, Provider, ProviderType, Snapshot
-from katalog.queries import list_assets_with_metadata, sync_config
+from katalog.config import DB_URL, WORKSPACE
+from katalog.models import Asset, OpStatus, Provider, ProviderType, Snapshot
 from katalog.processors.runtime import run_processors, sort_processors
+from katalog.queries import list_assets_with_metadata, sync_config
 from katalog.sources.runtime import get_source_plugin, run_sources
+from katalog.utils.snapshot_events import (
+    SnapshotEventManager,
+    SnapshotRunState,
+    sse_event,
+)
 
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DB_URL}")
@@ -20,6 +27,8 @@ logger.info(f"Using database: {DB_URL}")
 async def lifespan(app):
     # run startup logic
     await sync_config()
+    event_manager.bind_loop(asyncio.get_running_loop())
+    event_manager.ensure_sink()
     try:
         yield
     finally:
@@ -29,6 +38,9 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
+event_manager = SnapshotEventManager()
+
+RUNNING_SNAPSHOTS: dict[int, SnapshotRunState] = {}
 
 # region ASSETS
 
@@ -62,7 +74,6 @@ async def update_asset(asset_id: int):
 async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
     """Scan selected or all sources and run processors for changed assets."""
     target_ids = set(ids or [])
-    await sync_config()
 
     if target_ids:
         sources = await Provider.filter(
@@ -78,13 +89,49 @@ async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
     provider_for_snapshot = None
     if len(sources) == 1:
         provider_for_snapshot = sources[0]
-    async with Snapshot.context(provider=provider_for_snapshot) as snapshot:
-        await run_sources(
-            snapshot=snapshot,
-            sources=sources,
-            is_cancelled=request.is_disconnected,
-        )
-    return snapshot
+    snapshot = await Snapshot.begin(
+        provider=provider_for_snapshot, status=OpStatus.IN_PROGRESS
+    )
+
+    cancel_event = asyncio.Event()
+    done_event = asyncio.Event()
+
+    async def is_cancelled() -> bool:
+        return cancel_event.is_set()
+
+    async def runner():
+        try:
+            with logger.contextualize(snapshot_id=snapshot.id):
+                logger.info(f"Starting scan for snapshot {snapshot.id}")
+                await run_sources(
+                    snapshot=snapshot,
+                    sources=sources,
+                    is_cancelled=is_cancelled,
+                )
+            await snapshot.finalize(status=OpStatus.COMPLETED)
+        except asyncio.CancelledError:
+            with logger.contextualize(snapshot_id=snapshot.id):
+                logger.info(f"Cancelled snapshot {snapshot.id}")
+            try:
+                await snapshot.finalize(status=OpStatus.CANCELED)
+            finally:
+                raise
+        except Exception:
+            with logger.contextualize(snapshot_id=snapshot.id):
+                logger.exception(f"Snapshot {snapshot.id} failed")
+            await snapshot.finalize(status=OpStatus.ERROR)
+        finally:
+            done_event.set()
+            RUNNING_SNAPSHOTS.pop(snapshot.id, None)
+
+    task = asyncio.create_task(runner())
+    state = SnapshotRunState(
+        snapshot=snapshot, task=task, cancel_event=cancel_event, done_event=done_event
+    )
+    task.add_done_callback(lambda _: done_event.set())
+    RUNNING_SNAPSHOTS[snapshot.id] = state
+
+    return snapshot.to_dict()
 
 
 @app.post("/processors/run")
@@ -143,17 +190,93 @@ async def create_snapshot(request: Request):
 
 @app.get("/snapshots")
 async def list_snapshots():
-    raise NotImplementedError()
+    snapshots = (
+        await Snapshot.all().order_by("-started_at").prefetch_related("provider")
+    )
+    return {"snapshots": [s.to_dict() for s in snapshots]}
 
 
 @app.get("/snapshots/{snapshot_id}")
-async def get_snapshot(snapshot_id: int):
-    raise NotImplementedError()
+async def get_snapshot(snapshot_id: int, stream: bool = Query(False)):
+    snapshot = await Snapshot.get_or_none(id=snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    await snapshot.fetch_related("provider")
+
+    if stream:
+        return await stream_snapshot_events(snapshot_id)
+    return {
+        "snapshot": snapshot.to_dict(),
+        "logs": event_manager.get_buffer(snapshot_id),
+        "running": snapshot.status == OpStatus.IN_PROGRESS,
+    }
 
 
 @app.patch("/snapshots/{snapshot_id}")
 async def update_snapshot(snapshot_id: int):
     raise NotImplementedError()
+
+
+@app.get("/snapshots/{snapshot_id}/events")
+async def stream_snapshot_events(snapshot_id: int):
+    snapshot = await Snapshot.get_or_none(id=snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    await snapshot.fetch_related("provider")
+    history, queue = event_manager.subscribe(snapshot_id)
+    run_state = RUNNING_SNAPSHOTS.get(snapshot_id)
+    done_event = run_state.done_event if run_state else asyncio.Event()
+    if run_state is None and snapshot.status != OpStatus.IN_PROGRESS:
+        done_event.set()
+
+    async def event_generator():
+        try:
+            for line in history:
+                yield sse_event("log", line)
+            while True:
+                done_waiter = asyncio.create_task(done_event.wait())
+                log_waiter = asyncio.create_task(queue.get())
+                done, pending = await asyncio.wait(
+                    {done_waiter, log_waiter}, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in pending:
+                    task.cancel()
+                if log_waiter in done:
+                    message = log_waiter.result()
+                    yield sse_event("log", message)
+                else:
+                    log_waiter.cancel()
+                if done_waiter in done:
+                    latest = await Snapshot.get(id=snapshot_id)
+                    await latest.fetch_related("provider")
+                    yield sse_event("snapshot", json.dumps(latest.to_dict()))
+                    break
+        finally:
+            event_manager.unsubscribe(snapshot_id, queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/snapshots/{snapshot_id}/cancel")
+async def cancel_snapshot(snapshot_id: int):
+    snapshot = await Snapshot.get_or_none(id=snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    run_state = RUNNING_SNAPSHOTS.get(snapshot_id)
+    if run_state is None or run_state.done_event.is_set():
+        if snapshot.status != OpStatus.IN_PROGRESS:
+            return {"status": "not_running", "snapshot": snapshot.to_dict()}
+        raise HTTPException(
+            status_code=409, detail="Snapshot is marked in progress but not running"
+        )
+
+    run_state.cancel_event.set()
+    for task in list(run_state.snapshot.tasks):
+        task.cancel()
+    run_state.task.cancel()
+
+    return {"status": "cancellation_requested"}
 
 
 # endregion
@@ -168,12 +291,22 @@ async def create_provider(request: Request):
 
 @app.get("/providers")
 async def list_providers():
-    raise NotImplementedError()
+    providers = await Provider.all().order_by("id")
+    return {"providers": [p.to_dict() for p in providers]}
 
 
 @app.get("/providers/{provider_id}")
 async def get_provider(provider_id: int):
-    raise NotImplementedError()
+    provider = await Provider.get_or_none(id=provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    snapshots = await Snapshot.filter(provider=provider).order_by("-started_at")
+    for snapshot in snapshots:
+        await snapshot.fetch_related("provider")
+    return {
+        "provider": provider.to_dict(),
+        "snapshots": [s.to_dict() for s in snapshots],
+    }
 
 
 @app.patch("/providers/{provider_id}")
@@ -183,13 +316,21 @@ async def update_provider(provider_id: int):
 
 # endregion
 
-# region AUTH
+# region OTHER
 
 
 @app.post("/auth/{provider}")
 async def auth_callback(provider: int, request: Request):
     get_source_plugin(provider).authorize(authorization_response=request.url)
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/sync")
+async def sync():
+    """Requests to sync config"""
+    await sync_config()
+
+    return {"status": "ok"}
 
 
 # endregion

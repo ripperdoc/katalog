@@ -25,6 +25,21 @@ header h1 {
   margin: 0 0 0.25rem;
 }
 
+.nav {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.nav a {
+  color: #0f172a;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(37, 99, 235, 0.08);
+}
+
 main {
   flex: 1;
 }
@@ -137,6 +152,31 @@ button:disabled {
   padding: 0.75rem;
   border-radius: 0.5rem;
   overflow-x: auto;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5f5;
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.log-stream {
+  max-height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
 }
 
 .record-list {

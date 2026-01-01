@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Awaitable, Callable, Iterable
 
 from loguru import logger
@@ -35,15 +36,31 @@ async def run_sources(
 
     processor_pipeline = await sort_processors()
 
+    async def _should_cancel() -> bool:
+        if is_cancelled is None:
+            return False
+        try:
+            result = is_cancelled()
+            if asyncio.iscoroutine(result):
+                return await result
+            return bool(result)
+        except Exception:
+            logger.exception("Cancellation predicate failed; continuing scan")
+            return False
+
     for source in sources:
         if source.type != ProviderType.SOURCE:
             logger.warning(
                 f"Skipping provider {source.id} ({source.name}): not a source"
             )
             continue
+        if await _should_cancel():
+            raise asyncio.CancelledError()
         source_plugin = make_source_instance(source)
         scan_result = await source_plugin.scan()
         async for result in scan_result.iterator:
+            if await _should_cancel():
+                raise asyncio.CancelledError()
             snapshot.stats.assets_seen += 1
             # Ensure asset row exists and snapshot markers are updated.
             await result.asset.save_record(snapshot=snapshot)

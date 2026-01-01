@@ -80,6 +80,19 @@ class Provider(Model):
     created_at = DatetimeField(auto_now_add=True)
     updated_at = DatetimeField(auto_now=True)
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": self.type.name
+            if isinstance(self.type, ProviderType)
+            else self.type,
+            "plugin_id": self.plugin_id,
+            "config": self.config,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 
 @dataclass(slots=True)
 class SnapshotStats:
@@ -133,6 +146,8 @@ class Snapshot(Model):
     tasks: list[Task]
     # Control concurrency of snapshot (processor) tasks
     semaphore: asyncio.Semaphore
+    # Just for type checking
+    provider_id: int
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -142,6 +157,24 @@ class Snapshot(Model):
         self.stats = SnapshotStats()
         self.tasks = []
         self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+
+    def to_dict(self) -> dict:
+        # Note needs to have been fetched related 'provider' beforehand
+        provider = getattr(self, "provider", None)
+        return {
+            "id": self.id,
+            "provider_id": self.provider_id,
+            "provider_name": provider.name if provider else None,
+            "note": self.note,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
+            "status": self.status.value
+            if isinstance(self.status, OpStatus)
+            else str(self.status),
+            "metadata": self.metadata,
+        }
 
     @classmethod
     async def find_partial_resume_point(
