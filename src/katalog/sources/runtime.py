@@ -13,7 +13,16 @@ from katalog.models import (
 )
 from katalog.processors.runtime import enqueue_asset_processing, sort_processors
 
-from katalog.sources.base import make_source_instance
+from katalog.sources.base import SourcePlugin, make_source_instance
+
+
+def get_source_plugin(provider_id: int) -> SourcePlugin:
+    """Retrieve a source provider by its ID, ensuring it is of type SOURCE."""
+    raise NotImplementedError("get_source_provider is not yet implemented")
+    # provider = Provider.get_or_none(id=provider_id)
+    # if not provider or provider.type != ProviderType.SOURCE:
+    #     raise ValueError(f"Provider with ID {provider_id} not found or not a source")
+    # return provider
 
 
 async def run_sources(

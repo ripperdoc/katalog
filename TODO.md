@@ -2,7 +2,6 @@
 
 # Next up
 
-- [ ] When resolving the path for a Shared Drive, get the real name of the drive, not just "Drive"
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
@@ -22,6 +21,8 @@
 
 # Backlog
 
+- [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
+      Shared with me but not necessarily shown in the GDrive UI.
 - [ ] Replace TortoiseORM with [SQLSpec](https://sqlspec.dev/usage/data_flow.html) for more
       efficient, decoupled database usage
 - [ ] Show in errors which provider, asset and/or metadata that was being processed

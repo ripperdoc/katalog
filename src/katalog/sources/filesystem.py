@@ -12,7 +12,6 @@ from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.models import (
     FileAccessor,
     Asset,
-    Snapshot,
     Provider,
 )
 from katalog.metadata import (

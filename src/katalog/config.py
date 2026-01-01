@@ -4,6 +4,7 @@ import tomllib
 
 from loguru import logger
 
+PORT = 8000
 
 workspace_env = os.environ.get("KATALOG_WORKSPACE", "hg_workspace")
 if not workspace_env:

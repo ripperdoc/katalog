@@ -54,6 +54,13 @@ class SourcePlugin(PluginBase):
         """Returns metadata about the plugin."""
         raise NotImplementedError()
 
+    def authorize(self, **kwargs) -> str:
+        """
+        Perform any authentication steps or callback required for this source.
+        Returns an authorization URL to redirect the user to, if applicable.
+        """
+        raise NotImplementedError()
+
     def get_accessor(self, asset: Asset) -> Any:
         """
         Returns an accessor for the file data represented by the Asset.

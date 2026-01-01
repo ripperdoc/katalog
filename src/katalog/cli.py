@@ -5,6 +5,8 @@ import pathlib
 
 from loguru import logger
 
+from katalog.config import PORT
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -49,7 +51,7 @@ def main():
         uvicorn.run(
             "katalog.server:app",
             host="127.0.0.1",
-            port=8000,
+            port=PORT,
             reload=False,
         )
     except KeyboardInterrupt:  # pragma: no cover - user initiated shutdown

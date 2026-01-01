@@ -2,15 +2,15 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from loguru import logger
 from tortoise import Tortoise
 
-from katalog.analyzers.runtime import run_analyzers
-from katalog.config import WORKSPACE, DB_URL, DB_PATH
+from katalog.config import WORKSPACE, DB_URL
 from katalog.models import Asset, Provider, ProviderType, Snapshot
 from katalog.queries import list_assets_with_metadata, sync_config
 from katalog.processors.runtime import run_processors, sort_processors
-from katalog.sources.runtime import run_sources
+from katalog.sources.runtime import get_source_plugin, run_sources
 
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DB_URL}")
@@ -179,6 +179,17 @@ async def get_provider(provider_id: int):
 @app.patch("/providers/{provider_id}")
 async def update_provider(provider_id: int):
     raise NotImplementedError()
+
+
+# endregion
+
+# region AUTH
+
+
+@app.post("/auth/{provider}")
+async def auth_callback(provider: int, request: Request):
+    get_source_plugin(provider).authorize(authorization_response=request.url)
+    return RedirectResponse(url="/", status_code=303)
 
 
 # endregion
