@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-import pickle
+import json
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, NamedTuple, Optional
 
@@ -89,6 +89,7 @@ API_FIELDS = {
 # Available metadata in Google drive API:
 # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
 
+QUOTA_QUERIES_PER_SECOND = 200
 
 CLIENT_SECRET_PATH = WORKSPACE / "client_secret.json"
 TOKEN_PATH = WORKSPACE / "token.json"
@@ -113,7 +114,7 @@ class GoogleDriveClient(SourcePlugin):
     - Reads efficiently from Google Drive API using asyncio fetchers that work concurrently on time-sliced windows, files ordered by modifiedTime desc
     and then regular pagination of 100 within each window (using nextPageToken from the API)
     - Resolves full path metadata per file by recursing parent folder IDs into names. To optimize this, we build a lookup dict that is
-    read from and persisted back to `<WORKSPACE>/{provider_id}_folder_cache.pkl`. If cache doesn't exist, we prepopulate it by reading
+    read from and persisted back to `<WORKSPACE>/{provider_id}_folder_cache.json`. If cache doesn't exist, we prepopulate it by reading
     all folders from Drive API. If we discover unknown parents during runtime, we try to look them up with a direct API call,
     and if they are named `Drive` we instead look the name up from the drives/ API endpoint.
     - Supports scanning user drives and shared drives (corpora as a setting per client)
@@ -140,6 +141,11 @@ class GoogleDriveClient(SourcePlugin):
             self.max_files = int(max_files)
         except Exception:
             self.max_files = 0
+
+        # 'user' -> My Drive and Shared with me
+        # 'drive:<id>' -> specific shared drive
+        # 'allDrives' -> My Drive, Shared with me, and all shared drives
+        # 'domain' -> all searchable files
         corpora_value = corpora or "user"
         self.drive_id = None
         if corpora_value.startswith("drive:"):
@@ -156,8 +162,6 @@ class GoogleDriveClient(SourcePlugin):
 
         # Folder cache state used to reconstruct canonical paths lazily.
         self._folder_cache: Dict[str, Dict[str, Any]] = {}
-        self._folder_page_token: Optional[str] = None
-        self._folders_exhausted = False
         self._oauth_state = None
         self._credentials: Credentials | None = None
 
@@ -213,10 +217,7 @@ class GoogleDriveClient(SourcePlugin):
         return None
 
     async def build_scan_result(
-        self,
-        file: Dict[str, Any],
-        client: httpx.AsyncClient,
-        paths: tuple[list[str], list[str]] | None = None,
+        self, file: Dict[str, Any], name_paths: list[str], id_paths: list[str]
     ) -> AssetScanResult:
         """Transform a Drive file payload into a AssetScanResult with metadata."""
         file_id = file.get("id", "")
@@ -231,7 +232,6 @@ class GoogleDriveClient(SourcePlugin):
         asset.attach_accessor(self.get_accessor(asset))
         result = AssetScanResult(asset=asset, provider=self.provider)
 
-        name_paths, id_paths = paths or await self._resolve_paths(file, client)
         result.set_metadata_list(FILE_ID_PATH, id_paths)
         result.set_metadata_list(FILE_PATH, name_paths)
 
@@ -397,7 +397,7 @@ class GoogleDriveClient(SourcePlugin):
                                     ignored += 1
                                     continue
                                 result = await self.build_scan_result(
-                                    file, client, (name_paths, id_paths)
+                                    file, name_paths, id_paths
                                 )
                                 yielded += 1
                                 if self.max_files and yielded >= self.max_files:
@@ -547,13 +547,13 @@ class GoogleDriveClient(SourcePlugin):
         )
 
     def _folder_cache_path(self) -> Path:
-        return WORKSPACE / f"{self.provider.id}_folder_cache.pkl"
+        return WORKSPACE / f"{self.provider.id}_folder_cache.json"
 
     async def _load_folder_cache(self) -> None:
         path = self._folder_cache_path()
         if path.exists():
             try:
-                self._folder_cache = pickle.loads(path.read_bytes())
+                self._folder_cache = json.loads(path.read_text())
             except Exception as exc:
                 logger.warning(f"Failed to load folder cache {path}: {exc}")
                 self._folder_cache = {}
@@ -561,7 +561,7 @@ class GoogleDriveClient(SourcePlugin):
     async def _persist_folder_cache(self) -> None:
         path = self._folder_cache_path()
         try:
-            path.write_bytes(pickle.dumps(self._folder_cache))
+            path.write_text(json.dumps(self._folder_cache))
         except Exception as exc:
             logger.warning(f"Failed to persist folder cache {path}: {exc}")
 
@@ -602,10 +602,8 @@ class GoogleDriveClient(SourcePlugin):
                 if not folder_id:
                     continue
                 self._folder_cache[folder_id] = {
-                    "id": folder_id,
                     "name": folder.get("name", ""),
                     "parents": folder.get("parents") or [],
-                    "driveId": folder.get("driveId"),
                 }
             page_token = payload.get("nextPageToken")
             if not page_token:
@@ -614,7 +612,7 @@ class GoogleDriveClient(SourcePlugin):
     async def _get_folder(
         self, folder_id: str, client: httpx.AsyncClient
     ) -> Dict[str, Any]:
-        cached = self._folder_cache["folders"].get(folder_id)
+        cached = self._folder_cache.get(folder_id)
         if cached:
             return cached
         return await self._fetch_folder_by_id(folder_id, client)
@@ -640,12 +638,7 @@ class GoogleDriveClient(SourcePlugin):
             drive_name = await self._resolve_drive_name(drive_id, client)
             if drive_name:
                 name = drive_name
-        info = {
-            "id": payload.get("id", folder_id),
-            "name": name,
-            "parents": payload.get("parents") or [],
-            "driveId": drive_id,
-        }
+        info = {"name": name, "parents": payload.get("parents") or []}
         self._folder_cache[folder_id] = info
         return info
 
@@ -669,7 +662,7 @@ class GoogleDriveClient(SourcePlugin):
     async def _resolve_paths(
         self, file: Dict[str, Any], client: httpx.AsyncClient
     ) -> tuple[list[str], list[str]]:
-        file_name = file.get("originalFilename", file.get("name", ""))
+        file_name = file.get("name", file.get("originalFilename", ""))
         file_id = file.get("id", "")
         parents = file.get("parents") or []
         if not parents:

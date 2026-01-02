@@ -2,6 +2,8 @@
 
 # Next up
 
+- [ ] Separate Assets seen in scan from assets yielded (or similar). Still need to be matching usage
+      when calling processors.
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
@@ -20,6 +22,9 @@
 
 # Backlog
 
+- [ ] Dynamic concurrency strategy for GDrive fetches - split the search space dynamically over time
+      to always be able to work with concurrent fetchers.
+- [ ] Add deletion of snapshots for quick undo.
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.
 - [ ] Replace TortoiseORM with [SQLSpec](https://sqlspec.dev/usage/data_flow.html) for more
