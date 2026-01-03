@@ -1,12 +1,10 @@
-import asyncio
 import base64
 import importlib
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta, timezone
 import json
 from fnmatch import fnmatch
-from typing import Any, Iterable, Mapping, Optional
-
-from loguru import logger
+from typing import Any, Iterable, Mapping, NamedTuple, Optional
 
 
 def import_plugin_class(
@@ -136,3 +134,62 @@ def match_paths(
     if not include:
         return True
     return any(fnmatch(path, pattern) for path in path_list for pattern in include)
+
+
+@dataclass(frozen=True)
+class TimeSlice:
+    start: Optional[datetime]
+    end: Optional[datetime]
+
+    def split(
+        self, start: Optional[datetime] = None, end: Optional[datetime] = None
+    ) -> tuple["TimeSlice", "TimeSlice"]:
+        # Use provided bounds or fall back to the TimeSlice's values
+        start = start or self.start
+        end = end or self.end
+
+        # For calculation, substitute reasonable finite bounds when open-ended:
+        # - if end is open, treat it as 'now'
+        # - if start is open, treat it as 10 years before end
+        now = datetime.now(UTC)
+        calc_end = end if end is not None else now
+        calc_start = (
+            start if start is not None else (calc_end - timedelta(days=10 * 365))
+        )
+
+        if calc_start >= calc_end:
+            raise ValueError("TimeSlice start must be before end to split")
+
+        # Compute the midpoint at maximum resolution
+        split_at = calc_start + (calc_end - calc_start) / 2
+
+        # Preserve open-endedness in the returned slices: use original None values
+        first = TimeSlice(start=start, end=split_at)
+        second = TimeSlice(start=split_at, end=end)
+        return first, second
+
+    def splittable(self) -> bool:
+        """Return True if this TimeSlice is larger than 1 hour (e.g. can be meaningfully split)"""
+        # NOTE to avoid getting into very small slices that can cause unexpected behaviour
+        if self.start is None or self.end is None:
+            return True
+        return (self.end - self.start) > timedelta(hours=1)
+
+    def __repr__(self) -> str:
+        start = self.start.date().isoformat() if self.start else "begin"
+        end = self.end.date().isoformat() if self.end else "end"
+        return f"{start}->{end}"
+
+    def to_dict(self) -> dict[str, Optional[str]]:
+        return {
+            "start": self.start.isoformat() if self.start else None,
+            "end": self.end.isoformat() if self.end else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "TimeSlice":
+        start_str = data.get("start")
+        end_str = data.get("end")
+        start = datetime.fromisoformat(start_str) if start_str else None
+        end = datetime.fromisoformat(end_str) if end_str else None
+        return cls(start=start, end=end)

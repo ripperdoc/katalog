@@ -1,20 +1,18 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 import json
-from pathlib import Path
-from typing import Any, AsyncIterator, Dict, NamedTuple, Optional
+import secrets
+from typing import Any, AsyncIterator, Dict, Optional
+from crawlee import Request
+from crawlee.crawlers import HttpCrawler, HttpCrawlingContext
+from crawlee.storage_clients import MemoryStorageClient
+from crawlee.storages import RequestQueue
 
 import httpx
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import Request as GoogleRequest
 from loguru import logger
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
 from katalog.config import PORT, WORKSPACE
 from katalog.metadata import (
     ACCESS_LAST_MODIFYING_USER,
@@ -49,12 +47,12 @@ from katalog.models import (
 )
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.utils import (
+    TimeSlice,
     coerce_int,
     match_paths,
     normalize_glob_patterns,
     parse_google_drive_datetime,
 )
-from katalog.utils.concurrent_fetcher import ConcurrentSliceFetcher, RequestSpec
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 API_FIELDS = {
@@ -93,18 +91,13 @@ QUOTA_QUERIES_PER_SECOND = 200
 
 CLIENT_SECRET_PATH = WORKSPACE / "client_secret.json"
 TOKEN_PATH = WORKSPACE / "token.json"
+
 FILE_WEB_VIEW_LINK = define_metadata(
     "file/web_view_link",
     MetadataType.STRING,
     "Web link",
     plugin_id="katalog.sources.googledrive.GoogleDriveClient",
 )
-
-
-class TimeSlice(NamedTuple):
-    start: Optional[datetime]
-    end: Optional[datetime]
-    final: bool
 
 
 class GoogleDriveClient(SourcePlugin):
@@ -129,8 +122,7 @@ class GoogleDriveClient(SourcePlugin):
         max_files: int = 0,
         corpora: str = "user",
         allow_incremental: bool = False,
-        concurrency: int = 4,
-        most_files_within_days: int = 730,
+        concurrency: int = 10,
         include_paths: list[str] | str | None = None,
         exclude_paths: list[str] | str | None = None,
         account: str | None = None,
@@ -152,13 +144,15 @@ class GoogleDriveClient(SourcePlugin):
             self.drive_id = corpora_value.split(":", 1)[1]
             corpora_value = "drive"
         self.corpora = corpora_value
-        self.supports_all_drives = self.corpora in {"drive", "allDrives"}
+        self.supports_all_drives = True or self.corpora in {"drive", "allDrives"}
         self.include_paths = normalize_glob_patterns(include_paths)
         self.exclude_paths = normalize_glob_patterns(exclude_paths)
         self.allow_incremental = allow_incremental
         self.concurrency = max(1, int(concurrency))
-        self.most_files_within_days = max(1, int(most_files_within_days))
         self.account = account
+        self.http = httpx.AsyncClient(
+            base_url="https://www.googleapis.com", timeout=5.0
+        )
 
         # Folder cache state used to reconstruct canonical paths lazily.
         self._folder_cache: Dict[str, Dict[str, Any]] = {}
@@ -172,49 +166,12 @@ class GoogleDriveClient(SourcePlugin):
             "version": "0.1",
         }
 
-    def authorize(self, **kwargs) -> str:
-        creds = None
-
-        # Run with authorization_response from an Oauth2 callback handler
-        if "authorization_response" in kwargs:
-            flow = Flow.from_client_secrets_file(
-                CLIENT_SECRET_PATH, SCOPES, state=self._oauth_state
-            )
-            authorization_response = str(kwargs["authorization_response"])
-            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
-            flow.fetch_token(authorization_response=authorization_response)
-            creds = flow.credentials
-            TOKEN_PATH.write_text(creds.to_json())
-            return "authorized"
-
-        # Run without authorization_response, we either refresh or start a new flow
-        if TOKEN_PATH.exists():
-            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                # Write back refreshed token
-                TOKEN_PATH.write_text(creds.to_json())
-                return "authorized"
-            else:
-                # Start a new OAuth2 flow to redirect user to authorization URL
-                flow = Flow.from_client_secrets_file(CLIENT_SECRET_PATH, SCOPES)
-                flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
-                # Read details here https://developers.google.com/identity/protocols/oauth2/web-server#obtainingaccesstokens
-                authorization_url, state = flow.authorization_url(
-                    access_type="offline",
-                    include_granted_scopes="true",
-                    login_hint=self.account,
-                )
-                self._oauth_state = state
-                return authorization_url
-        else:
-            return "authorized"
-
     def get_accessor(self, asset: Asset) -> Any:
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
+
+    async def close(self) -> None:
+        await self.http.aclose()
 
     async def build_scan_result(
         self, file: Dict[str, Any], name_paths: list[str], id_paths: list[str]
@@ -307,16 +264,10 @@ class GoogleDriveClient(SourcePlugin):
         return result
 
     async def scan(self) -> ScanResult:
-        """Asynchronously scan Google Drive and yield AssetScanResults.
-        Returns a ScanResult with an async iterator over AssetScanResults. This is created using `build_scan_result` helper that takes
-        a Google Drive File object.
-        The ScanResult.status should be set to the final status of the scan once complete:
-        - OpStatus.COMPLETED: when the scan completed fully
-        - OpStatus.PARTIAL: when the scan completed partially due to incremental resumption
-        - OpStatus.CANCELED: when the scan was canceled due to reaching max_files limit or if not all produced results were yielded.
-        - OpStatus.ERROR when an unrecoverable error occurred
-        """
+        """Scan Google Drive using HttpCrawler with simple nextPageToken pagination."""
         await self._load_credentials()
+        await self._load_folder_cache()
+
         cutoff = None
         if self.allow_incremental:
             last_snapshot = await Snapshot.find_partial_resume_point(
@@ -326,130 +277,201 @@ class GoogleDriveClient(SourcePlugin):
                 cutoff = last_snapshot.started_at
 
         scan_status = OpStatus.IN_PROGRESS
-        ignored = 0
-        now = datetime.now(UTC)
+        time_slice = TimeSlice(start=cutoff, end=None)
 
         async def iterator() -> AsyncIterator[AssetScanResult]:
-            nonlocal scan_status, ignored
+            nonlocal scan_status
             yielded = 0
-            try:
-                async with httpx.AsyncClient(
-                    base_url="https://www.googleapis.com", timeout=5.0
-                ) as client:
-                    await self._ensure_folder_cache(client)
+            ignored = 0
+            concurrent = 1
+            seen_ids: set[str] = set()
 
-                    base_params = self._base_list_params()
-                    time_slices = list(self._time_slices(now, cutoff))
+            result_queue: asyncio.Queue[AssetScanResult | BaseException | None] = (
+                asyncio.Queue()
+            )
 
-                    def slice_requests() -> list[RequestSpec]:
-                        requests: list[RequestSpec] = []
-                        for idx, ts in enumerate(time_slices):
-                            params = dict(base_params)
-                            params["q"] = self._build_file_query(ts)
-                            label = self._describe_slice(idx, ts, len(time_slices))
-                            requests.append(
-                                RequestSpec(
-                                    "GET",
-                                    "/drive/v3/files",
-                                    params=params,
-                                    headers=self._auth_headers(),
-                                    log_line=label,
+            crawler = await make_crawler()
+
+            @crawler.router.default_handler
+            async def request_handler(context: HttpCrawlingContext) -> None:
+                nonlocal yielded, ignored, scan_status, concurrent
+                try:
+                    data = await context.http_response.read()
+                    payload: dict = json.loads(data)
+                    files = payload.get("files", [])
+                    counted_files = 0
+
+                    # NOTE say this current query returns files that ends with exact same modifiedTime, e.g.
+                    # [higher times, 125, 124], 123, 123 and the page after would continue with 123, 123, [122, 121, lower times]
+                    # If we decide to split the remaining query into two times slices, but don't want to refetch all results
+                    # in this page, we can decide to end the second slice at <123. But then we would miss the files at 123.
+                    # If we instead end the slice at <123.001, we will get the 123 files again in the second slice, but may then
+                    # yield duplicates. To avoid that, we track seen IDs of files modified at the end boundary of a slice.
+                    # A cleaner solution could be to not yield the boundary files in the first place, but that only works if
+                    # we know that we later will split the slice rather than paginate it further. So this is a simpler compromise.
+                    earliest = None
+                    if files:
+                        earliest = files[-1].get("modifiedTime")
+
+                    for file in files:
+                        if self.max_files and (yielded + ignored) >= self.max_files:
+                            scan_status = OpStatus.CANCELED
+                            break
+                        file_id = file.get("id")
+                        if file_id in seen_ids:
+                            logger.debug(f"Skipping duplicate file ID {file_id}")
+                            continue
+                        counted_files += 1
+
+                        if (
+                            earliest
+                            and file_id
+                            and file.get("modifiedTime") == earliest
+                        ):
+                            # The file is modified at the end boundary, we might get duplicates
+                            # across time slices, so track seen IDs to skip them.
+                            seen_ids.add(file_id)
+
+                        name_paths, id_paths = await self._resolve_paths(file)
+                        if not self._passes_filters(name_paths, id_paths):
+                            ignored += 1
+                            continue
+
+                        result = await self.build_scan_result(
+                            file, name_paths, id_paths
+                        )
+                        yielded += 1
+                        await result_queue.put(result)
+
+                    ts = TimeSlice.from_dict(
+                        context.request.user_data.get("time_slice")
+                    )
+                    if not ts:
+                        raise RuntimeError("Missing time_slice in request user_data")
+                    logger.info(
+                        f"From slice {ts} got {counted_files} files (total {yielded} yielded, {ignored} ignored)"
+                    )
+                    next_page = payload.get("nextPageToken")
+                    if not next_page or scan_status == OpStatus.CANCELED:
+                        # This query slice is done, allow another one to start
+                        concurrent = max(0, concurrent - 1)
+                        logger.debug(
+                            f"Exhausted time slice {ts}, concurrent={concurrent}"
+                        )
+                        return
+
+                    # If we a next_page, if we can instead split query slice into two for higher concurrency
+                    if ts.splittable() and concurrent < self.concurrency:
+                        earliest_dt = parse_google_drive_datetime(earliest)
+                        if earliest_dt:
+                            earliest_dt += timedelta(milliseconds=1)
+                        concurrent += 1
+                        ts1, ts2 = ts.split(end=earliest_dt)
+                        logger.debug(
+                            f"Split time slice {ts} into {ts1} and {ts2}, concurrent={concurrent}"
+                        )
+                        await context.add_requests(
+                            [self.make_request("file", time_slice=ts1)]
+                        )
+                        await context.add_requests(
+                            [self.make_request("file", time_slice=ts2)]
+                        )
+                    # Otherwise, continue paginating within the same query slice
+                    else:
+                        await context.add_requests(
+                            [
+                                self.make_request(
+                                    "file",
+                                    params={"pageToken": next_page},
+                                    time_slice=ts,
                                 )
-                            )
-                        return requests
-
-                    async def next_page(
-                        spec: RequestSpec, response: httpx.Response
-                    ) -> RequestSpec | None:
-                        payload = response.json()
-                        token = payload.get("nextPageToken")
-                        if not token:
-                            return None
-                        params = dict(spec.params or {})
-                        params["pageToken"] = token
-                        return RequestSpec(
-                            spec.method,
-                            spec.url,
-                            params=params,
-                            headers=self._auth_headers(),
-                            log_line=spec.log_line,
+                            ]
                         )
 
-                    async with ConcurrentSliceFetcher(
-                        client=client,
-                        concurrency=self.concurrency,
-                        retrying=self._retrying(),
-                    ) as fetcher:
-                        async for response in fetcher.stream(
-                            slices=slice_requests(),
-                            next_page=next_page,
-                        ):
-                            payload = response.json()
-                            files = payload.get("files", [])
-                            logger.info(
-                                f"Fetched {len(files)} files ({yielded} yielded, {ignored} ignored so far)"
-                            )
-                            for file in files:
-                                name_paths, id_paths = await self._resolve_paths(
-                                    file, client
-                                )
-                                if not self._passes_filters(name_paths, id_paths):
-                                    ignored += 1
-                                    continue
-                                result = await self.build_scan_result(
-                                    file, name_paths, id_paths
-                                )
-                                yielded += 1
-                                if self.max_files and yielded >= self.max_files:
-                                    logger.info(
-                                        f"Google Drive scan reached max_files={self.max_files}, stopping early."
-                                    )
-                                    scan_status = OpStatus.CANCELED
-                                    fetcher.cancel()
-                                    return
-                                yield result
-                if scan_status != OpStatus.CANCELED:
+                except BaseException as exc:  # noqa: BLE001
+                    await result_queue.put(exc)
+
+            async def run_crawler() -> None:
+                try:
+                    if not self._folder_cache:
+                        await self._prefetch_folders()
+                    await crawler.run(
+                        requests=[self.make_request("file", time_slice=time_slice)]
+                    )
+                except BaseException as exc:  # noqa: BLE001
+                    await result_queue.put(exc)
+                finally:
+                    # Make best effort to notify the consumer even if it's already cancelled.
+                    try:
+                        await result_queue.put(None)
+                    except asyncio.CancelledError:
+                        logger.debug(
+                            "result_queue.put(None) cancelled; continuing cleanup"
+                        )
+                    except BaseException as exc:  # noqa: BLE001
+                        logger.debug(
+                            f"result_queue.put(None) raised {exc!r}; continuing cleanup"
+                        )
+
+            producer = asyncio.create_task(run_crawler())
+            try:
+                while True:
+                    item = await result_queue.get()
+                    if item is None:
+                        break
+                    if isinstance(item, BaseException):
+                        raise item
+                    yield item
+            finally:
+                producer.cancel()
+                await asyncio.gather(producer, return_exceptions=True)
+                await self._persist_folder_cache()
+                if scan_status == OpStatus.IN_PROGRESS:
                     scan_status = (
                         OpStatus.PARTIAL
                         if cutoff is not None and self.allow_incremental
                         else OpStatus.COMPLETED
                     )
-            except Exception as exc:
-                scan_status = OpStatus.ERROR
-                logger.error(f"Google Drive scan failed: {exc}")
-                raise
-            finally:
-                await self._persist_folder_cache()
                 scan_result.status = scan_status
                 scan_result.ignored = ignored
 
-        scan_result = ScanResult(
-            iterator=iterator(), status=scan_status, ignored=ignored
-        )
+        scan_result = ScanResult(iterator=iterator(), status=scan_status)
 
         return scan_result
 
-    def _retrying(self) -> AsyncRetrying:
-        return AsyncRetrying(
-            stop=stop_after_attempt(5),
-            wait=wait_exponential_jitter(initial=0.5, max=8.0),
-            retry=retry_if_exception_type(
-                (
-                    httpx.TimeoutException,
-                    httpx.TransportError,
-                    httpx.RemoteProtocolError,
-                )
-            )
-            | retry_if_exception(self._is_retryable_status),
-            reraise=True,
-        )
+    def authorize(self, **kwargs) -> str:
+        creds = None
 
-    @staticmethod
-    def _is_retryable_status(exc: BaseException) -> bool:
-        if isinstance(exc, httpx.HTTPStatusError):
-            status = exc.response.status_code
-            return status == 429 or status >= 500
-        return False
+        # Run with authorization_response from an Oauth2 callback handler
+        if "authorization_response" in kwargs:
+            flow = Flow.from_client_secrets_file(
+                CLIENT_SECRET_PATH, SCOPES, state=self._oauth_state
+            )
+            authorization_response = str(kwargs["authorization_response"])
+            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
+            flow.fetch_token(authorization_response=authorization_response)
+            creds = flow.credentials
+            TOKEN_PATH.write_text(creds.to_json())
+            return "authorized"
+
+        # Run without authorization_response, we either refresh or start a new flow
+        if TOKEN_PATH.exists():
+            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+
+        if creds:
+            return "authorized"
+        else:
+            # Start a new OAuth2 flow to redirect user to authorization URL
+            flow = Flow.from_client_secrets_file(CLIENT_SECRET_PATH, SCOPES)
+            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
+            # Read details here https://developers.google.com/identity/protocols/oauth2/web-server#obtainingaccesstokens
+            authorization_url, state = flow.authorization_url(
+                access_type="offline",
+                include_granted_scopes="true",
+                login_hint=self.account,
+            )
+            self._oauth_state = state
+            return authorization_url
 
     async def _load_credentials(self) -> Credentials:
         if self._credentials is not None:
@@ -459,7 +481,7 @@ class GoogleDriveClient(SourcePlugin):
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                creds.refresh(GoogleRequest())
                 TOKEN_PATH.write_text(creds.to_json())
             else:
                 raise RuntimeError("Google Drive credentials are not valid")
@@ -470,7 +492,7 @@ class GoogleDriveClient(SourcePlugin):
         if self._credentials is None:
             raise RuntimeError("Google Drive credentials are not loaded")
         if self._credentials.expired and self._credentials.refresh_token:
-            self._credentials.refresh(Request())
+            self._credentials.refresh(GoogleRequest())
             TOKEN_PATH.write_text(self._credentials.to_json())
 
     def _auth_headers(self) -> Dict[str, str]:
@@ -478,7 +500,7 @@ class GoogleDriveClient(SourcePlugin):
         assert self._credentials is not None
         return {"Authorization": f"Bearer {self._credentials.token}"}
 
-    def _base_list_params(self) -> Dict[str, Any]:
+    def _base_file_list_params(self) -> Dict[str, Any]:
         fields = f"nextPageToken,files({','.join(sorted(API_FIELDS))})"
         params: Dict[str, Any] = {
             "pageSize": 100,
@@ -493,50 +515,68 @@ class GoogleDriveClient(SourcePlugin):
             params["driveId"] = self.drive_id
         return params
 
-    def _build_file_query(self, time_slice: TimeSlice) -> str:
-        clauses = [
-            "trashed = false",
-            "mimeType != 'application/vnd.google-apps.folder'",
-        ]
-        time_clause = build_time_query(time_slice.start, time_slice.end)
-        if time_clause:
-            clauses.append(time_clause)
-        return " and ".join(clauses)
+    def _base_folder_list_params(self) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "pageSize": 1000,
+            "q": "mimeType = 'application/vnd.google-apps.folder'",
+            "fields": "nextPageToken,files(id,name,parents,modifiedTime)",
+            "spaces": "drive",
+            "corpora": self.corpora,
+            "supportsAllDrives": self.supports_all_drives,
+            "includeItemsFromAllDrives": self.supports_all_drives,
+        }
+        if self.drive_id:
+            params["driveId"] = self.drive_id
+        return params
 
-    def _time_slices(
-        self, end: datetime, cutoff: Optional[datetime]
-    ) -> list[TimeSlice]:
-        # Create at most `concurrency` slices. First and last slices are open-ended unless a cutoff is set,
-        # in which case the oldest slice starts at that cutoff.
-        slices: list[TimeSlice] = []
-        now = end
-        earliest = cutoff or (now - timedelta(days=self.most_files_within_days))
-        total_slices = max(1, self.concurrency)
+    def make_request(
+        self,
+        type: str,
+        time_slice: TimeSlice,
+        label: str | None = None,
+        params: dict | None = None,
+        headers: dict | None = None,
+        **kwargs,
+    ):
+        user_data = kwargs or {}
 
-        if total_slices == 1:
-            slices.append(TimeSlice(start=cutoff, end=None, final=True))
-            return slices
+        if type == "file":
+            base_params = self._base_file_list_params()
+        elif type == "folder":
+            base_params = self._base_folder_list_params()
+        else:
+            raise ValueError(f"Unknown request type: {type}")
+        params = {**base_params, **(params or {})}
 
-        cut_points: list[datetime] = []
-        total_duration = now - earliest
-        if total_duration.total_seconds() > 0:
-            for idx in range(1, total_slices):
-                fraction = idx / total_slices
-                cut_points.append(earliest + (total_duration * fraction))
+        if time_slice:
+            time_query = build_time_query(time_slice)
+            if "q" in params:
+                params["q"] = f"({params['q']}) and ({time_query})"
+            else:
+                params["q"] = time_query
+            user_data["time_slice"] = time_slice.to_dict()
 
-        prev_start: datetime | None = cutoff if cutoff else None
-        for boundary in cut_points:
-            slices.append(TimeSlice(start=prev_start, end=boundary, final=False))
-            prev_start = boundary
-
-        oldest_end: datetime | None = cutoff if cutoff else None
-        slices.append(TimeSlice(start=prev_start, end=oldest_end, final=True))
-        return slices
-
-    def _describe_slice(self, idx: int, ts: TimeSlice, total: int) -> str:
-        start = ts.start.date().isoformat() if ts.start else "begin"
-        end = ts.end.date().isoformat() if ts.end else "now"
-        return f"slice {idx + 1}/{total} {start} -> {end}"
+        url = str(
+            httpx.URL(
+                "https://www.googleapis.com/drive/v3/files",
+                params=params,
+            )
+        )
+        base_headers = self._auth_headers()
+        base_headers.update(headers or {})
+        try:
+            req = Request.from_url(
+                url=url,
+                method="GET",
+                headers=base_headers,
+                user_data=user_data,
+                label=label,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to create request for URL {url}: {exc}"
+            ) from exc
+        return req
 
     def _passes_filters(self, name_paths: list[str], id_paths: list[str]) -> bool:
         if not self.include_paths and not self.exclude_paths:
@@ -546,11 +586,10 @@ class GoogleDriveClient(SourcePlugin):
             paths=paths, include=self.include_paths, exclude=self.exclude_paths
         )
 
-    def _folder_cache_path(self) -> Path:
-        return WORKSPACE / f"{self.provider.id}_folder_cache.json"
-
     async def _load_folder_cache(self) -> None:
-        path = self._folder_cache_path()
+        if self._folder_cache:
+            return
+        path = WORKSPACE / f"{self.provider.id}_folder_cache.json"
         if path.exists():
             try:
                 self._folder_cache = json.loads(path.read_text())
@@ -559,68 +598,92 @@ class GoogleDriveClient(SourcePlugin):
                 self._folder_cache = {}
 
     async def _persist_folder_cache(self) -> None:
-        path = self._folder_cache_path()
+        path = WORKSPACE / f"{self.provider.id}_folder_cache.json"
         try:
             path.write_text(json.dumps(self._folder_cache))
         except Exception as exc:
             logger.warning(f"Failed to persist folder cache {path}: {exc}")
 
-    async def _ensure_folder_cache(self, client: httpx.AsyncClient) -> None:
-        if self._folder_cache:
-            return
-        await self._load_folder_cache()
-        if self._folder_cache:
-            return
-        await self._prefetch_folders(client)
-        await self._persist_folder_cache()
+    async def _prefetch_folders(self) -> None:
+        crawler = await make_crawler()
+        concurrent = 1
 
-    async def _prefetch_folders(self, client: httpx.AsyncClient) -> None:
-        params = {
-            "q": "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-            "fields": "nextPageToken,files(id,name,parents,driveId)",
-            "pageSize": 1000,
-            "spaces": "drive",
-            "supportsAllDrives": self.supports_all_drives,
-            "includeItemsFromAllDrives": self.supports_all_drives,
-            "corpora": self.corpora,
-        }
-        if self.drive_id:
-            params["driveId"] = self.drive_id
-        page_token: Optional[str] = None
-        while True:
-            if page_token:
-                params["pageToken"] = page_token
-            response = await client.get(
-                "/drive/v3/files", params=params, headers=self._auth_headers()
-            )
-            response.raise_for_status()
-            payload = response.json()
-            folders = payload.get("files", [])
-            logger.info(f"Prefetched {len(folders)} folders for folder cache")
-            for folder in folders:
-                folder_id = folder.get("id")
-                if not folder_id:
-                    continue
-                self._folder_cache[folder_id] = {
-                    "name": folder.get("name", ""),
-                    "parents": folder.get("parents") or [],
-                }
-            page_token = payload.get("nextPageToken")
-            if not page_token:
-                break
+        @crawler.router.default_handler
+        async def folder_request_handler(context: HttpCrawlingContext) -> None:
+            nonlocal concurrent
+            data = await context.http_response.read()
+            payload: dict = json.loads(data)
+            files = payload.get("files", [])
+            earliest = None
+            if files:
+                earliest = files[-1].get("modifiedTime")
 
-    async def _get_folder(
-        self, folder_id: str, client: httpx.AsyncClient
-    ) -> Dict[str, Any]:
+            for file in files:
+                folder_id = file.get("id")
+                if folder_id:
+                    self._folder_cache[folder_id] = {
+                        "name": file.get("name", ""),
+                        "parents": file.get("parents") or [],
+                    }
+
+            ts = TimeSlice.from_dict(context.request.user_data.get("time_slice"))
+            if not ts:
+                raise RuntimeError("Missing time_slice in request user_data")
+            next_page = payload.get("nextPageToken")
+            if not next_page:
+                # This query slice is done, allow another one to start
+                concurrent = max(0, concurrent - 1)
+                logger.debug(f"Exhausted time slice {ts}, concurrent={concurrent}")
+                return
+
+            # If we a next_page, if we can instead split query slice into two for higher concurrency
+            if ts.splittable() and concurrent < self.concurrency:
+                earliest_dt = parse_google_drive_datetime(earliest)
+                if earliest_dt:
+                    earliest_dt += timedelta(milliseconds=1)
+                concurrent += 1
+                ts1, ts2 = ts.split(end=earliest_dt)
+                logger.debug(
+                    f"Split time slice {ts} into {ts1} and {ts2}, concurrent={concurrent}"
+                )
+                await context.add_requests(
+                    [self.make_request("folder", time_slice=ts1)]
+                )
+                await context.add_requests(
+                    [self.make_request("folder", time_slice=ts2)]
+                )
+            # Otherwise, continue paginating within the same query slice
+            else:
+                await context.add_requests(
+                    [
+                        self.make_request(
+                            "folder", params={"pageToken": next_page}, time_slice=ts
+                        )
+                    ]
+                )
+
+        await crawler.run(
+            [
+                self.make_request(
+                    "folder",
+                    time_slice=TimeSlice(start=None, end=None),
+                    params={
+                        "q": "mimeType = 'application/vnd.google-apps.folder'",
+                        "fields": "nextPageToken,files(id,name,parents,modifiedTime)",
+                        "pageSize": 1000,
+                    },
+                )
+            ]
+        )
+
+    async def _get_folder(self, folder_id: str) -> Dict[str, Any]:
         cached = self._folder_cache.get(folder_id)
         if cached:
             return cached
-        return await self._fetch_folder_by_id(folder_id, client)
+        return await self._fetch_folder_by_id(folder_id)
 
-    async def _fetch_folder_by_id(
-        self, folder_id: str, client: httpx.AsyncClient
-    ) -> Dict[str, Any]:
-        response = await client.get(
+    async def _fetch_folder_by_id(self, folder_id: str) -> Dict[str, Any]:
+        response = await self.http.get(
             f"/drive/v3/files/{folder_id}",
             params={
                 "fields": "id,name,parents,driveId",
@@ -635,17 +698,15 @@ class GoogleDriveClient(SourcePlugin):
         logger.info(f"Fetched folder {folder_id} with name '{name}'")
         drive_id = payload.get("driveId")
         if name == "Drive" and drive_id:
-            drive_name = await self._resolve_drive_name(drive_id, client)
+            drive_name = await self._resolve_drive_name(drive_id)
             if drive_name:
                 name = drive_name
         info = {"name": name, "parents": payload.get("parents") or []}
         self._folder_cache[folder_id] = info
         return info
 
-    async def _resolve_drive_name(
-        self, drive_id: str, client: httpx.AsyncClient
-    ) -> Optional[str]:
-        response = await client.get(
+    async def _resolve_drive_name(self, drive_id: str) -> Optional[str]:
+        response = await self.http.get(
             f"/drive/v3/drives/{drive_id}",
             params={"fields": "name"},
             headers=self._auth_headers(),
@@ -659,9 +720,7 @@ class GoogleDriveClient(SourcePlugin):
         payload = response.json()
         return payload.get("name")
 
-    async def _resolve_paths(
-        self, file: Dict[str, Any], client: httpx.AsyncClient
-    ) -> tuple[list[str], list[str]]:
+    async def _resolve_paths(self, file: Dict[str, Any]) -> tuple[list[str], list[str]]:
         file_name = file.get("name", file.get("originalFilename", ""))
         file_id = file.get("id", "")
         parents = file.get("parents") or []
@@ -677,7 +736,7 @@ class GoogleDriveClient(SourcePlugin):
             seen: set[str] = set()
             while current and current not in seen:
                 seen.add(current)
-                folder_info = await self._get_folder(current, client)
+                folder_info = await self._get_folder(current)
                 names.append(folder_info.get("name", ""))
                 ids.append(current)
                 parent_list = folder_info.get("parents") or []
@@ -711,12 +770,12 @@ def get_many_user_emails(user_like_objects: Any) -> set[str]:
     return emails
 
 
-def build_time_query(start: Optional[datetime], end: Optional[datetime]) -> str:
+def build_time_query(ts: TimeSlice) -> str:
     clauses: list[str] = []
-    if start is not None:
-        clauses.append(f"modifiedTime >= '{format_dt(start)}'")
-    if end is not None:
-        clauses.append(f"modifiedTime < '{format_dt(end)}'")
+    if ts.start is not None:
+        clauses.append(f"modifiedTime >= '{format_dt(ts.start)}'")
+    if ts.end is not None:
+        clauses.append(f"modifiedTime < '{format_dt(ts.end)}'")
     return " and ".join(clauses)
 
 
@@ -724,3 +783,14 @@ def format_dt(value: datetime) -> str:
     dt = value if value.tzinfo else value.replace(tzinfo=UTC)
     dt = dt.astimezone(UTC)
     return dt.isoformat().replace("+00:00", "Z")
+
+
+async def make_crawler():
+    # Use a fresh storage client and request queue per scan to avoid reusing state across runs.
+    storage_client = MemoryStorageClient()
+    request_queue = await RequestQueue.open(
+        alias=f"googledrive-{secrets.token_hex(4)}",
+        storage_client=storage_client,
+    )
+    crawler = HttpCrawler(storage_client=storage_client, request_manager=request_queue)
+    return crawler

@@ -10,3 +10,7 @@ class PluginBase:
 
     def __init__(self, provider: Provider, **_: Any) -> None:
         self.provider = provider
+
+    async def close(self) -> None:
+        """Close any resources held by the plugin."""
+        pass
