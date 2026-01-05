@@ -52,6 +52,32 @@ const normalizeWidth = (width: number | null): string | number => {
   }
 };
 
+const normalizeSort = (
+  sortArg: unknown
+): { accessor: string; direction: "asc" | "desc" } | null => {
+  if (!sortArg) {
+    return null;
+  }
+  if (
+    typeof sortArg === "object" &&
+    sortArg !== null &&
+    "key" in (sortArg as Record<string, unknown>)
+  ) {
+    const sortObj = sortArg as { key?: { accessor?: unknown }; direction?: unknown };
+    const accessor = sortObj.key?.accessor ? String(sortObj.key.accessor) : "";
+    const direction = sortObj.direction === "desc" ? "desc" : "asc";
+    if (!accessor) {
+      return null;
+    }
+    return { accessor, direction };
+  }
+  const accessor = String(sortArg);
+  if (!accessor) {
+    return null;
+  }
+  return { accessor, direction: "asc" };
+};
+
 const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
   return schema.map((column) => ({
     accessor: column.id,
@@ -106,6 +132,7 @@ function RecordsRoute() {
     page: 1,
   });
   const [total, setTotal] = useState<number | null>(null);
+  const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
   const indexedRecords = useMemo(
     () => records.map((record) => ({ record, haystack: buildSearchString(record) })),
     [records]
@@ -122,15 +149,25 @@ function RecordsRoute() {
   }, [indexedRecords, searchQuery]);
 
   const loadPage = useCallback(
-    async (page: number, limitOverride?: number) => {
+    async (
+      page: number,
+      limitOverride?: number,
+      sortOverride?: { accessor: string; direction: "asc" | "desc" } | null
+    ) => {
       const limit = limitOverride ?? pagination.limit;
+      const effectiveSort = sortOverride ?? sort;
       setLoading(true);
       setError(null);
       try {
         const offset = (page - 1) * limit;
+        const sortParam =
+          effectiveSort && effectiveSort.accessor && effectiveSort.direction
+            ? `${effectiveSort.accessor}:${effectiveSort.direction}`
+            : undefined;
         const response: ViewAssetsResponse = await fetchViewAssets(DEFAULT_VIEW_ID, {
           offset,
           limit,
+          sort: sortParam,
         });
         const fetchedRecords = response.items ?? [];
         setRecords(fetchedRecords);
@@ -149,7 +186,7 @@ function RecordsRoute() {
         setLoading(false);
       }
     },
-    [pagination.limit]
+    [pagination.limit, sort]
   );
 
   useEffect(() => {
@@ -167,7 +204,7 @@ function RecordsRoute() {
             Displaying records from view “{DEFAULT_VIEW_ID}”, total {total}.
           </p>
         </div>
-        <button type="button" onClick={() => void loadPage(true)} disabled={loading}>
+        <button type="button" onClick={() => void loadPage(1)} disabled={loading}>
           {loading ? "Loading..." : "Reload"}
         </button>
       </header>
@@ -201,6 +238,17 @@ function RecordsRoute() {
         totalRowCount={total ?? records.length}
         onPageChange={(page) => void loadPage(page)}
         isLoading={loading}
+        externalSortHandling={true}
+        onSortChange={(sortArg) => {
+          const normalized = normalizeSort(sortArg);
+          if (!normalized) {
+            setSort(null);
+            void loadPage(1, undefined, null);
+            return;
+          }
+          setSort(normalized);
+          void loadPage(1, undefined, normalized);
+        }}
       />
     </section>
   );
