@@ -84,7 +84,9 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
     )
 
     view = default_view()
-    result = await list_assets_for_view(view, provider_id=provider.id, include_total=True)
+    result = await list_assets_for_view(
+        view, provider_id=provider.id, include_total=True
+    )
 
     assert result["stats"]["returned"] == 1
     assert result["stats"]["total"] == 1
@@ -96,7 +98,9 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
     assert asset_entry["asset/last_snapshot"] == snap2.id
     assert asset_entry["asset/deleted_snapshot"] is None
 
-    schema = result["schema"][key_str]
+    key_str = str(FILE_PATH)
+    schema_by_key = {col["key"]: col for col in result["schema"]}
+    schema = schema_by_key[key_str]
     assert schema["registry_id"] == key_id
     assert schema["key"] == key_str
     assert schema["plugin_id"]
