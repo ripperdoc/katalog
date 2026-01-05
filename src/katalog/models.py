@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, UTC
 from enum import Enum, IntEnum
+import json
 from time import time
 
 from typing import Any, Mapping, Sequence
@@ -31,6 +32,7 @@ from tortoise.fields import (
     SET_NULL,
 )
 from tortoise.models import Model
+from tortoise import Tortoise
 
 from katalog.metadata import (
     MetadataKey,
@@ -716,6 +718,49 @@ class MetadataChangeSet:
             await Metadata.bulk_create(to_create)
             if asset._metadata_cache is not None:
                 asset._metadata_cache.extend(to_create)
+
+            # Update full-text search index for this asset based on current metadata.
+            try:
+                combined = list(existing_metadata) + list(to_create)
+                current = self._current_metadata(combined)
+                parts: list[str] = []
+                for entries in current.values():
+                    for md in entries:
+                        if (
+                            md.value_type == MetadataType.STRING
+                            and md.value_text is not None
+                        ):
+                            parts.append(md.value_text)
+                        elif (
+                            md.value_type == MetadataType.INT
+                            and md.value_int is not None
+                        ):
+                            parts.append(str(md.value_int))
+                        elif (
+                            md.value_type == MetadataType.FLOAT
+                            and md.value_real is not None
+                        ):
+                            parts.append(str(md.value_real))
+                        elif (
+                            md.value_type == MetadataType.JSON
+                            and md.value_json is not None
+                        ):
+                            parts.append(json.dumps(md.value_json, ensure_ascii=False))
+
+                doc = "\n".join(parts)
+                conn = Tortoise.get_connection("default")
+                # Virtual tables don't support UPSERT; replace by delete+insert.
+                await conn.execute_query(
+                    "DELETE FROM asset_search WHERE rowid = ?", [asset.id]
+                )
+                await conn.execute_query(
+                    "INSERT INTO asset_search(rowid, doc) VALUES(?, ?)",
+                    [asset.id, doc],
+                )
+            except Exception as exc:
+                logger.opt(exception=exc).warning(
+                    f"Failed to update asset_search index for asset_id={asset.id}"
+                )
         return changed_keys
 
 

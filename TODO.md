@@ -2,8 +2,12 @@
 
 # Next up
 
-- [ ] Separate Assets seen in scan from assets yielded (or similar). Still need to be matching usage
-      when calling processors.
+- [ ] Separate stat assets_seen in scan from assets yielded (or similar). Still need to be matching
+      usage when calling processors.
+- [ ] Speed up time to save to DB after scan, check journal mode / WAL, can we batch writes
+      together, can we avoid some reads (e.g. if we know the asset is new, no need to read from
+      Metadata table). Also add some logging that would show progress even if it takes time to
+      persist.
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
@@ -78,6 +82,12 @@ Use journalling system of file systems to only scan what has changed since last.
   - Real-time file change notifications
   - Low overhead
   - Not persistent → rescan after restart
+
+# Upstream bugs
+
+- SimpleTable: broken chevron on page footer if at the end page
+- SimpleTable: Cannot copy and paste a cell into the filter field, because the cell is still
+  considered selected.
 
 # Ideas
 

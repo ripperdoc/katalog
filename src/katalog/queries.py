@@ -63,16 +63,12 @@ async def setup_db(db_path: Path) -> Path:
         """
         CREATE INDEX IF NOT EXISTS idx_metadata_asset_key_snapshot
         ON metadata(asset_id, metadata_key_id, snapshot_id);
+
+        -- Full-text search index for current metadata (one row per asset_id).
+        -- Keep it minimal: one column, no positional detail.
+        CREATE VIRTUAL TABLE IF NOT EXISTS asset_search
+        USING fts5(doc, tokenize='unicode61', detail='none');
         """
-        # """
-        # -- Smaller/faster index for the common UI case (exclude removed rows).
-        # CREATE INDEX IF NOT EXISTS idx_metadata_asset_key_snapshot_not_removed
-        # ON metadata(asset_id, metadata_key_id, snapshot_id DESC)
-        # WHERE removed = 0;
-        # -- Speed up paging assets within a provider (provider filter + id sort).
-        # CREATE INDEX IF NOT EXISTS idx_asset_provider_id_id
-        # ON asset(provider_id, id);
-        # """
     )
     return db_path
 
@@ -276,6 +272,7 @@ async def list_assets_for_view(
     sort: tuple[str, str] | None = None,
     filters: list[str] | None = None,
     columns: set[str] | None = None,
+    search: str | None = None,
     include_total: bool = True,
 ) -> dict[str, Any]:
     """List assets constrained by a ViewSpec with offset pagination."""
@@ -305,6 +302,12 @@ async def list_assets_for_view(
     if provider_id is not None:
         conditions.insert(0, "a.provider_id = ?")
         filter_params.insert(0, provider_id)
+
+    if search is not None and search.strip():
+        conditions.append(
+            "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
+        )
+        filter_params.append(search.strip())
 
     where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

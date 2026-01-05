@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchViewAssets } from "../api/client";
 import type { Asset, MetadataValueEntry, ColumnDefinition, ViewAssetsResponse } from "../types/api";
 import {
@@ -20,7 +20,17 @@ const valueGetter = (props: ValueGetterProps) => {
   }
   if (typeof value === "object" && "value" in (value as Record<string, unknown>)) {
     const entry = value as MetadataValueEntry;
-    return entry.value;
+    const inner = entry.value;
+    if (inner === null || inner === undefined) {
+      return "";
+    }
+    if (typeof inner === "object") {
+      return JSON.stringify(inner);
+    }
+    return inner;
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
   }
   return value;
 };
@@ -92,36 +102,6 @@ const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
   }));
 };
 
-const collectSearchableParts = (value: unknown, parts: string[]) => {
-  if (value === null || value === undefined) {
-    return;
-  }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    parts.push(String(value));
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectSearchableParts(item, parts));
-    return;
-  }
-  if (typeof value === "object") {
-    const recordValue = value as Record<string, unknown>;
-    if ("value" in recordValue) {
-      collectSearchableParts(recordValue.value, parts);
-    }
-    Object.values(recordValue).forEach((child) => collectSearchableParts(child, parts));
-  }
-};
-
-const buildSearchString = (record: Asset): string => {
-  const parts: string[] = [];
-  Object.entries(record).forEach(([key, value]) => {
-    parts.push(key);
-    collectSearchableParts(value, parts);
-  });
-  return parts.map((part) => part.toLowerCase()).join(" ");
-};
-
 function RecordsRoute() {
   const [records, setRecords] = useState<Asset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -136,31 +116,19 @@ function RecordsRoute() {
   const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
   const [filters, setFilters] = useState<TableFilterState>({});
   const [durationMs, setDurationMs] = useState<number | null>(null);
-  const indexedRecords = useMemo(
-    () => records.map((record) => ({ record, haystack: buildSearchString(record) })),
-    [records]
-  );
-
-  const filteredRecords = useMemo(() => {
-    const trimmed = searchQuery.trim().toLowerCase();
-    if (!trimmed) {
-      return indexedRecords.map(({ record }) => record);
-    }
-    return indexedRecords
-      .filter(({ haystack }) => haystack.includes(trimmed))
-      .map(({ record }) => record);
-  }, [indexedRecords, searchQuery]);
 
   const loadPage = useCallback(
     async (
       page: number,
       limitOverride?: number,
       sortOverride?: { accessor: string; direction: "asc" | "desc" } | null,
-      filtersOverride?: TableFilterState
+      filtersOverride?: TableFilterState,
+      searchOverride?: string
     ) => {
       const limit = limitOverride ?? pagination.limit;
       const effectiveSort = sortOverride ?? sort;
       const effectiveFilters = filtersOverride ?? filters;
+      const effectiveSearch = (searchOverride ?? searchQuery).trim();
       setLoading(true);
       setError(null);
       try {
@@ -178,6 +146,7 @@ function RecordsRoute() {
           limit,
           sort: sortParam,
           filters: filterParams.getAll("filters"),
+          search: effectiveSearch.length > 0 ? effectiveSearch : undefined,
         });
         const fetchedRecords = response.items ?? [];
         setRecords(fetchedRecords);
@@ -198,7 +167,7 @@ function RecordsRoute() {
         setLoading(false);
       }
     },
-    [pagination.limit, sort, filters]
+    [pagination.limit, sort, filters, searchQuery]
   );
 
   useEffect(() => {
@@ -206,6 +175,13 @@ function RecordsRoute() {
     // We intentionally only load once per mount or when the view changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      void loadPage(1, undefined, sort, filters, searchQuery);
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery, loadPage, sort, filters]);
 
   return (
     <section className="panel">
@@ -234,12 +210,9 @@ function RecordsRoute() {
       {!error && !loading && records.length === 0 && (
         <div className="empty-state">No records available.</div>
       )}
-      {!error && !loading && records.length > 0 && filteredRecords.length === 0 && (
-        <div className="empty-state">No records match your search.</div>
-      )}
       <SimpleTable
         defaultHeaders={seenHeaders}
-        rows={filteredRecords}
+        rows={records}
         height={"75vh"}
         selectableCells={true}
         rowIdAccessor="asset/id"

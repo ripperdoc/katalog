@@ -47,6 +47,10 @@ export interface ViewAssetsResponse {
   stats: {
     returned: number;
     total: number | null;
+    duration_ms?: number | null;
+    duration_assets_ms?: number | null;
+    duration_metadata_ms?: number | null;
+    duration_count_ms?: number | null;
   };
   pagination: {
     offset: number;

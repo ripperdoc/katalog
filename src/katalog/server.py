@@ -97,9 +97,6 @@ async def list_assets_for_view_endpoint(
     search: Optional[str] = Query(None),
     filters: list[str] | None = Query(None),
 ):
-    if search:
-        raise HTTPException(status_code=400, detail="Search is not yet supported")
-
     try:
         view = get_view(view_id)
     except KeyError:
@@ -122,6 +119,7 @@ async def list_assets_for_view_endpoint(
             sort=sort_tuple,
             filters=filters,
             columns=set(columns) if columns else None,
+            search=search,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
