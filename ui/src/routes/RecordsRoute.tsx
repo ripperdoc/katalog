@@ -101,8 +101,7 @@ function RecordsRoute() {
   const [error, setError] = useState<string | null>(null);
   const [seenHeaders, setSeenHeaders] = useState<HeaderObject[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [pagination, setPagination] = useState<{ offset: number; limit: number; page: number }>({
-    offset: 0,
+  const [pagination, setPagination] = useState<{ limit: number; page: number }>({
     limit: 200,
     page: 1,
   });
@@ -138,7 +137,6 @@ function RecordsRoute() {
         const schema = response.schema ?? [];
         setSeenHeaders(buildHeadersFromSchema(schema));
         setPagination({
-          offset,
           limit,
           page,
         });
@@ -165,7 +163,9 @@ function RecordsRoute() {
       <header className="panel-header">
         <div>
           <h2>Records</h2>
-          <p>Displaying records from view “{DEFAULT_VIEW_ID}”.</p>
+          <p>
+            Displaying records from view “{DEFAULT_VIEW_ID}”, total {total}.
+          </p>
         </div>
         <button type="button" onClick={() => void loadPage(true)} disabled={loading}>
           {loading ? "Loading..." : "Reload"}
@@ -195,13 +195,12 @@ function RecordsRoute() {
         selectableCells={true}
         rowIdAccessor="asset/id"
         columnResizing={true}
-        serverSidePagination={true}
+        shouldPaginate={true}
         rowsPerPage={pagination.limit}
-        totalRows={total ?? records.length}
-        currentPage={pagination.page}
+        serverSidePagination={true}
+        totalRowCount={total ?? records.length}
         onPageChange={(page) => void loadPage(page)}
-        onNextPage={() => void loadPage(pagination.page + 1)}
-        onUserPageChange={(page) => void loadPage(page)}
+        isLoading={loading}
       />
     </section>
   );
