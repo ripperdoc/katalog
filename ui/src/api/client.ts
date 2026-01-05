@@ -1,5 +1,7 @@
 import type {
-  AssetResponse,
+  ViewAssetsResponse,
+  ViewListResponse,
+  ViewResponse,
   ProviderListResponse,
   ProviderResponse,
   Snapshot,
@@ -18,10 +20,39 @@ async function handleResponse(response: Response) {
   return response.json();
 }
 
-export async function fetchAssets(providerId?: number): Promise<AssetResponse> {
-  const search = providerId !== undefined ? `?provider_id=${encodeURIComponent(providerId)}` : "";
-  const url = `${API_BASE}/assets${search}`;
-  const response = await fetch(url, {
+export async function fetchViewAssets(
+  viewId: string,
+  {
+    providerId,
+    offset = 0,
+    limit = 100,
+    sort,
+  }: { providerId?: number; offset?: number; limit?: number; sort?: string | undefined }
+): Promise<ViewAssetsResponse> {
+  const params = new URLSearchParams();
+  params.set("offset", String(offset));
+  params.set("limit", String(limit));
+  if (providerId !== undefined) {
+    params.set("provider_id", String(providerId));
+  }
+  if (sort) {
+    params.set("sort", sort);
+  }
+  const response = await fetch(`${API_BASE}/views/${encodeURIComponent(viewId)}/assets?${params}`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchViews(): Promise<ViewListResponse> {
+  const response = await fetch(`${API_BASE}/views`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchView(viewId: string): Promise<ViewResponse> {
+  const response = await fetch(`${API_BASE}/views/${encodeURIComponent(viewId)}`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);

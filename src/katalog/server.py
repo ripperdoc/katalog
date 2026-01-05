@@ -11,13 +11,14 @@ from tortoise import Tortoise
 from katalog.config import DB_URL, WORKSPACE
 from katalog.models import Asset, OpStatus, Provider, ProviderType, Snapshot
 from katalog.processors.runtime import run_processors, sort_processors
-from katalog.queries import list_assets_with_metadata, sync_config
+from katalog.queries import list_assets_for_view, sync_config
 from katalog.sources.runtime import get_source_plugin, run_sources
 from katalog.utils.snapshot_events import (
     SnapshotEventManager,
     SnapshotRunState,
     sse_event,
 )
+from katalog.views import get_view, list_views
 
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DB_URL}")
@@ -47,7 +48,11 @@ RUNNING_SNAPSHOTS: dict[int, SnapshotRunState] = {}
 
 @app.get("/assets")
 async def list_assets(provider_id: Optional[int] = None):
-    return await list_assets_with_metadata(provider_id=provider_id)
+    view = get_view("default")
+    return await list_assets_for_view(
+        view,
+        provider_id=provider_id,
+    )
 
 
 @app.post("/assets")
@@ -63,6 +68,66 @@ async def get_asset(asset_id: int):
 @app.patch("/assets/{asset_id}")
 async def update_asset(asset_id: int):
     raise NotImplementedError()
+
+
+# endregion
+
+# region DATA VIEWS
+
+
+@app.get("/views")
+async def list_views_endpoint():
+    return {"views": [v.to_dict() for v in list_views()]}
+
+
+@app.get("/views/{view_id}")
+async def get_view_endpoint(view_id: str):
+    try:
+        view = get_view(view_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="View not found")
+    return {"view": view.to_dict()}
+
+
+@app.get("/views/{view_id}/assets")
+async def list_assets_for_view_endpoint(
+    view_id: str,
+    provider_id: Optional[int] = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    sort: Optional[str] = Query(None),
+    columns: list[str] | None = Query(None),
+    search: Optional[str] = Query(None),
+    filters: list[str] | None = Query(None),
+):
+    if search:
+        raise HTTPException(status_code=400, detail="Search is not yet supported")
+    if filters:
+        raise HTTPException(status_code=400, detail="Filtering is not yet supported")
+    try:
+        view = get_view(view_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="View not found")
+
+    sort_tuple: tuple[str, str] | None = None
+    if sort:
+        if ":" in sort:
+            col, direction = sort.split(":", 1)
+        else:
+            col, direction = sort, "asc"
+        sort_tuple = (col, direction)
+
+    try:
+        return await list_assets_for_view(
+            view,
+            provider_id=provider_id,
+            offset=offset,
+            limit=limit,
+            sort=sort_tuple,
+            columns=set(columns) if columns else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # endregion

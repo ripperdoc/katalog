@@ -7,16 +7,16 @@ from tortoise import Tortoise
 
 from katalog.config import DB_PATH, read_config_file
 from katalog.metadata import (
-    ACCESS_OWNER,
-    ACCESS_SHARED_WITH,
-    FILE_NAME,
-    FILE_PATH,
-    FILE_SIZE,
-    HASH_MD5,
+    ASSET_CANONICAL_ID,
+    ASSET_CANONICAL_URI,
+    ASSET_CREATED_SNAPSHOT,
+    ASSET_DELETED_SNAPSHOT,
+    ASSET_ID,
+    ASSET_LAST_SNAPSHOT,
+    ASSET_PROVIDER_ID,
     METADATA_REGISTRY,
     METADATA_REGISTRY_BY_ID,
-    TIME_CREATED,
-    TIME_MODIFIED,
+    get_metadata_id,
     MetadataDef,
     MetadataKey,
 )
@@ -28,6 +28,7 @@ from katalog.models import (
     Provider,
     ProviderType,
 )
+from katalog.views import ViewSpec
 
 
 async def setup_db(db_path: Path) -> Path:
@@ -133,135 +134,178 @@ async def sync_config():
     logger.info("Synchronized configuration with database")
 
 
-example_asset_response = {
-    "assets": [
-        {
-            "id": 1,  #
-            "canonical_id": "",
-            "canonical_uri": "file:///path/to/asset1.jpg",
-            "created": 1678901234,
-            "seen": 1678901234,
-            "deleted": 1678901234,
-            "metadata": {
-                FILE_PATH: {
-                    "value": "/path/to/asset1.jpg",
-                    "count": 3,
-                },
-                FILE_NAME: {
-                    "value": "asset1.jpg",
-                    "count": 2,
-                },
-                FILE_SIZE: {
-                    "value": 102400,
-                    "count": 43,
-                },
-                TIME_CREATED: {
-                    "value": "2001-02-03T04:05:06Z",
-                    "count": 3,
-                },
-                TIME_MODIFIED: {
-                    "value": "2001-02-03T04:05:06Z",
-                    "count": 2,
-                },
-                ACCESS_OWNER: {
-                    "value": "some@email.com",
-                    "coubt": 4,
-                },
-                ACCESS_SHARED_WITH: {
-                    "value": "some@email.com",
-                    "count": 2,
-                },
-                HASH_MD5: {
-                    "value": "d41d8cd98f00b204e9800998ecf8427e",
-                    "count": 1,
-                },
-            },
-        },
-    ],
-    "schema": {},  # Each key is the string metadata key and the value is the MetadataDef as JSON. Only contains metadata present above.
-    "stats": {},  # Number of assets returned,
-}
-
-
-async def list_assets_with_metadata(
-    *, provider_id: int | None = None
+async def list_assets_for_view(
+    view: ViewSpec,
+    *,
+    provider_id: int | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    sort: tuple[str, str] | None = None,
+    columns: set[str] | None = None,
+    include_total: bool = True,
 ) -> dict[str, Any]:
-    """List assets with their metadata for UI consumption.
+    """List assets constrained by a ViewSpec with offset pagination."""
 
-    Returns one JSON object per asset (Asset fields at root), plus a `metadata`
-    dict containing metadata key-value pairs, currently using a default setup but in future depending on which view is requested.
+    if limit < 0 or offset < 0:
+        raise ValueError("offset and limit must be non-negative")
 
-    Pagination, Sorting and filtering will currently be done client side. The only filtering done here is on provider_id if provided.
-    """
+    column_map = view.column_map()
+    requested_columns = set(columns) if columns else set(column_map)
+    unknown = requested_columns - set(column_map)
+    if unknown:
+        raise ValueError(f"Unknown columns requested: {sorted(unknown)}")
+
+    sort_col, sort_dir = (
+        sort
+        if sort is not None
+        else (view.default_sort[0] if view.default_sort else (str(ASSET_ID), "asc"))
+    )
+    sort_dir = sort_dir.lower()
+    if sort_dir not in {"asc", "desc"}:
+        raise ValueError("sort direction must be 'asc' or 'desc'")
+    sort_spec = column_map.get(sort_col)
+    if sort_spec is None:
+        raise ValueError(f"Unknown sort column: {sort_col}")
+    if not sort_spec.sortable:
+        raise ValueError(f"Sorting not supported for column: {sort_col}")
+
+    asset_sort_fields = {
+        str(ASSET_ID): "a.id",
+        str(ASSET_PROVIDER_ID): "a.provider_id",
+        str(ASSET_CANONICAL_ID): "a.canonical_id",
+        str(ASSET_CANONICAL_URI): "a.canonical_uri",
+        str(ASSET_CREATED_SNAPSHOT): "a.created_snapshot_id",
+        str(ASSET_LAST_SNAPSHOT): "a.last_snapshot_id",
+        str(ASSET_DELETED_SNAPSHOT): "a.deleted_snapshot_id",
+    }
+    if sort_col not in asset_sort_fields:
+        raise ValueError(f"Sorting not implemented for column: {sort_col}")
+    order_by_clause = f"{asset_sort_fields[sort_col]} {sort_dir.upper()}, a.id ASC"
+
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
 
     where_provider = ""
     params: list[Any] = []
+    provider_params: list[Any] = []
     if provider_id is not None:
         where_provider = "WHERE a.provider_id = ?"
         params.append(provider_id)
+        provider_params.append(provider_id)
 
-    # Window over metadata to grab the most recent value per (asset, key) and its count.
-    sql = f"""
-    WITH ranked AS (
-        SELECT
-            m.asset_id,
-            m.metadata_key_id,
-            m.value_type,
-            m.value_text,
-            m.value_int,
-            m.value_real,
-            m.value_datetime,
-            m.value_json,
-            m.value_relation_id,
-            m.snapshot_id,
-            COUNT(*) OVER (PARTITION BY m.asset_id, m.metadata_key_id) AS cnt,
-            ROW_NUMBER() OVER (PARTITION BY m.asset_id, m.metadata_key_id ORDER BY m.snapshot_id DESC) AS rn
-        FROM {metadata_table} m
-        WHERE m.removed = 0
-    )
-    SELECT
-        a.id AS asset_id,
-        a.provider_id AS asset_provider_id,
-        a.canonical_id,
-        a.canonical_uri,
-        a.created_snapshot_id,
-        a.last_snapshot_id,
-        a.deleted_snapshot_id,
-        r.metadata_key_id,
-        r.value_type,
-        r.value_text,
-        r.value_int,
-        r.value_real,
-        strftime('%Y-%m-%dT%H:%M:%fZ', r.value_datetime) AS value_datetime,
-        r.value_json,
-        r.value_relation_id,
-        r.cnt AS metadata_count
-    FROM {asset_table} a
-    LEFT JOIN ranked r ON r.asset_id = a.id AND r.rn = 1
-    {where_provider}
-    ORDER BY a.id
-    """
+    asset_keys = set(asset_sort_fields.keys())
+    # Determine which metadata keys to include; reduces workload when projecting columns.
+    metadata_keys = [
+        col_id
+        for col_id in requested_columns
+        if col_id not in asset_keys
+    ]
+    metadata_ids = [get_metadata_id(MetadataKey(key)) for key in metadata_keys]
 
     conn = Tortoise.get_connection("default")
+
+    if metadata_ids:
+        placeholders = ", ".join("?" for _ in metadata_ids)
+        sql = f"""
+        WITH assets AS (
+            SELECT
+                a.id,
+                a.provider_id,
+                a.canonical_id,
+                a.canonical_uri,
+                a.created_snapshot_id,
+                a.last_snapshot_id,
+                a.deleted_snapshot_id
+            FROM {asset_table} a
+            {where_provider}
+            ORDER BY {order_by_clause}
+            LIMIT ? OFFSET ?
+        ),
+        ranked AS (
+            SELECT
+                m.asset_id,
+                m.metadata_key_id,
+                m.value_type,
+                m.value_text,
+                m.value_int,
+                m.value_real,
+                strftime('%Y-%m-%dT%H:%M:%fZ', m.value_datetime) AS value_datetime,
+                m.value_json,
+                m.value_relation_id,
+                COUNT(*) OVER (PARTITION BY m.asset_id, m.metadata_key_id) AS cnt,
+                ROW_NUMBER() OVER (PARTITION BY m.asset_id, m.metadata_key_id ORDER BY m.snapshot_id DESC) AS rn
+            FROM {metadata_table} m
+            JOIN assets a ON a.id = m.asset_id
+            WHERE m.removed = 0 AND m.metadata_key_id IN ({placeholders})
+        )
+        SELECT
+            a.id AS asset_id,
+            a.provider_id AS asset_provider_id,
+            a.canonical_id,
+            a.canonical_uri,
+            a.created_snapshot_id,
+            a.last_snapshot_id,
+            a.deleted_snapshot_id,
+            r.metadata_key_id,
+            r.value_type,
+            r.value_text,
+            r.value_int,
+            r.value_real,
+            r.value_datetime,
+            r.value_json,
+            r.value_relation_id,
+            r.cnt AS metadata_count
+        FROM assets a
+        LEFT JOIN ranked r ON r.asset_id = a.id AND r.rn = 1
+        ORDER BY {order_by_clause}
+        """
+        params = params + [limit, offset] + metadata_ids
+    else:
+        sql = f"""
+        SELECT
+            a.id AS asset_id,
+            a.provider_id AS asset_provider_id,
+            a.canonical_id,
+            a.canonical_uri,
+            a.created_snapshot_id,
+            a.last_snapshot_id,
+            a.deleted_snapshot_id,
+            NULL AS metadata_key_id,
+            NULL AS value_type,
+            NULL AS value_text,
+            NULL AS value_int,
+            NULL AS value_real,
+            NULL AS value_datetime,
+            NULL AS value_json,
+            NULL AS value_relation_id,
+            NULL AS metadata_count
+        FROM {asset_table} a
+        {where_provider}
+        ORDER BY {order_by_clause}
+        LIMIT ? OFFSET ?
+        """
+        params = params + [limit, offset]
+
     rows = await conn.execute_query_dict(sql, params)
 
     assets: dict[int, dict[str, Any]] = {}
-    schema: dict[str, Mapping[str, Any]] = {}
+    ordered_columns: list[Mapping[str, Any]] = []
+    for col in view.columns:
+        if col.id in requested_columns:
+            ordered_columns.append(col.to_dict())
 
     for row in rows:
         asset_id = int(row["asset_id"])
         asset_entry = assets.get(asset_id)
         if asset_entry is None:
             asset_entry = {
-                "id": asset_id,
-                "canonical_id": row["canonical_id"],
-                "canonical_uri": row["canonical_uri"],
-                "created": row["created_snapshot_id"],
-                "seen": row["last_snapshot_id"],
-                "deleted": row["deleted_snapshot_id"],
-                "metadata": {},
+                str(ASSET_ID): asset_id,
+                str(ASSET_PROVIDER_ID): row["asset_provider_id"],
+                str(ASSET_CANONICAL_ID): row["canonical_id"],
+                str(ASSET_CANONICAL_URI): row["canonical_uri"],
+                str(ASSET_CREATED_SNAPSHOT): row["created_snapshot_id"],
+                str(ASSET_LAST_SNAPSHOT): row["last_snapshot_id"],
+                str(ASSET_DELETED_SNAPSHOT): row["deleted_snapshot_id"],
             }
             assets[asset_id] = asset_entry
 
@@ -274,7 +318,6 @@ async def list_assets_with_metadata(
             continue
 
         value_type = MetadataType(row["value_type"])
-        value: Any
         if value_type == MetadataType.STRING:
             value = row["value_text"]
         elif value_type == MetadataType.INT:
@@ -291,22 +334,19 @@ async def list_assets_with_metadata(
             continue
 
         key_str = str(key_def.key)
-        asset_entry["metadata"][key_str] = {
-            "value": value,
-            "count": int(row["metadata_count"]),
-        }
-        schema[key_str] = {
-            "plugin_id": key_def.plugin_id,
-            "key": str(key_def.key),
-            "registry_id": key_def.registry_id,
-            "value_type": key_def.value_type,
-            "title": key_def.title,
-            "description": key_def.description,
-            "width": key_def.width,
-        }
+        if key_str not in requested_columns:
+            continue
+        asset_entry[key_str] = value
+
+    total_count = None
+    if include_total:
+        count_sql = f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_provider}"
+        count_rows = await conn.execute_query_dict(count_sql, provider_params)
+        total_count = int(count_rows[0]["cnt"]) if count_rows else 0
 
     return {
-        "assets": list(assets.values()),
-        "schema": schema,
-        "stats": {"assets": len(assets)},
+        "items": list(assets.values()),
+        "schema": ordered_columns,
+        "stats": {"returned": len(assets), "total": total_count},
+        "pagination": {"offset": offset, "limit": limit},
     }

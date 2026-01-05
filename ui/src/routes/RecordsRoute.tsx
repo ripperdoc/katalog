@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchAssets } from "../api/client";
-import type { AssetResponse, Asset, MetadataValueEntry } from "../types/api";
+import { fetchViewAssets } from "../api/client";
+import type { Asset, MetadataValueEntry, ColumnDefinition, ViewAssetsResponse } from "../types/api";
 import {
   SimpleTable,
   HeaderObject,
@@ -10,52 +10,18 @@ import {
 } from "simple-table-core";
 import "simple-table-core/styles.css";
 
-const headers: HeaderObject[] = [
-  // Fixed width in pixels
-  {
-    accessor: "id",
-    label: "ID",
-    width: "90px",
-    type: "number",
-    isSortable: true,
-    filterable: true,
-  },
-  {
-    accessor: "canonical_id",
-    label: "Canonical ID",
-    width: "1fr",
-    type: "string",
-    isSortable: true,
-    filterable: true,
-  },
-  {
-    accessor: "canonical_uri",
-    label: "URI",
-    width: "2fr",
-    type: "string",
-    isSortable: true,
-    filterable: true,
-  },
-  {
-    accessor: "seen",
-    label: "Last Snapshot",
-    width: "1fr",
-    type: "number",
-    isSortable: true,
-    filterable: true,
-  },
-];
+const DEFAULT_VIEW_ID = "default";
 
 const valueGetter = (props: ValueGetterProps) => {
-  const metadata = props.row["metadata"];
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+  const value = props.row[props.accessor];
+  if (value === null || value === undefined) {
     return "";
   }
-  const meta = (metadata as Record<string, MetadataValueEntry>)[props.accessor];
-  if (!meta || typeof meta !== "object") {
-    return "";
+  if (typeof value === "object" && "value" in (value as Record<string, unknown>)) {
+    const entry = value as MetadataValueEntry;
+    return entry.value;
   }
-  return meta.value;
+  return value;
 };
 
 const valueFormatter = (props: ValueFormatterProps) => {
@@ -76,6 +42,27 @@ const getSimpleTableType = (metadataType?: number): ColumnType => {
     return "date";
   }
   return "string";
+};
+
+const normalizeWidth = (width: number | null): string | number => {
+  if (width === null || width === undefined) {
+    return "1fr";
+  } else {
+    return width;
+  }
+};
+
+const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
+  return schema.map((column) => ({
+    accessor: column.id,
+    label: column.title || column.id,
+    width: normalizeWidth(column.width),
+    type: getSimpleTableType(column.value_type),
+    isSortable: Boolean(column.sortable),
+    filterable: Boolean(column.filterable),
+    valueGetter,
+    valueFormatter,
+  }));
 };
 
 const collectSearchableParts = (value: unknown, parts: string[]) => {
@@ -100,24 +87,11 @@ const collectSearchableParts = (value: unknown, parts: string[]) => {
 };
 
 const buildSearchString = (record: Asset): string => {
-  const parts: string[] = [
-    record.id,
-    record.canonical_id,
-    record.canonical_uri,
-    record.created,
-    record.seen,
-    record.deleted,
-  ]
-    .filter((part) => part !== undefined && part !== null)
-    .map((part) => String(part));
-
-  if (record.metadata && typeof record.metadata === "object") {
-    Object.entries(record.metadata).forEach(([key, value]) => {
-      parts.push(key);
-      collectSearchableParts(value, parts);
-    });
-  }
-
+  const parts: string[] = [];
+  Object.entries(record).forEach(([key, value]) => {
+    parts.push(key);
+    collectSearchableParts(value, parts);
+  });
   return parts.map((part) => part.toLowerCase()).join(" ");
 };
 
@@ -127,6 +101,12 @@ function RecordsRoute() {
   const [error, setError] = useState<string | null>(null);
   const [seenHeaders, setSeenHeaders] = useState<HeaderObject[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [pagination, setPagination] = useState<{ offset: number; limit: number; page: number }>({
+    offset: 0,
+    limit: 200,
+    page: 1,
+  });
+  const [total, setTotal] = useState<number | null>(null);
   const indexedRecords = useMemo(
     () => records.map((record) => ({ record, haystack: buildSearchString(record) })),
     [records]
@@ -142,47 +122,52 @@ function RecordsRoute() {
       .map(({ record }) => record);
   }, [indexedRecords, searchQuery]);
 
-  const loadRecords = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response: AssetResponse = await fetchAssets();
-      const fetchedRecords = response.assets ?? [];
-      setRecords(fetchedRecords);
-      const schema = response.schema ?? {};
-      setSeenHeaders(
-        Object.keys(schema).map((key) => ({
-          accessor: key,
-          label: schema[key]?.title || key,
-          width: schema[key]?.width || "100px",
-          type: getSimpleTableType(schema[key]?.value_type),
-          isSortable: true,
-          filterable: true,
-          valueGetter,
-          valueFormatter,
-        }))
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setRecords([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadPage = useCallback(
+    async (page: number, limitOverride?: number) => {
+      const limit = limitOverride ?? pagination.limit;
+      setLoading(true);
+      setError(null);
+      try {
+        const offset = (page - 1) * limit;
+        const response: ViewAssetsResponse = await fetchViewAssets(DEFAULT_VIEW_ID, {
+          offset,
+          limit,
+        });
+        const fetchedRecords = response.items ?? [];
+        setRecords(fetchedRecords);
+        const schema = response.schema ?? [];
+        setSeenHeaders(buildHeadersFromSchema(schema));
+        setPagination({
+          offset,
+          limit,
+          page,
+        });
+        setTotal(response.stats?.total ?? null);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        setRecords([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [pagination.limit]
+  );
 
   useEffect(() => {
-    void loadRecords();
-  }, [loadRecords]);
+    void loadPage(1);
+    // We intentionally only load once per mount or when the view changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <section className="panel">
       <header className="panel-header">
         <div>
           <h2>Records</h2>
-          <p>Displaying every file record returned by the backend.</p>
+          <p>Displaying records from view “{DEFAULT_VIEW_ID}”.</p>
         </div>
-        <button type="button" onClick={loadRecords} disabled={loading}>
+        <button type="button" onClick={() => void loadPage(true)} disabled={loading}>
           {loading ? "Loading..." : "Reload"}
         </button>
       </header>
@@ -204,13 +189,19 @@ function RecordsRoute() {
         <div className="empty-state">No records match your search.</div>
       )}
       <SimpleTable
-        defaultHeaders={[...headers, ...seenHeaders]}
+        defaultHeaders={seenHeaders}
         rows={filteredRecords}
         height={"75vh"}
         selectableCells={true}
-        rowIdAccessor="id"
-        rowsPerPage={20}
+        rowIdAccessor="asset/id"
         columnResizing={true}
+        serverSidePagination={true}
+        rowsPerPage={pagination.limit}
+        totalRows={total ?? records.length}
+        currentPage={pagination.page}
+        onPageChange={(page) => void loadPage(page)}
+        onNextPage={() => void loadPage(pagination.page + 1)}
+        onUserPageChange={(page) => void loadPage(page)}
       />
     </section>
   );

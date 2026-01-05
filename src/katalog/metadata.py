@@ -95,6 +95,27 @@ def get_metadata_def_by_key(key: MetadataKey) -> MetadataDef:
 DATA_KEY = define_metadata("data", MetadataType.INT)
 FILE_RECORD_KEY = define_metadata("asset", MetadataType.INT)
 
+# Pseudo-keys representing asset core fields so views can treat them uniformly
+ASSET_ID = define_metadata("asset/id", MetadataType.INT, "Asset ID")
+ASSET_PROVIDER_ID = define_metadata(
+    "asset/provider_id", MetadataType.INT, "Provider ID"
+)
+ASSET_CANONICAL_ID = define_metadata(
+    "asset/canonical_id", MetadataType.STRING, "Canonical ID"
+)
+ASSET_CANONICAL_URI = define_metadata(
+    "asset/canonical_uri", MetadataType.STRING, "Canonical URI"
+)
+ASSET_CREATED_SNAPSHOT = define_metadata(
+    "asset/created_snapshot", MetadataType.INT, "Created snapshot"
+)
+ASSET_LAST_SNAPSHOT = define_metadata(
+    "asset/last_snapshot", MetadataType.INT, "Last seen snapshot"
+)
+ASSET_DELETED_SNAPSHOT = define_metadata(
+    "asset/deleted_snapshot", MetadataType.INT, "Deleted snapshot"
+)
+
 # Built-in metadata
 FILE_ID_PATH = define_metadata("file/id_path", MetadataType.STRING)
 FILE_NAME = define_metadata("file/filename", MetadataType.STRING, "Filename")

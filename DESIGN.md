@@ -290,6 +290,50 @@ is the current assumption:
     - Relations removed
     - Relations changed
 
+### Data views
+
+Snapshotting deals with how we add data, but an even more important activity is to allow the local
+Web UI to read the data in the database. We strive for a UI that feels like a desktop UI, that can
+handle very large amount of files with ease, and also gives a lot of flexibility to the user to
+search, sort, filter and query this data. This is not so easy, because the way we structure the data
+for easy snapshotting and metadata flexibility also makes it a lot harder to read data in a
+performant way.
+
+The requirements from a UI perspective are:
+
+- Can view all Assets combined with their current Metadata in a data table
+  - Current metadata can mean different things, but for simplicity, it's the latest non-removed row
+    for that metadata key
+- The table can handle 1 million assets and several million metadata while still being very
+  responsive (through virtualization, e.g. not trying to render all data together)
+- The user can see a quick summary such as number of assets, metadata, etc in the current selected
+  data
+- The user can search as they type through the data and see the table adapt in realtime
+  - At least the data visible in the table (as text), but even better through all current metadata
+- The user can sort by most columns
+- The user can create filters
+- An advanced user could potentially write SQL queries (instead of trying to build too advanced
+  filtering UI)
+- The user can switch between different prepared views, that shows a subset of metadata and maybe
+  also renders it differently
+
+To achieve this, there are a few important technical choices to make:
+
+- The data table component uses virtualization and has controls to both sort/filter locally but
+  probably more importantly to the server
+- That we have an efficient API to get results between table and server, including the flexibility
+  for search, column sort and custom filters
+- That the API also tells the table about the schema of the data, e.g. which metadata columns to
+  render and how to render them (e.g. type, descriptions, etc)
+- That the server can serve this very quickly using SQLite. We need to consider:
+  - Where to use or not use TortoiseORM
+  - What actions we take in SQL, and what we do in code
+  - What to index on
+  - Can we generate faster de-normalized tables and read from them?
+- Finally, we still need to keep the tables compact. 1M files could mean SQLite databases larger
+  than 1GB, so any indexing and denormalization on top of that could make the DB much bigger. A user
+  would not expect multi-GB databases for this.
+
 ### Main server
 
 The main module is implemented as a FastAPI server. It initializes the system, manages providers and

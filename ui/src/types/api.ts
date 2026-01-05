@@ -7,31 +7,50 @@ export interface MetadataValueEntry {
   count: number;
 }
 
-export interface MetadataDefinition {
-  plugin_id: string;
-  key: string;
-  registry_id: number | null;
+export interface ColumnDefinition {
+  id: string;
   value_type: number;
+  registry_id: number | null;
   title: string;
   description: string;
   width: number | null;
+  sortable: boolean;
+  filterable: boolean;
+  searchable: boolean;
+  plugin_id: string | null;
+  key: string;
+}
+
+export interface ViewSpec {
+  id: string;
+  name: string;
+  columns: ColumnDefinition[];
+  default_sort: [string, string][];
+  default_columns: string[] | null;
+}
+
+export interface ViewListResponse {
+  views: ViewSpec[];
+}
+
+export interface ViewResponse {
+  view: ViewSpec;
 }
 
 export interface Asset extends Row {
-  id: number;
-  canonical_id: string;
-  canonical_uri: string;
-  created: number;
-  seen: number;
-  deleted: number | null;
-  metadata: Record<string, MetadataValueEntry>;
+  [key: string]: MetadataValue | number | boolean | null | MetadataValueEntry | undefined;
 }
 
-export interface AssetResponse {
-  assets: Asset[];
-  schema: Record<string, MetadataDefinition>;
+export interface ViewAssetsResponse {
+  items: Asset[];
+  schema: ColumnDefinition[];
   stats: {
-    assets: number;
+    returned: number;
+    total: number | null;
+  };
+  pagination: {
+    offset: number;
+    limit: number;
   };
 }
 

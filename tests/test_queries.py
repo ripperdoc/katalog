@@ -1,4 +1,4 @@
-"""Integration-style tests for list_assets_with_metadata using an in-memory SQLite DB."""
+"""Integration-style tests for list_assets_for_view using an in-memory SQLite DB."""
 
 from pathlib import Path
 
@@ -8,13 +8,15 @@ from tortoise import Tortoise
 
 from katalog.metadata import FILE_PATH, METADATA_REGISTRY, get_metadata_id
 from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Snapshot
-from katalog.queries import list_assets_with_metadata, setup_db
+from katalog.queries import list_assets_for_view, setup_db, sync_metadata_registry
+from katalog.views import default_view
 
 
 @pytest_asyncio.fixture
 async def db(tmp_path: Path):
     db_path = tmp_path / "katalog_test.sqlite3"
     await setup_db(db_path)
+    await sync_metadata_registry()
     try:
         yield
     finally:
@@ -22,7 +24,7 @@ async def db(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_list_assets_with_metadata_filters_and_picks_latest(db: None):
+async def test_list_assets_for_view_filters_and_picks_latest(db: None):
     provider = await Provider.create(
         name="provider-1", plugin_id="plugin-1", type=ProviderType.SOURCE
     )
@@ -81,20 +83,18 @@ async def test_list_assets_with_metadata_filters_and_picks_latest(db: None):
         removed=False,
     )
 
-    result = await list_assets_with_metadata(provider_id=provider.id)
+    view = default_view()
+    result = await list_assets_for_view(view, provider_id=provider.id, include_total=True)
 
-    assert result["stats"]["assets"] == 1
-    assert len(result["assets"]) == 1
+    assert result["stats"]["returned"] == 1
+    assert result["stats"]["total"] == 1
+    assert len(result["items"]) == 1
 
-    asset_entry = result["assets"][0]
-    assert asset_entry["id"] == asset.id
-    assert asset_entry["created"] == snap1.id
-    assert asset_entry["seen"] == snap2.id
-    assert asset_entry["deleted"] is None
-
-    meta = asset_entry["metadata"]
-    key_str = str(FILE_PATH)
-    assert meta[key_str] == {"value": "/new/path", "count": 2}
+    asset_entry = result["items"][0]
+    assert asset_entry[str(FILE_PATH)] == "/new/path"
+    assert asset_entry["asset/created_snapshot"] == snap1.id
+    assert asset_entry["asset/last_snapshot"] == snap2.id
+    assert asset_entry["asset/deleted_snapshot"] is None
 
     schema = result["schema"][key_str]
     assert schema["registry_id"] == key_id
