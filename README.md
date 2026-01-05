@@ -1,3 +1,5 @@
+_Current status: WIP, get in touch if you want to collaborate_
+
 # KATALOG
 
 Katalog is an app intended for people and companies that have that feeling that their digital
