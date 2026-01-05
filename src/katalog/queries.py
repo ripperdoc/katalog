@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
+import json
 from pathlib import Path
+import time
 from typing import Any, Mapping
 
 from loguru import logger
@@ -141,10 +143,13 @@ async def list_assets_for_view(
     offset: int = 0,
     limit: int = 100,
     sort: tuple[str, str] | None = None,
+    filters: list[str] | None = None,
     columns: set[str] | None = None,
     include_total: bool = True,
 ) -> dict[str, Any]:
     """List assets constrained by a ViewSpec with offset pagination."""
+
+    started_at = time.perf_counter()
 
     if limit < 0 or offset < 0:
         raise ValueError("offset and limit must be non-negative")
@@ -185,106 +190,164 @@ async def list_assets_for_view(
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
 
-    where_provider = ""
-    params: list[Any] = []
-    provider_params: list[Any] = []
+    # WHERE clause builder
+    conditions: list[str] = []
+    base_params: list[Any] = []
     if provider_id is not None:
-        where_provider = "WHERE a.provider_id = ?"
-        params.append(provider_id)
-        provider_params.append(provider_id)
+        conditions.append("a.provider_id = ?")
+        base_params.append(provider_id)
+
+    asset_filter_fields = {
+        str(ASSET_ID): ("a.id", "int"),
+        str(ASSET_PROVIDER_ID): ("a.provider_id", "int"),
+        str(ASSET_CANONICAL_ID): ("a.canonical_id", "str"),
+        str(ASSET_CANONICAL_URI): ("a.canonical_uri", "str"),
+        str(ASSET_CREATED_SNAPSHOT): ("a.created_snapshot_id", "int"),
+        str(ASSET_LAST_SNAPSHOT): ("a.last_snapshot_id", "int"),
+        str(ASSET_DELETED_SNAPSHOT): ("a.deleted_snapshot_id", "int"),
+    }
+
+    if filters:
+        for raw in filters:
+            try:
+                filt = json.loads(raw)
+            except Exception:
+                raise ValueError("Invalid filter format")
+            accessor = filt.get("accessor")
+            operator = filt.get("operator")
+            value = filt.get("value")
+            values = filt.get("values")
+
+            if accessor not in asset_filter_fields:
+                raise ValueError(f"Filtering not supported for column: {accessor}")
+            column_name, col_type = asset_filter_fields[accessor]
+
+            def cast_value(val: Any) -> Any:
+                if col_type == "int":
+                    return int(val) if val is not None else None
+                return val
+
+            if operator in {
+                "equals",
+                "notEquals",
+                "greaterThan",
+                "lessThan",
+                "greaterThanOrEqual",
+                "lessThanOrEqual",
+            }:
+                if value is None:
+                    raise ValueError("Filter value is required")
+                op_map = {
+                    "equals": "=",
+                    "notEquals": "!=",
+                    "greaterThan": ">",
+                    "lessThan": "<",
+                    "greaterThanOrEqual": ">=",
+                    "lessThanOrEqual": "<=",
+                }
+                conditions.append(f"{column_name} {op_map[operator]} ?")
+                base_params.append(cast_value(value))
+            elif col_type == "str" and operator in {
+                "contains",
+                "notContains",
+                "startsWith",
+                "endsWith",
+            }:
+                if value is None:
+                    raise ValueError("Filter value is required")
+                pattern = str(value)
+                if operator == "contains":
+                    conditions.append(f"{column_name} LIKE ?")
+                    base_params.append(f"%{pattern}%")
+                elif operator == "notContains":
+                    conditions.append(f"{column_name} NOT LIKE ?")
+                    base_params.append(f"%{pattern}%")
+                elif operator == "startsWith":
+                    conditions.append(f"{column_name} LIKE ?")
+                    base_params.append(f"{pattern}%")
+                elif operator == "endsWith":
+                    conditions.append(f"{column_name} LIKE ?")
+                    base_params.append(f"%{pattern}")
+            elif operator in {"between", "notBetween"}:
+                if not values or len(values) != 2:
+                    raise ValueError(
+                        "Filter values must contain two entries for between"
+                    )
+                op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
+                conditions.append(f"{column_name} {op} ? AND ?")
+                base_params.append(cast_value(values[0]))
+                base_params.append(cast_value(values[1]))
+            elif operator == "isEmpty":
+                conditions.append(f"{column_name} IS NULL")
+            elif operator == "isNotEmpty":
+                conditions.append(f"{column_name} IS NOT NULL")
+            else:
+                raise ValueError(f"Unsupported filter operator: {operator}")
+
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     asset_keys = set(asset_sort_fields.keys())
     # Determine which metadata keys to include; reduces workload when projecting columns.
-    metadata_keys = [
-        col_id
-        for col_id in requested_columns
-        if col_id not in asset_keys
-    ]
+    metadata_keys = [col_id for col_id in requested_columns if col_id not in asset_keys]
     metadata_ids = [get_metadata_id(MetadataKey(key)) for key in metadata_keys]
 
     conn = Tortoise.get_connection("default")
 
-    if metadata_ids:
-        placeholders = ", ".join("?" for _ in metadata_ids)
-        sql = f"""
-        WITH assets AS (
-            SELECT
-                a.id,
-                a.provider_id,
-                a.canonical_id,
-                a.canonical_uri,
-                a.created_snapshot_id,
-                a.last_snapshot_id,
-                a.deleted_snapshot_id
-            FROM {asset_table} a
-            {where_provider}
-            ORDER BY {order_by_clause}
-            LIMIT ? OFFSET ?
-        ),
-        ranked AS (
-            SELECT
-                m.asset_id,
-                m.metadata_key_id,
-                m.value_type,
-                m.value_text,
-                m.value_int,
-                m.value_real,
-                strftime('%Y-%m-%dT%H:%M:%fZ', m.value_datetime) AS value_datetime,
-                m.value_json,
-                m.value_relation_id,
-                COUNT(*) OVER (PARTITION BY m.asset_id, m.metadata_key_id) AS cnt,
-                ROW_NUMBER() OVER (PARTITION BY m.asset_id, m.metadata_key_id ORDER BY m.snapshot_id DESC) AS rn
-            FROM {metadata_table} m
-            JOIN assets a ON a.id = m.asset_id
-            WHERE m.removed = 0 AND m.metadata_key_id IN ({placeholders})
-        )
+    placeholders = ", ".join("?" for _ in metadata_ids)
+    sql = f"""
+    WITH assets AS (
         SELECT
-            a.id AS asset_id,
-            a.provider_id AS asset_provider_id,
+            a.id,
+            a.provider_id,
             a.canonical_id,
             a.canonical_uri,
             a.created_snapshot_id,
             a.last_snapshot_id,
-            a.deleted_snapshot_id,
-            r.metadata_key_id,
-            r.value_type,
-            r.value_text,
-            r.value_int,
-            r.value_real,
-            r.value_datetime,
-            r.value_json,
-            r.value_relation_id,
-            r.cnt AS metadata_count
-        FROM assets a
-        LEFT JOIN ranked r ON r.asset_id = a.id AND r.rn = 1
-        ORDER BY {order_by_clause}
-        """
-        params = params + [limit, offset] + metadata_ids
-    else:
-        sql = f"""
-        SELECT
-            a.id AS asset_id,
-            a.provider_id AS asset_provider_id,
-            a.canonical_id,
-            a.canonical_uri,
-            a.created_snapshot_id,
-            a.last_snapshot_id,
-            a.deleted_snapshot_id,
-            NULL AS metadata_key_id,
-            NULL AS value_type,
-            NULL AS value_text,
-            NULL AS value_int,
-            NULL AS value_real,
-            NULL AS value_datetime,
-            NULL AS value_json,
-            NULL AS value_relation_id,
-            NULL AS metadata_count
+            a.deleted_snapshot_id
         FROM {asset_table} a
-        {where_provider}
+        {where_sql}
         ORDER BY {order_by_clause}
         LIMIT ? OFFSET ?
-        """
-        params = params + [limit, offset]
+    ),
+    ranked AS (
+        SELECT
+            m.asset_id,
+            m.metadata_key_id,
+            m.value_type,
+            m.value_text,
+            m.value_int,
+            m.value_real,
+            strftime('%Y-%m-%dT%H:%M:%fZ', m.value_datetime) AS value_datetime,
+            m.value_json,
+            m.value_relation_id,
+            COUNT(*) OVER (PARTITION BY m.asset_id, m.metadata_key_id) AS cnt,
+            ROW_NUMBER() OVER (PARTITION BY m.asset_id, m.metadata_key_id ORDER BY m.snapshot_id DESC) AS rn
+        FROM {metadata_table} m
+        JOIN assets a ON a.id = m.asset_id
+        WHERE m.removed = 0 AND m.metadata_key_id IN ({placeholders})
+    )
+    SELECT
+        a.id AS asset_id,
+        a.provider_id AS asset_provider_id,
+        a.canonical_id,
+        a.canonical_uri,
+        a.created_snapshot_id,
+        a.last_snapshot_id,
+        a.deleted_snapshot_id,
+        r.metadata_key_id,
+        r.value_type,
+        r.value_text,
+        r.value_int,
+        r.value_real,
+        r.value_datetime,
+        r.value_json,
+        r.value_relation_id,
+        r.cnt AS metadata_count
+    FROM assets a
+    LEFT JOIN ranked r ON r.asset_id = a.id AND r.rn = 1
+    ORDER BY {order_by_clause}
+    """
+    params = list(base_params) + [limit, offset] + metadata_ids
 
     rows = await conn.execute_query_dict(sql, params)
 
@@ -340,13 +403,19 @@ async def list_assets_for_view(
 
     total_count = None
     if include_total:
-        count_sql = f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_provider}"
-        count_rows = await conn.execute_query_dict(count_sql, provider_params)
+        count_sql = f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_sql}"
+        count_rows = await conn.execute_query_dict(count_sql, base_params)
         total_count = int(count_rows[0]["cnt"]) if count_rows else 0
+
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
 
     return {
         "items": list(assets.values()),
         "schema": ordered_columns,
-        "stats": {"returned": len(assets), "total": total_count},
+        "stats": {
+            "returned": len(assets),
+            "total": total_count,
+            "duration_ms": duration_ms,
+        },
         "pagination": {"offset": offset, "limit": limit},
     }

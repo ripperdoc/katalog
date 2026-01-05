@@ -11,7 +11,6 @@ from katalog.metadata import (
     ASSET_ID,
     ASSET_LAST_SNAPSHOT,
     ASSET_PROVIDER_ID,
-    FILE_ID_PATH,
     FILE_NAME,
     FILE_PATH,
     FILE_SIZE,
@@ -126,7 +125,6 @@ def default_view() -> ViewSpec:
 
     columns: list[ColumnSpec] = list(_asset_columns())
     selected_metadata_keys = [
-        FILE_ID_PATH,
         FILE_PATH,
         FILE_NAME,
         FILE_SIZE,

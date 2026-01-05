@@ -8,6 +8,7 @@ import {
   ValueFormatterProps,
   ColumnType,
 } from "simple-table-core";
+import type { TableFilterState } from "simple-table-core";
 import "simple-table-core/styles.css";
 
 const DEFAULT_VIEW_ID = "default";
@@ -133,6 +134,8 @@ function RecordsRoute() {
   });
   const [total, setTotal] = useState<number | null>(null);
   const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
+  const [filters, setFilters] = useState<TableFilterState>({});
+  const [durationMs, setDurationMs] = useState<number | null>(null);
   const indexedRecords = useMemo(
     () => records.map((record) => ({ record, haystack: buildSearchString(record) })),
     [records]
@@ -152,10 +155,12 @@ function RecordsRoute() {
     async (
       page: number,
       limitOverride?: number,
-      sortOverride?: { accessor: string; direction: "asc" | "desc" } | null
+      sortOverride?: { accessor: string; direction: "asc" | "desc" } | null,
+      filtersOverride?: TableFilterState
     ) => {
       const limit = limitOverride ?? pagination.limit;
       const effectiveSort = sortOverride ?? sort;
+      const effectiveFilters = filtersOverride ?? filters;
       setLoading(true);
       setError(null);
       try {
@@ -164,10 +169,15 @@ function RecordsRoute() {
           effectiveSort && effectiveSort.accessor && effectiveSort.direction
             ? `${effectiveSort.accessor}:${effectiveSort.direction}`
             : undefined;
+        const filterParams = new URLSearchParams();
+        Object.values(effectiveFilters || {}).forEach((filter) => {
+          filterParams.append("filters", JSON.stringify(filter));
+        });
         const response: ViewAssetsResponse = await fetchViewAssets(DEFAULT_VIEW_ID, {
           offset,
           limit,
           sort: sortParam,
+          filters: filterParams.getAll("filters"),
         });
         const fetchedRecords = response.items ?? [];
         setRecords(fetchedRecords);
@@ -178,6 +188,8 @@ function RecordsRoute() {
           page,
         });
         setTotal(response.stats?.total ?? null);
+        console.log(response.stats);
+        setDurationMs(response.stats?.duration_ms ?? null);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
@@ -186,7 +198,7 @@ function RecordsRoute() {
         setLoading(false);
       }
     },
-    [pagination.limit, sort]
+    [pagination.limit, sort, filters]
   );
 
   useEffect(() => {
@@ -236,20 +248,43 @@ function RecordsRoute() {
         rowsPerPage={pagination.limit}
         serverSidePagination={true}
         totalRowCount={total ?? records.length}
-        onPageChange={(page) => void loadPage(page)}
+        onPageChange={(page) => {
+          if (page === pagination.page) {
+            return;
+          }
+          void loadPage(page);
+        }}
         isLoading={loading}
         externalSortHandling={true}
+        externalFilterHandling={true}
         onSortChange={(sortArg) => {
           const normalized = normalizeSort(sortArg);
           if (!normalized) {
             setSort(null);
-            void loadPage(1, undefined, null);
+            void loadPage(1, undefined, null, filters);
             return;
           }
           setSort(normalized);
-          void loadPage(1, undefined, normalized);
+          void loadPage(1, undefined, normalized, filters);
+        }}
+        onFilterChange={(state) => {
+          const nextFilters = state || {};
+          const currentSig = JSON.stringify(filters || {});
+          const nextSig = JSON.stringify(nextFilters || {});
+          if (currentSig === nextSig) {
+            return;
+          }
+          setFilters(nextFilters);
+          void loadPage(1, undefined, sort, nextFilters);
         }}
       />
+      {durationMs !== null && (
+        <div
+          style={{ marginTop: "0.5rem", fontStyle: "italic", fontSize: "0.9rem", color: "#555" }}
+        >
+          Query time: {durationMs} ms
+        </div>
+      )}
     </section>
   );
 }

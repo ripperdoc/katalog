@@ -27,7 +27,14 @@ export async function fetchViewAssets(
     offset = 0,
     limit = 100,
     sort,
-  }: { providerId?: number; offset?: number; limit?: number; sort?: string | undefined }
+    filters,
+  }: {
+    providerId?: number;
+    offset?: number;
+    limit?: number;
+    sort?: string | undefined;
+    filters?: string[] | undefined;
+  }
 ): Promise<ViewAssetsResponse> {
   const params = new URLSearchParams();
   params.set("offset", String(offset));
@@ -37,6 +44,9 @@ export async function fetchViewAssets(
   }
   if (sort) {
     params.set("sort", sort);
+  }
+  if (filters && filters.length > 0) {
+    filters.forEach((f) => params.append("filters", f));
   }
   const response = await fetch(`${API_BASE}/views/${encodeURIComponent(viewId)}/assets?${params}`, {
     headers: { Accept: "application/json" },
