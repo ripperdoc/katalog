@@ -136,6 +136,128 @@ async def sync_config():
     logger.info("Synchronized configuration with database")
 
 
+asset_filter_fields = {
+    str(ASSET_ID): ("a.id", "int"),
+    str(ASSET_PROVIDER_ID): ("a.provider_id", "int"),
+    str(ASSET_CANONICAL_ID): ("a.canonical_id", "str"),
+    str(ASSET_CANONICAL_URI): ("a.canonical_uri", "str"),
+    str(ASSET_CREATED_SNAPSHOT): ("a.created_snapshot_id", "int"),
+    str(ASSET_LAST_SNAPSHOT): ("a.last_snapshot_id", "int"),
+    str(ASSET_DELETED_SNAPSHOT): ("a.deleted_snapshot_id", "int"),
+}
+
+
+def filter_conditions(filters):
+    filters = filters or []
+    conditions = []
+    filter_params = []
+    for raw in filters:
+        try:
+            filt = json.loads(raw)
+        except Exception:
+            raise ValueError("Invalid filter format")
+        accessor = filt.get("accessor")
+        operator = filt.get("operator")
+        value = filt.get("value")
+        values = filt.get("values")
+
+        if accessor not in asset_filter_fields:
+            raise ValueError(f"Filtering not supported for column: {accessor}")
+        column_name, col_type = asset_filter_fields[accessor]
+
+        def cast_value(val: Any) -> Any:
+            if col_type == "int":
+                return int(val) if val is not None else None
+            return val
+
+        if operator in {
+            "equals",
+            "notEquals",
+            "greaterThan",
+            "lessThan",
+            "greaterThanOrEqual",
+            "lessThanOrEqual",
+        }:
+            if value is None:
+                raise ValueError("Filter value is required")
+            op_map = {
+                "equals": "=",
+                "notEquals": "!=",
+                "greaterThan": ">",
+                "lessThan": "<",
+                "greaterThanOrEqual": ">=",
+                "lessThanOrEqual": "<=",
+            }
+            conditions.append(f"{column_name} {op_map[operator]} ?")
+            filter_params.append(cast_value(value))
+        elif col_type == "str" and operator in {
+            "contains",
+            "notContains",
+            "startsWith",
+            "endsWith",
+        }:
+            if value is None:
+                raise ValueError("Filter value is required")
+            pattern = str(value)
+            if operator == "contains":
+                conditions.append(f"{column_name} LIKE ?")
+                filter_params.append(f"%{pattern}%")
+            elif operator == "notContains":
+                conditions.append(f"{column_name} NOT LIKE ?")
+                filter_params.append(f"%{pattern}%")
+            elif operator == "startsWith":
+                conditions.append(f"{column_name} LIKE ?")
+                filter_params.append(f"{pattern}%")
+            elif operator == "endsWith":
+                conditions.append(f"{column_name} LIKE ?")
+                filter_params.append(f"%{pattern}")
+        elif operator in {"between", "notBetween"}:
+            if not values or len(values) != 2:
+                raise ValueError("Filter values must contain two entries for between")
+            op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
+            conditions.append(f"{column_name} {op} ? AND ?")
+            filter_params.append(cast_value(values[0]))
+            filter_params.append(cast_value(values[1]))
+        elif operator == "isEmpty":
+            conditions.append(f"{column_name} IS NULL")
+        elif operator == "isNotEmpty":
+            conditions.append(f"{column_name} IS NOT NULL")
+        else:
+            raise ValueError(f"Unsupported filter operator: {operator}")
+    return conditions, filter_params
+
+
+asset_sort_fields = {
+    str(ASSET_ID): "a.id",
+    str(ASSET_PROVIDER_ID): "a.provider_id",
+    str(ASSET_CANONICAL_ID): "a.canonical_id",
+    str(ASSET_CANONICAL_URI): "a.canonical_uri",
+    str(ASSET_CREATED_SNAPSHOT): "a.created_snapshot_id",
+    str(ASSET_LAST_SNAPSHOT): "a.last_snapshot_id",
+    str(ASSET_DELETED_SNAPSHOT): "a.deleted_snapshot_id",
+}
+
+
+def sort_conditions(sort: tuple[str, str] | None, view: ViewSpec):
+    sort_col, sort_dir = (
+        sort
+        if sort is not None
+        else (view.default_sort[0] if view.default_sort else (str(ASSET_ID), "asc"))
+    )
+    sort_dir = sort_dir.lower()
+    if sort_dir not in {"asc", "desc"}:
+        raise ValueError("sort direction must be 'asc' or 'desc'")
+    sort_spec = view.column_map().get(sort_col)
+    if sort_spec is None:
+        raise ValueError(f"Unknown sort column: {sort_col}")
+    if not sort_spec.sortable:
+        raise ValueError(f"Sorting not supported for column: {sort_col}")
+
+    if sort_col not in asset_sort_fields:
+        raise ValueError(f"Sorting not implemented for column: {sort_col}")
+    return f"{asset_sort_fields[sort_col]} {sort_dir.upper()}, a.id ASC"
+
+
 async def list_assets_for_view(
     view: ViewSpec,
     *,
@@ -160,135 +282,24 @@ async def list_assets_for_view(
     if unknown:
         raise ValueError(f"Unknown columns requested: {sorted(unknown)}")
 
-    sort_col, sort_dir = (
-        sort
-        if sort is not None
-        else (view.default_sort[0] if view.default_sort else (str(ASSET_ID), "asc"))
-    )
-    sort_dir = sort_dir.lower()
-    if sort_dir not in {"asc", "desc"}:
-        raise ValueError("sort direction must be 'asc' or 'desc'")
-    sort_spec = column_map.get(sort_col)
-    if sort_spec is None:
-        raise ValueError(f"Unknown sort column: {sort_col}")
-    if not sort_spec.sortable:
-        raise ValueError(f"Sorting not supported for column: {sort_col}")
-
-    asset_sort_fields = {
-        str(ASSET_ID): "a.id",
-        str(ASSET_PROVIDER_ID): "a.provider_id",
-        str(ASSET_CANONICAL_ID): "a.canonical_id",
-        str(ASSET_CANONICAL_URI): "a.canonical_uri",
-        str(ASSET_CREATED_SNAPSHOT): "a.created_snapshot_id",
-        str(ASSET_LAST_SNAPSHOT): "a.last_snapshot_id",
-        str(ASSET_DELETED_SNAPSHOT): "a.deleted_snapshot_id",
-    }
-    if sort_col not in asset_sort_fields:
-        raise ValueError(f"Sorting not implemented for column: {sort_col}")
-    order_by_clause = f"{asset_sort_fields[sort_col]} {sort_dir.upper()}, a.id ASC"
+    order_by_clause = sort_conditions(sort, view)
 
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
 
     # WHERE clause builder
-    conditions: list[str] = []
-    base_params: list[Any] = []
+    conditions, filter_params = filter_conditions(filters)
+
     if provider_id is not None:
-        conditions.append("a.provider_id = ?")
-        base_params.append(provider_id)
-
-    asset_filter_fields = {
-        str(ASSET_ID): ("a.id", "int"),
-        str(ASSET_PROVIDER_ID): ("a.provider_id", "int"),
-        str(ASSET_CANONICAL_ID): ("a.canonical_id", "str"),
-        str(ASSET_CANONICAL_URI): ("a.canonical_uri", "str"),
-        str(ASSET_CREATED_SNAPSHOT): ("a.created_snapshot_id", "int"),
-        str(ASSET_LAST_SNAPSHOT): ("a.last_snapshot_id", "int"),
-        str(ASSET_DELETED_SNAPSHOT): ("a.deleted_snapshot_id", "int"),
-    }
-
-    if filters:
-        for raw in filters:
-            try:
-                filt = json.loads(raw)
-            except Exception:
-                raise ValueError("Invalid filter format")
-            accessor = filt.get("accessor")
-            operator = filt.get("operator")
-            value = filt.get("value")
-            values = filt.get("values")
-
-            if accessor not in asset_filter_fields:
-                raise ValueError(f"Filtering not supported for column: {accessor}")
-            column_name, col_type = asset_filter_fields[accessor]
-
-            def cast_value(val: Any) -> Any:
-                if col_type == "int":
-                    return int(val) if val is not None else None
-                return val
-
-            if operator in {
-                "equals",
-                "notEquals",
-                "greaterThan",
-                "lessThan",
-                "greaterThanOrEqual",
-                "lessThanOrEqual",
-            }:
-                if value is None:
-                    raise ValueError("Filter value is required")
-                op_map = {
-                    "equals": "=",
-                    "notEquals": "!=",
-                    "greaterThan": ">",
-                    "lessThan": "<",
-                    "greaterThanOrEqual": ">=",
-                    "lessThanOrEqual": "<=",
-                }
-                conditions.append(f"{column_name} {op_map[operator]} ?")
-                base_params.append(cast_value(value))
-            elif col_type == "str" and operator in {
-                "contains",
-                "notContains",
-                "startsWith",
-                "endsWith",
-            }:
-                if value is None:
-                    raise ValueError("Filter value is required")
-                pattern = str(value)
-                if operator == "contains":
-                    conditions.append(f"{column_name} LIKE ?")
-                    base_params.append(f"%{pattern}%")
-                elif operator == "notContains":
-                    conditions.append(f"{column_name} NOT LIKE ?")
-                    base_params.append(f"%{pattern}%")
-                elif operator == "startsWith":
-                    conditions.append(f"{column_name} LIKE ?")
-                    base_params.append(f"{pattern}%")
-                elif operator == "endsWith":
-                    conditions.append(f"{column_name} LIKE ?")
-                    base_params.append(f"%{pattern}")
-            elif operator in {"between", "notBetween"}:
-                if not values or len(values) != 2:
-                    raise ValueError(
-                        "Filter values must contain two entries for between"
-                    )
-                op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
-                conditions.append(f"{column_name} {op} ? AND ?")
-                base_params.append(cast_value(values[0]))
-                base_params.append(cast_value(values[1]))
-            elif operator == "isEmpty":
-                conditions.append(f"{column_name} IS NULL")
-            elif operator == "isNotEmpty":
-                conditions.append(f"{column_name} IS NOT NULL")
-            else:
-                raise ValueError(f"Unsupported filter operator: {operator}")
+        conditions.insert(0, "a.provider_id = ?")
+        filter_params.insert(0, provider_id)
 
     where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-    asset_keys = set(asset_sort_fields.keys())
     # Determine which metadata keys to include; reduces workload when projecting columns.
-    metadata_keys = [col_id for col_id in requested_columns if col_id not in asset_keys]
+    metadata_keys = [
+        col_id for col_id in requested_columns if col_id not in asset_sort_fields
+    ]
     metadata_ids = [get_metadata_id(MetadataKey(key)) for key in metadata_keys]
 
     conn = Tortoise.get_connection("default")
@@ -347,7 +358,7 @@ async def list_assets_for_view(
     LEFT JOIN ranked r ON r.asset_id = a.id AND r.rn = 1
     ORDER BY {order_by_clause}
     """
-    params = list(base_params) + [limit, offset] + metadata_ids
+    params = list(filter_params) + [limit, offset] + metadata_ids
 
     rows = await conn.execute_query_dict(sql, params)
 
@@ -404,7 +415,7 @@ async def list_assets_for_view(
     total_count = None
     if include_total:
         count_sql = f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_sql}"
-        count_rows = await conn.execute_query_dict(count_sql, base_params)
+        count_rows = await conn.execute_query_dict(count_sql, filter_params)
         total_count = int(count_rows[0]["cnt"]) if count_rows else 0
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)

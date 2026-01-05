@@ -49,10 +49,7 @@ RUNNING_SNAPSHOTS: dict[int, SnapshotRunState] = {}
 @app.get("/assets")
 async def list_assets(provider_id: Optional[int] = None):
     view = get_view("default")
-    return await list_assets_for_view(
-        view,
-        provider_id=provider_id,
-    )
+    return await list_assets_for_view(view, provider_id=provider_id)
 
 
 @app.post("/assets")
