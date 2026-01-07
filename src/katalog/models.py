@@ -369,6 +369,19 @@ class Asset(Model):
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": int(self.id),
+            "provider_id": int(self.provider_id),
+            "canonical_id": self.canonical_id,
+            "canonical_uri": self.canonical_uri,
+            "created_snapshot_id": int(self.created_snapshot_id),
+            "last_snapshot_id": int(self.last_snapshot_id),
+            "deleted_snapshot_id": int(self.deleted_snapshot_id)
+            if self.deleted_snapshot_id is not None
+            else None,
+        }
+
     async def save_record(
         self,
         snapshot: "Snapshot",
@@ -457,6 +470,7 @@ class Metadata(Model):
         orm(MetadataRegistry), related_name="metadata_entries", on_delete=RESTRICT
     )
     # Just for fixing type errors, these are populated via ForeignKeyField
+    asset_id: int
     provider_id: int
     snapshot_id: int
     metadata_key_id: int
@@ -510,6 +524,38 @@ class Metadata(Model):
             return self.value_relation
         else:
             raise ValueError(f"Unsupported metadata value_type {self.value_type}")
+
+    def to_dict(self) -> dict[str, Any]:
+        value: Any
+        if self.value_type == MetadataType.STRING:
+            value = self.value_text
+        elif self.value_type == MetadataType.INT:
+            value = self.value_int
+        elif self.value_type == MetadataType.FLOAT:
+            value = self.value_real
+        elif self.value_type == MetadataType.DATETIME:
+            value = self.value_datetime.isoformat() if self.value_datetime else None
+        elif self.value_type == MetadataType.JSON:
+            value = self.value_json
+        elif self.value_type == MetadataType.RELATION:
+            value = self.value_relation_id
+        else:
+            value = None
+
+        return {
+            "id": int(self.id),
+            "asset_id": int(self.asset_id),
+            "provider_id": int(self.provider_id),
+            "snapshot_id": int(self.snapshot_id),
+            "metadata_key_id": int(self.metadata_key_id),
+            "key": str(self.key),
+            "value_type": self.value_type.name,
+            "value": value,
+            "removed": bool(self.removed),
+            "confidence": float(self.confidence)
+            if self.confidence is not None
+            else None,
+        }
 
     def set_value(self, value: Any) -> None:
         if value is None:

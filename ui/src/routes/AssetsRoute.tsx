@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { fetchViewAssets } from "../api/client";
 import type { Asset, MetadataValueEntry, ColumnDefinition, ViewAssetsResponse } from "../types/api";
 import {
   SimpleTable,
   HeaderObject,
+  CellClickProps,
   ValueGetterProps,
   ValueFormatterProps,
   ColumnType,
@@ -103,6 +105,7 @@ const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
 };
 
 function RecordsRoute() {
+  const navigate = useNavigate();
   const [records, setRecords] = useState<Asset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +186,23 @@ function RecordsRoute() {
     return () => window.clearTimeout(handle);
   }, [searchQuery, loadPage, sort, filters]);
 
+  const handleCellClick = useCallback(
+    (props: CellClickProps) => {
+      if (String(props.accessor) !== "asset/id") {
+        return;
+      }
+
+      const assetId =
+        typeof props.value === "number" ? props.value : Number(String(props.value ?? ""));
+      if (!Number.isFinite(assetId)) {
+        return;
+      }
+
+      navigate(`/assets/${assetId}`);
+    },
+    [navigate]
+  );
+
   return (
     <section className="panel">
       <header className="panel-header">
@@ -216,6 +236,7 @@ function RecordsRoute() {
         height={"75vh"}
         selectableCells={true}
         rowIdAccessor="asset/id"
+        onCellClick={handleCellClick}
         columnResizing={true}
         shouldPaginate={true}
         rowsPerPage={pagination.limit}

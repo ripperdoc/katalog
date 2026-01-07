@@ -7,6 +7,7 @@ import type {
   Snapshot,
   SnapshotListResponse,
   SnapshotResponse,
+  AssetDetailResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -96,6 +97,13 @@ export async function fetchSnapshots(): Promise<SnapshotListResponse> {
 
 export async function fetchSnapshot(id: number): Promise<SnapshotResponse> {
   const response = await fetch(`${API_BASE}/snapshots/${id}`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchAssetDetail(assetId: number): Promise<AssetDetailResponse> {
+  const response = await fetch(`${API_BASE}/assets/${assetId}`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);

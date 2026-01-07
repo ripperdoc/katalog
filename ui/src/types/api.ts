@@ -105,3 +105,31 @@ export interface SnapshotResponse {
   logs: string[];
   running: boolean;
 }
+
+export interface AssetDetailRecord {
+  id: number;
+  provider_id: number;
+  canonical_id: string;
+  canonical_uri: string;
+  created_snapshot_id: number;
+  last_snapshot_id: number;
+  deleted_snapshot_id: number | null;
+}
+
+export interface MetadataRecord {
+  id: number;
+  asset_id: number;
+  provider_id: number;
+  snapshot_id: number;
+  metadata_key_id: number;
+  key: string;
+  value_type: string;
+  value: MetadataValue;
+  removed: boolean;
+  confidence: number | null;
+}
+
+export interface AssetDetailResponse {
+  asset: AssetDetailRecord;
+  metadata: MetadataRecord[];
+}

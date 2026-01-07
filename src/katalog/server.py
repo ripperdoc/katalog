@@ -9,7 +9,7 @@ from loguru import logger
 from tortoise import Tortoise
 
 from katalog.config import DB_URL, WORKSPACE
-from katalog.models import Asset, OpStatus, Provider, ProviderType, Snapshot
+from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Snapshot
 from katalog.processors.runtime import run_processors, sort_processors
 from katalog.queries import list_assets_for_view, sync_config
 from katalog.sources.runtime import get_source_plugin, run_sources
@@ -59,7 +59,15 @@ async def create_asset(request: Request):
 
 @app.get("/assets/{asset_id}")
 async def get_asset(asset_id: int):
-    raise NotImplementedError()
+    asset = await Asset.get_or_none(id=asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    metadata = await Metadata.for_asset(asset, include_removed=True)
+    return {
+        "asset": asset.to_dict(),
+        "metadata": [m.to_dict() for m in metadata],
+    }
 
 
 @app.patch("/assets/{asset_id}")
