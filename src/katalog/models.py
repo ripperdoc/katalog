@@ -236,7 +236,18 @@ class Snapshot(Model):
         metadata_payload: dict[str, Any] | None = None
 
         if self.tasks:
-            await drain_tasks(self.tasks)
+            logger.info(
+                "Draining {count} processor tasks before finalizing snapshot {snapshot_id}",
+                count=len(self.tasks),
+                snapshot_id=self.id,
+            )
+            modified, failures = await drain_tasks(self.tasks)
+            logger.info(
+                "Finished draining processor tasks for snapshot {snapshot_id} (modified={modified}, failures={failures})",
+                snapshot_id=self.id,
+                modified=modified,
+                failures=failures,
+            )
 
         if self.stats is not None or self.metadata is not None:
             metadata_payload = dict(self.metadata or {})
@@ -358,8 +369,17 @@ class Asset(Model):
     def attach_accessor(self, accessor: FileAccessor | None) -> None:
         self._data_accessor = accessor
 
-    async def save_record(self, snapshot: "Snapshot") -> None:
-        """Persist the asset row, reusing an existing canonical asset when present."""
+    async def save_record(
+        self,
+        snapshot: "Snapshot",
+    ) -> bool:
+        """Persist the asset row, reusing an existing canonical asset when present.
+
+        Returns:
+            True if the asset was newly created in the DB, otherwise False.
+        """
+
+        was_created = False
         if self.id is None:
             existing = await Asset.get_or_none(canonical_id=self.canonical_id)
             if existing:
@@ -368,11 +388,14 @@ class Asset(Model):
                 self.created_snapshot_id = existing.created_snapshot_id
                 self.provider_id = existing.provider_id
                 self.canonical_uri = existing.canonical_uri
+            else:
+                was_created = True
         if self.created_snapshot_id is None:
             self.created_snapshot = snapshot
         self.last_snapshot = snapshot
         self.deleted_snapshot = None
         await self.save()
+        return was_created
 
     async def load_metadata(self) -> Sequence["Metadata"]:
         """Fetch and cache metadata rows for this asset."""

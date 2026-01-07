@@ -6,17 +6,14 @@
       currently shown files (e.g. after filtering/searching). Later it is about saving a
       search/filter for quick re-use. And beyond that, it's a matter of having a tag system that
       let's us create virtual folders of assets.
-- [ ] Speed up time to save to DB after scan, check journal mode / WAL, can we batch writes
-      together, can we avoid some reads (e.g. if we know the asset is new, no need to read from
-      Metadata table). Also add some logging that would show progress even if it takes time to
-      persist.
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
       that ok?
-- [ ] Store parent/child relationships from Google drive as relationship metadata
+- [ ] Store parent/child relationships from Google drive as relationship metadata. But how can we do
+      that if we want the source scanner to not touch the DB?
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
@@ -25,6 +22,7 @@
 
 - [ ] Dynamic concurrency strategy for GDrive fetches - split the search space dynamically over time
       to always be able to work with concurrent fetchers.
+- [ ] Speed up time to save to DB after scan, can we batch more writes?
 - [ ] Add deletion of snapshots for quick undo.
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.

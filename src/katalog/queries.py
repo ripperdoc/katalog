@@ -61,6 +61,16 @@ async def setup_db(db_path: Path) -> Path:
     conn = Tortoise.get_connection("default")
     await conn.execute_script(
         """
+        -- SQLite tuning for high-volume ingest.
+        -- WAL + NORMAL synchronous is typically a large speed-up for write-heavy workloads.
+        PRAGMA foreign_keys = ON;
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA temp_store = MEMORY;
+        PRAGMA cache_size = -65536; -- KiB; ~64 MiB
+        PRAGMA busy_timeout = 5000;
+        PRAGMA wal_autocheckpoint = 1000;
+
         CREATE INDEX IF NOT EXISTS idx_metadata_asset_key_snapshot
         ON metadata(asset_id, metadata_key_id, snapshot_id);
 

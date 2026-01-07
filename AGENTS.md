@@ -7,7 +7,7 @@
   suggesting something with large ramifications.
 - Always ask the user if a requirement is unclear.
 - If solving a bug, find root cause or point out if we are just fixing symptoms.
-- Run tests or try it in terminal to verify issues or check that code is working
+- Run tests using `pytest` CLI or try it in terminal to verify issues or check that code is working
 - Don't write tests unless explicitly asked for it
 - Avoid code bloat and complexity by following these rules of thumb:
   - Better to modify an existing API / method / property than add a similar but different one. Ask
