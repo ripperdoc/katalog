@@ -70,9 +70,10 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
             asset=asset,
             snapshot=baseline_snapshot,
         )
+        modified_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         baseline_modified = make_metadata(
             TIME_MODIFIED,
-            datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            modified_dt,
             provider_id=provider.id,
             asset=asset,
             snapshot=baseline_snapshot,
@@ -105,7 +106,7 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
             ),
             make_metadata(
                 TIME_MODIFIED,
-                None,
+                modified_dt,
                 provider_id=provider.id,
                 asset=asset,
                 snapshot=next_snapshot,

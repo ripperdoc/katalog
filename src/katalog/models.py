@@ -757,6 +757,11 @@ class MetadataChangeSet:
             key = entry.key
             seen_for_key = seen_values.setdefault(key, set())
             value_key = entry.fingerprint()
+            # None means "no value" and should not be treated as a stored metadata value.
+            # Historically we may have persisted NULL-value rows; ignore those for the
+            # purpose of computing current state.
+            if value_key is None:
+                continue
             if value_key in seen_for_key:
                 continue
             seen_for_key.add(value_key)
@@ -808,6 +813,17 @@ class MetadataChangeSet:
         """Loaded + staged metadata."""
         return list(self._loaded) + list(self._staged)
 
+    # NOTE (future refactor idea):
+    # - A staged value=None means "clear_key" for that (provider_id, metadata_key) and should NOT
+    #   be persisted as a NULL-value metadata row.
+    # - Clear must remain append-only/undoable: we express it by writing removed=True rows for each
+    #   currently-active value (per-value tombstones), not by destructive deletes.
+    # - Missing keys are unchanged; only explicitly staged None triggers clear.
+    # - Reads like current() intentionally hide removed rows; persistence needs latest *state* per
+    #   (metadata_key_id, provider_id, value) (incl removed bit) to dedupe correctly and support
+    #   add -> remove -> add over time. Ordering must be newest-first (snapshot_id/id).
+    # - A cleaner rewrite could factor a shared latest() helper and derive current() from it;
+    #   schema-level "clear all" tombstones would reduce writes but complicate queries.
     async def persist(
         self,
         asset: Asset,
@@ -819,18 +835,94 @@ class MetadataChangeSet:
             return set()
 
         existing_metadata = await asset.load_metadata()
-        existing_index: set[tuple[int, int, Any]] = {
-            (
-                int(md.metadata_key_id),
-                int(md.provider_id),
-                md.fingerprint(),
+        # Deduplication is based on latest state (not "ever seen"), so we can support:
+        # add -> remove -> add (same value) across snapshots.
+        ordered_existing = sorted(
+            existing_metadata,
+            key=lambda m: (
+                m.snapshot_id if m.snapshot_id is not None else 0,
+                m.id if m.id is not None else 0,
+            ),
+            reverse=True,
+        )
+        latest_states: dict[tuple[int, int, Any], bool] = {}
+        for entry in ordered_existing:
+            value_key = entry.fingerprint()
+            if value_key is None:
+                continue
+            state_key = (
+                int(entry.metadata_key_id),
+                int(entry.provider_id),
+                value_key,
             )
-            for md in existing_metadata
-        }
+            if state_key in latest_states:
+                continue
+            latest_states[state_key] = bool(entry.removed)
 
         to_create: list[Metadata] = []
         changed_keys: set[MetadataKey] = set()
 
+        # A staged entry with value=None (and removed=False) is an explicit instruction to clear
+        # all current values for (metadata_key_id, provider_id).
+        clear_groups: set[tuple[int, int]] = set()
+        for md in staged:
+            if md.provider_id is None:
+                raise ValueError("Metadata provider_id is not set for persistence")
+            group_key = (int(md.metadata_key_id), int(md.provider_id))
+            if md.fingerprint() is None and not md.removed:
+                clear_groups.add(group_key)
+
+        # Apply clears first.
+        if clear_groups:
+            existing_current_by_provider: dict[
+                int, dict[MetadataKey, list[Metadata]]
+            ] = {}
+            for metadata_key_id, provider_id in clear_groups:
+                if provider_id not in existing_current_by_provider:
+                    existing_current_by_provider[provider_id] = self._current_metadata(
+                        existing_metadata, provider_id
+                    )
+
+                key = get_metadata_def_by_id(int(metadata_key_id)).key
+                existing_current = existing_current_by_provider[provider_id].get(
+                    key, []
+                )
+
+                for existing_entry in existing_current:
+                    if existing_entry.value_type == MetadataType.RELATION:
+                        existing_value = getattr(
+                            existing_entry, "value_relation_id", None
+                        )
+                    else:
+                        existing_value = existing_entry.value
+
+                    if existing_value is None:
+                        continue
+
+                    removal = make_metadata(
+                        key,
+                        existing_value,
+                        provider_id=provider_id,
+                        removed=True,
+                    )
+                    removal.asset = asset
+                    removal.asset_id = asset.id
+                    removal.snapshot = snapshot
+                    removal.snapshot_id = snapshot.id
+
+                    value_key = removal.fingerprint()
+                    if value_key is None:
+                        continue
+
+                    state_key = (int(metadata_key_id), int(provider_id), value_key)
+                    if latest_states.get(state_key) is True:
+                        continue
+
+                    to_create.append(removal)
+                    latest_states[state_key] = True
+                    changed_keys.add(key)
+
+        # Apply normal staged entries.
         for md in staged:
             md.asset = asset
             md.asset_id = asset.id
@@ -839,16 +931,23 @@ class MetadataChangeSet:
             if md.provider is None and md.provider_id is None:
                 raise ValueError("Metadata provider_id is not set for persistence")
 
-            key = (
-                int(md.metadata_key_id),
-                int(md.provider_id),
-                md.fingerprint(),
-            )
-            if key in existing_index:
+            value_key = md.fingerprint()
+
+            # Never persist NULL-value rows.
+            if value_key is None:
+                if md.removed:
+                    raise ValueError(
+                        "Removal rows must include a concrete value; use value=None (removed=False) to clear all values"
+                    )
                 continue
+
+            state_key = (int(md.metadata_key_id), int(md.provider_id), value_key)
+            if latest_states.get(state_key) == bool(md.removed):
+                continue
+
             to_create.append(md)
-            existing_index.add(key)
-            changed_keys.add(get_metadata_def_by_id(key[0]).key)
+            latest_states[state_key] = bool(md.removed)
+            changed_keys.add(get_metadata_def_by_id(int(md.metadata_key_id)).key)
 
         if to_create:
             removed = sum(1 for md in to_create if md.removed is True)
