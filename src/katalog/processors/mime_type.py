@@ -10,6 +10,7 @@ from katalog.processors.base import (
     file_data_change_dependencies,
 )
 from katalog.models import Asset, MetadataChangeSet, make_metadata
+from katalog.models import OpStatus
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic
@@ -29,7 +30,9 @@ class MimeTypeProcessor(Processor):
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
         if not asset.data:
-            raise ValueError("Asset does not have a data accessor")
+            return ProcessorResult(
+                status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
+            )
         m = magic.Magic(mime=True)
         buf = await asset.data.read(0, 2048, no_cache=True)
         mt = m.from_buffer(buf)

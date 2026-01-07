@@ -424,3 +424,15 @@ incremental payload to existing `assets` becomes an O(changes) operation—no fu
 - Should run must not be 100% precise - it can return false positives (e.g. said should run but
   wasn't necessary), but not false negatives (e.g. said shouldn't run but should've). Sometimes only
   the full algorithm in run can determine if a run was necessary or not
+
+### Processor contract (summary)
+
+- `should_run(asset, change_set)` is a _cheap_ pre-filter used to avoid scheduling work. It may
+  return false positives (run even if unnecessary) but should not return false negatives.
+- `run(asset, change_set)` performs the actual work and returns a `ProcessorResult`.
+- If `run` cannot execute due to missing prerequisites (e.g. no data accessor, missing required
+  metadata, unsupported file type), it should return `ProcessorResult(status=SKIPPED, message=...)`.
+- Exceptions from `run` should be reserved for unexpected failures; the runtime treats those as
+  `ERROR` and logs them.
+- A processor may return `COMPLETED` with an empty `metadata` list to mean “ran but produced no
+  changes”.

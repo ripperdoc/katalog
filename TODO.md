@@ -2,8 +2,10 @@
 
 # Next up
 
-- [ ] Separate stat assets_seen in scan from assets yielded (or similar). Still need to be matching
-      usage when calling processors.
+- [ ] Easily create subsets of assets. As a start, it's about running processors/analyzers on the
+      currently shown files (e.g. after filtering/searching). Later it is about saving a
+      search/filter for quick re-use. And beyond that, it's a matter of having a tag system that
+      let's us create virtual folders of assets.
 - [ ] Speed up time to save to DB after scan, check journal mode / WAL, can we batch writes
       together, can we avoid some reads (e.g. if we know the asset is new, no need to read from
       Metadata table). Also add some logging that would show progress even if it takes time to
@@ -12,9 +14,6 @@
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
-- [ ] Can `should_run` be removed and simply let `run` return None or equivalent early? When would
-      `should_run` offer something that `run` cannot? How can we separate `didn't run` from
-      `ran but found 0 changes`, and do we need to?
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
       that ok?
 - [ ] Test that we can correctly check equality of lists and dicts saved as JSON data. persist() is
@@ -57,6 +56,8 @@ E.g. what do I need `katalog` to do now for White Wolf?
 - [ ] Search the WW Google Drive and find duplicates and "badly named files" for manual fixing
 - [ ] Search the WW Google Drive and propose new folder organization (how?)
 - [ ] Search the WW Google and summarize stats for it
+- [ ] Ask AI to review a set of files, e.g. "check if they have the right size" or "always shown
+      from front"
 - [ ] Quickly search and filter through files and metadata e.g. to find all PDFs and images to put
       in library
 - [ ] Automatically move files to Shared Drive but keeping owners? (Seems too hard or risky to do

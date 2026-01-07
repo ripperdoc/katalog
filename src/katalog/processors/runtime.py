@@ -189,6 +189,7 @@ async def run_processors(*, snapshot: Snapshot, assets: list[Asset]):
 
     for asset in assets:
         snapshot.stats.assets_seen += 1
+        snapshot.stats.assets_saved += 1
         loaded_metadata = await asset.load_metadata()
         change_set = MetadataChangeSet(loaded=loaded_metadata)
         await enqueue_asset_processing(

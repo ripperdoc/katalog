@@ -100,7 +100,10 @@ class Provider(Model):
 class SnapshotStats:
     """Seen"""
 
-    assets_seen: int = 0  # Yielded in a scan
+    assets_seen: int = (
+        0  # Total assets encountered/accessed during scan (saved + ignored)
+    )
+    assets_saved: int = 0  # Assets yielded and saved/processed by the pipeline
     assets_ignored: int = 0  # Skipped during scan (e.g. filtered by provider settings)
 
     assets_changed: int = 0  # Assets that had metadata changes

@@ -14,6 +14,7 @@ from katalog.models import (
     Asset,
     Provider,
 )
+from katalog.models import OpStatus
 from katalog.metadata import (
     FILE_PATH,
     FILE_SIZE,
@@ -76,17 +77,22 @@ class FilesystemClient(SourcePlugin):
         Recursively scan the directory and yield AssetScanResults.
         """
 
+        ignored = 0
+        status = OpStatus.IN_PROGRESS
+
         async def inner():
-            count = 0
+            nonlocal ignored, status
+            seen = 0
             for dirpath, dirnames, filenames in os.walk(self.root_path):
                 for filename in filenames:
-                    if count >= self.max_files:
+                    if self.max_files and seen >= self.max_files:
                         logger.info(
                             f"Reached max_files limit of {self.max_files}, stopping scan."
                         )
-                        # TODO mark scan result accordingly
-                        return
-                    count += 1
+                        status = OpStatus.CANCELED
+                        break
+                    seen += 1
+
                     full_path = os.path.join(dirpath, filename)
                     try:
                         stat = os.stat(full_path)
@@ -118,13 +124,21 @@ class FilesystemClient(SourcePlugin):
                             FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
                         )
                     except Exception as e:
+                        ignored += 1
                         logger.warning(
                             f"Failed to stat {full_path} for source {self.provider.id}: {e}"
                         )
                         continue
                     yield result
 
-        return ScanResult(iterator=inner())
+                if status == OpStatus.CANCELED:
+                    break
+
+            scan_result.status = status
+            scan_result.ignored = ignored
+
+        scan_result = ScanResult(iterator=inner(), status=status)
+        return scan_result
 
 
 def _looks_hidden(path: Path) -> bool:

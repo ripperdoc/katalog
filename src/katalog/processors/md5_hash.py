@@ -11,7 +11,7 @@ from katalog.metadata import (
     TIME_MODIFIED,
 )
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.models import Asset, make_metadata, MetadataChangeSet
+from katalog.models import Asset, make_metadata, MetadataChangeSet, OpStatus
 
 
 class MD5HashProcessor(Processor):
@@ -33,7 +33,9 @@ class MD5HashProcessor(Processor):
     async def run(self, asset: Asset, change_set: MetadataChangeSet) -> ProcessorResult:
         d = asset.data
         if d is None:
-            raise ValueError("Asset does not have a data accessor")
+            return ProcessorResult(
+                status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
+            )
 
         # If the accessor exposes a local path, hash it in a thread to leverage GIL release.
         if hasattr(d, "path"):

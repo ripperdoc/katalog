@@ -1,23 +1,42 @@
-# Rules
+# Agent protocol
 
-- Always respond in text before changing code if the user seem to not be sure or asking something.
+- Always strive for small, iterative changes
+- Always strive for readable and modular code, refactor if functions and files gets too long
+- Only solve the problem at hand, but propose in writing other improvements that you saw
+- Always respond in text before changing code if the user seems unsure, is asking a question or is
+  suggesting something with large ramifications.
 - Always ask the user if a requirement is unclear.
-- Strive for minimal, iterative changes instead of sweeping
-- Don't remove comments or commented out code unless explicitly told to
-- Write comments if some change you are doing is not obvious
-- This is a `uv` based project, always use `uv` to install and run things. Use
-  `UV_CACHE_DIR=.uv-cache` to avoid permissions issues.
-- When logging and creating strings, prefer f-strings vs other ways
-- Don't write type ignore comments unless confirming with user first
-- Don't create or run on CLI temporary test code. If a test seems necessary, ask the user for
-  permission to create a pytest unit test instead.
-- Avoid using `getattr` and `setattr`, it is bug prone and messes up typing. If there is no other
-  way, hide it behind an instance method where possible.
-- Always code bloat and spreading complexity by following these rules of thumb:
+- If solving a bug, find root cause or point out if we are just fixing symptoms.
+- Run tests or try it in terminal to verify issues or check that code is working
+- Don't write tests unless explicitly asked for it
+- Avoid code bloat and complexity by following these rules of thumb:
   - Better to modify an existing API / method / property than add a similar but different one. Ask
     if the API change would be significant.
   - If a change becomes complex because of work arounds to still support existing APIs, stop and
-    check if there is a better over
-  - Ask before adding extra backward compatibility layers - compatibility may not be needed
+    check if there is a better way
+  - Don't assume backward compatibility, ask if it's necessary
+- Lookup docs for libraries I reference with web search
+- Read the README.md, DESIGN.md and TODO.md files.
+- Propose changes to README and DESIGN if current code seems to contradict them.
 
-For details on the architecture, read DESIGN.md.
+# Code in this repo
+
+- Don't remove comments or commented out code unless explicitly told to
+- Write comments if some change you are doing is not obvious
+- Prefer f-strings vs other ways of string formatting
+- Don't write `type ignore` comments unless confirming with user first
+- Don't create temporary test code. If a test seems necessary, ask the user for permission to create
+  a pytest unit test instead.
+- Avoid using `getattr` and `setattr`, it is bug prone and messes up typing. If there is no other
+  way, hide it behind an instance method where possible.
+- Avoid shell scripting if possible - solve it in main code, write a standalone Python script or
+  make as simple bash scripts as possible where other commands do the heavy lifting
+- Avoid complicated CI-actions and scripting, rely on existing tools or write tools in e.g Python
+  that CI can call
+
+# Tools in this repo
+
+- This is a `uv` based project, always use `uv` to install and run things. Use
+  `UV_CACHE_DIR=.uv-cache` to avoid permissions issues.
+- `loguru` for logging
+- `pytest` for tests

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, Iterable
+from typing import Awaitable, Callable
 
 from loguru import logger
 
@@ -62,6 +62,7 @@ async def run_sources(
             if await _should_cancel():
                 raise asyncio.CancelledError()
             snapshot.stats.assets_seen += 1
+            snapshot.stats.assets_saved += 1
             # Ensure asset row exists and snapshot markers are updated.
             await result.asset.save_record(snapshot=snapshot)
 
@@ -90,7 +91,7 @@ async def run_sources(
         if deleted_count:
             snapshot.stats.assets_deleted += deleted_count
             snapshot.stats.assets_changed += deleted_count
-        ignored = getattr(scan_result, "ignored", 0)
+        ignored = scan_result.ignored
         if ignored:
             snapshot.stats.assets_seen += ignored
             snapshot.stats.assets_ignored += ignored

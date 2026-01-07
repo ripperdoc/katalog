@@ -299,7 +299,7 @@ class GoogleDriveClient(SourcePlugin):
                     data = await context.http_response.read()
                     payload: dict = json.loads(data)
                     files = payload.get("files", [])
-                    counted_files = 0
+                    counted_files = len(files)
 
                     # NOTE say this current query returns files that ends with exact same modifiedTime, e.g.
                     # [higher times, 125, 124], 123, 123 and the page after would continue with 123, 123, [122, 121, lower times]
@@ -318,10 +318,13 @@ class GoogleDriveClient(SourcePlugin):
                             scan_status = OpStatus.CANCELED
                             break
                         file_id = file.get("id")
+                        if not file_id:
+                            ignored += 1
+                            continue
                         if file_id in seen_ids:
                             logger.debug(f"Skipping duplicate file ID {file_id}")
+                            ignored += 1
                             continue
-                        counted_files += 1
 
                         if (
                             earliest
