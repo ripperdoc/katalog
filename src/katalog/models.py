@@ -515,6 +515,15 @@ class Metadata(Model):
                 )
             self.value_datetime = value
         elif self.value_type == MetadataType.JSON:
+            if value is not None:
+                try:
+                    # Validate that the value is actually JSON-serializable.
+                    # We use a stable encoding to avoid surprising behavior across runs.
+                    self._stable_json_dumps(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"Value for JSON metadata must be JSON-serializable, got {type(value)}: {exc}"
+                    ) from exc
             self.value_json = value
         elif self.value_type == MetadataType.RELATION:
             self.value_relation_id = int(value)
@@ -528,6 +537,57 @@ class Metadata(Model):
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    @staticmethod
+    def _stable_json_dumps(value: Any) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+
+    def fingerprint(self) -> Any:
+        """Return a hashable, stable representation of this metadata value.
+
+        Used for change detection and duplicate prevention.
+
+        Important: for JSON values we compare a stable JSON encoding rather than Python object
+        identity.
+        """
+
+        value: Any = self.value
+
+        if self.value_type == MetadataType.JSON:
+            if value is None:
+                return None
+            return self._stable_json_dumps(value)
+
+        if self.value_type == MetadataType.DATETIME:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return str(value)
+
+        if self.value_type == MetadataType.RELATION:
+            relation_id = getattr(self, "value_relation_id", None)
+            if relation_id is not None:
+                return int(relation_id)
+            relation = getattr(self, "value_relation", None)
+            if relation is not None:
+                relation_pk = getattr(relation, "id", None)
+                if relation_pk is not None:
+                    return int(relation_pk)
+            if value is None:
+                return None
+            value_id = getattr(value, "id", None)
+            if value_id is not None:
+                return int(value_id)
+            return int(value)
+
+        return value
 
     @classmethod
     async def for_asset(
@@ -627,10 +687,10 @@ class MetadataChangeSet:
                 continue
             key = entry.key
             seen_for_key = seen_values.setdefault(key, set())
-            value = entry.value
-            if value in seen_for_key:
+            value_key = entry.fingerprint()
+            if value_key in seen_for_key:
                 continue
-            seen_for_key.add(value)
+            seen_for_key.add(value_key)
             if entry.removed:
                 continue
             result.setdefault(key, []).append(entry)
@@ -661,8 +721,8 @@ class MetadataChangeSet:
         current = self.current(provider_id)
         changed: set[MetadataKey] = set()
         for key in set(baseline.keys()) | set(current.keys()):
-            base_values = {md.value for md in baseline.get(key, [])}
-            curr_values = {md.value for md in current.get(key, [])}
+            base_values = {md.fingerprint() for md in baseline.get(key, [])}
+            curr_values = {md.fingerprint() for md in current.get(key, [])}
             if base_values != curr_values:
                 changed.add(key)
         self._cache_changed[provider_id] = changed
@@ -691,7 +751,11 @@ class MetadataChangeSet:
 
         existing_metadata = await asset.load_metadata()
         existing_index: set[tuple[int, int, Any]] = {
-            (int(md.metadata_key_id), int(md.provider_id), md.value)
+            (
+                int(md.metadata_key_id),
+                int(md.provider_id),
+                md.fingerprint(),
+            )
             for md in existing_metadata
         }
 
@@ -706,7 +770,11 @@ class MetadataChangeSet:
             if md.provider is None and md.provider_id is None:
                 raise ValueError("Metadata provider_id is not set for persistence")
 
-            key = (int(md.metadata_key_id), int(md.provider_id), md.value)
+            key = (
+                int(md.metadata_key_id),
+                int(md.provider_id),
+                md.fingerprint(),
+            )
             if key in existing_index:
                 continue
             to_create.append(md)

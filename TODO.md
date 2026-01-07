@@ -16,8 +16,6 @@
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
       that ok?
-- [ ] Test that we can correctly check equality of lists and dicts saved as JSON data. persist() is
-      failing on it.
 - [ ] Store parent/child relationships from Google drive as relationship metadata
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
