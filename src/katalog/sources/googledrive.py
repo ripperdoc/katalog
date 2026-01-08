@@ -13,7 +13,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request as GoogleRequest
 from loguru import logger
-from katalog.config import PORT, WORKSPACE
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from katalog.config import PORT, WORKSPACE, provider_path
 from katalog.metadata import (
     ACCESS_LAST_MODIFYING_USER,
     ACCESS_OWNER,
@@ -43,7 +44,6 @@ from katalog.models import (
     Asset,
     OpStatus,
     Provider,
-    Snapshot,
 )
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.utils import (
@@ -51,6 +51,7 @@ from katalog.utils.utils import (
     coerce_int,
     match_paths,
     normalize_glob_patterns,
+    parse_datetime_utc,
     parse_google_drive_datetime,
 )
 
@@ -89,9 +90,6 @@ API_FIELDS = {
 
 QUOTA_QUERIES_PER_SECOND = 200
 
-CLIENT_SECRET_PATH = WORKSPACE / "client_secret.json"
-TOKEN_PATH = WORKSPACE / "token.json"
-
 FILE_WEB_VIEW_LINK = define_metadata(
     "file/web_view_link",
     MetadataType.STRING,
@@ -102,17 +100,17 @@ FILE_WEB_VIEW_LINK = define_metadata(
 
 class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive. Features:
-    - Authenticates via OAuth2, by requesting a refresh token that is stored in <WORKSPACE>/token.json
-    and using the static application credentials in <WORKSPACE>/credentials.json
+    - Authenticates via OAuth2, by requesting a refresh token that is stored in <provider_path>/token.json
+    and using the static application credentials in <provider_path>/client_scret.json
     - Reads efficiently from Google Drive API using asyncio fetchers that work concurrently on time-sliced windows, files ordered by modifiedTime desc
     and then regular pagination of 100 within each window (using nextPageToken from the API)
     - Resolves full path metadata per file by recursing parent folder IDs into names. To optimize this, we build a lookup dict that is
-    read from and persisted back to `<WORKSPACE>/{provider_id}_folder_cache.json`. If cache doesn't exist, we prepopulate it by reading
+    read from and persisted back to `<provider_path>/folder_cache.json`. If cache doesn't exist, we prepopulate it by reading
     all folders from Drive API. If we discover unknown parents during runtime, we try to look them up with a direct API call,
     and if they are named `Drive` we instead look the name up from the drives/ API endpoint.
     - Supports scanning user drives and shared drives (corpora as a setting per client)
     - Supports exclude/include_path filters to skip (ignore) files that don't have matching name or ID paths
-    - Supports incremental scans by finding the last COMPLETE or PARTIAL snapshot and using its start time as a cutoff
+    - Supports restricting scan range with modified_from/modified_to (applied to Drive modifiedTime)
     - Supports max_files limit to stop scans early when enough files have been yielded
     """
 
@@ -120,40 +118,102 @@ class GoogleDriveClient(SourcePlugin):
     title = "Google Drive"
     description = "List files from a Google Drive account using OAuth2."
 
-    def __init__(
-        self,
-        provider: Provider,
-        max_files: int = 0,
-        corpora: str = "user",
-        allow_incremental: bool = False,
-        concurrency: int = 10,
-        include_paths: list[str] | str | None = None,
-        exclude_paths: list[str] | str | None = None,
-        account: str | None = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(provider, **kwargs)
-        try:
-            self.max_files = int(max_files)
-        except Exception:
-            self.max_files = 0
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-        # 'user' -> My Drive and Shared with me
-        # 'drive:<id>' -> specific shared drive
-        # 'allDrives' -> My Drive, Shared with me, and all shared drives
-        # 'domain' -> all searchable files
-        corpora_value = corpora or "user"
-        self.drive_id = None
-        if corpora_value.startswith("drive:"):
-            self.drive_id = corpora_value.split(":", 1)[1]
-            corpora_value = "drive"
-        self.corpora = corpora_value
-        self.supports_all_drives = True or self.corpora in {"drive", "allDrives"}
-        self.include_paths = normalize_glob_patterns(include_paths)
-        self.exclude_paths = normalize_glob_patterns(exclude_paths)
-        self.allow_incremental = allow_incremental
-        self.concurrency = max(1, int(concurrency))
-        self.account = account
+        max_files: int = Field(
+            default=0, ge=0, description="Stop after this many files (0 means no limit)"
+        )
+        corpora: str = Field(
+            default="user",
+            description='Drive corpus: "user", "allDrives", "domain", or "drive:<id>"',
+        )
+        allow_incremental: bool = Field(
+            default=False, description="Enable incremental scanning using checkpoints"
+        )
+        concurrency: int = Field(
+            default=10,
+            ge=1,
+            le=50,
+            description="Max concurrent time-slice fetchers",
+        )
+        include_paths: list[str] | str | None = Field(
+            default=None,
+            alias="includePaths",
+            description="Glob patterns (names or ID paths) to include",
+        )
+        exclude_paths: list[str] | str | None = Field(
+            default=None,
+            alias="excludePaths",
+            description="Glob patterns to exclude",
+        )
+        modified_from: datetime | str | None = Field(
+            default=None,
+            alias="modifiedFrom",
+            description="ISO datetime lower bound (Drive modifiedTime)",
+        )
+        modified_to: datetime | str | None = Field(
+            default=None,
+            alias="modifiedTo",
+            description="ISO datetime upper bound (Drive modifiedTime)",
+        )
+        account: str | None = Field(
+            default=None, description="Login hint (email) for OAuth screen"
+        )
+
+        drive_id: str | None = Field(
+            default=None, description="Derived when corpora=drive:<id>", exclude=True
+        )
+
+        @field_validator("include_paths", "exclude_paths", mode="before")
+        @classmethod
+        def _ensure_list(cls, v):
+            if v is None or isinstance(v, list):
+                return v
+            return [v]
+
+        @field_validator("modified_from", "modified_to", mode="before")
+        @classmethod
+        def _parse_dt(cls, v):
+            if v is None or isinstance(v, datetime):
+                return v
+            return parse_datetime_utc(v, strict=True)
+
+        @model_validator(mode="after")
+        def _normalize(self):
+            if (
+                self.modified_from
+                and self.modified_to
+                and self.modified_from >= self.modified_to
+            ):
+                raise ValueError("modified_from must be before modified_to")
+            if self.corpora.startswith("drive:"):
+                self.drive_id = self.corpora.split(":", 1)[1] or None
+                self.corpora = "drive"
+            return self
+
+    config_model = ConfigModel
+
+    def __init__(self, provider: Provider, **config: Any) -> None:
+        cfg = self.config_model.model_validate(config or {})
+        super().__init__(provider, **config)
+
+        self.max_files = cfg.max_files
+        self.drive_id = cfg.drive_id
+        self.corpora = cfg.corpora
+        self.supports_all_drives = self.corpora in {"drive", "allDrives"}
+        self.include_paths = normalize_glob_patterns(cfg.include_paths)
+        self.exclude_paths = normalize_glob_patterns(cfg.exclude_paths)
+        self.allow_incremental = cfg.allow_incremental
+        self.concurrency = cfg.concurrency
+        self.account = cfg.account
+
+        self.modified_from = parse_datetime_utc(cfg.modified_from, strict=False)
+        self.modified_to = parse_datetime_utc(cfg.modified_to, strict=False)
+        # Backwards/compat aliases (config may use camelCase).
+        self.modifiedFrom = self.modified_from
+        self.modifiedTo = self.modified_to
+
         self.http = httpx.AsyncClient(
             base_url="https://www.googleapis.com", timeout=5.0
         )
@@ -162,6 +222,9 @@ class GoogleDriveClient(SourcePlugin):
         self._folder_cache: Dict[str, Dict[str, Any]] = {}
         self._oauth_state = None
         self._credentials: Credentials | None = None
+        self.token_path = provider_path(self.provider.id) / "token.json"
+        self.client_secret_path = provider_path(self.provider.id) / "client_secret.json"
+        self.folder_cache_path = provider_path(self.provider.id) / "folder_cache.json"
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -272,16 +335,8 @@ class GoogleDriveClient(SourcePlugin):
         await self._load_credentials()
         await self._load_folder_cache()
 
-        cutoff = None
-        if self.allow_incremental:
-            last_snapshot = await Snapshot.find_partial_resume_point(
-                provider=self.provider
-            )
-            if last_snapshot:
-                cutoff = last_snapshot.started_at
-
         scan_status = OpStatus.IN_PROGRESS
-        time_slice = TimeSlice(start=cutoff, end=None)
+        time_slice = TimeSlice(start=self.modified_from, end=self.modified_to)
 
         async def iterator() -> AsyncIterator[AssetScanResult]:
             nonlocal scan_status
@@ -434,11 +489,7 @@ class GoogleDriveClient(SourcePlugin):
                 await asyncio.gather(producer, return_exceptions=True)
                 await self._persist_folder_cache()
                 if scan_status == OpStatus.IN_PROGRESS:
-                    scan_status = (
-                        OpStatus.PARTIAL
-                        if cutoff is not None and self.allow_incremental
-                        else OpStatus.COMPLETED
-                    )
+                    scan_status = OpStatus.COMPLETED
                 scan_result.status = scan_status
                 scan_result.ignored = ignored
 
@@ -452,24 +503,24 @@ class GoogleDriveClient(SourcePlugin):
         # Run with authorization_response from an Oauth2 callback handler
         if "authorization_response" in kwargs:
             flow = Flow.from_client_secrets_file(
-                CLIENT_SECRET_PATH, SCOPES, state=self._oauth_state
+                self.client_secret_path, SCOPES, state=self._oauth_state
             )
             authorization_response = str(kwargs["authorization_response"])
             flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
             flow.fetch_token(authorization_response=authorization_response)
             creds = flow.credentials
-            TOKEN_PATH.write_text(creds.to_json())
+            self.token_path.write_text(creds.to_json())
             return "authorized"
 
         # Run without authorization_response, we either refresh or start a new flow
-        if TOKEN_PATH.exists():
-            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        if self.token_path.exists():
+            creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
 
         if creds:
             return "authorized"
         else:
             # Start a new OAuth2 flow to redirect user to authorization URL
-            flow = Flow.from_client_secrets_file(CLIENT_SECRET_PATH, SCOPES)
+            flow = Flow.from_client_secrets_file(self.client_secret_path, SCOPES)
             flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
             # Read details here https://developers.google.com/identity/protocols/oauth2/web-server#obtainingaccesstokens
             authorization_url, state = flow.authorization_url(
@@ -483,13 +534,13 @@ class GoogleDriveClient(SourcePlugin):
     async def _load_credentials(self) -> Credentials:
         if self._credentials is not None:
             return self._credentials
-        if not TOKEN_PATH.exists():
+        if not self.token_path.exists():
             raise RuntimeError("Google Drive credentials are not valid")
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                TOKEN_PATH.write_text(creds.to_json())
+                self.token_path.write_text(creds.to_json())
             else:
                 raise RuntimeError("Google Drive credentials are not valid")
         self._credentials = creds
@@ -500,7 +551,7 @@ class GoogleDriveClient(SourcePlugin):
             raise RuntimeError("Google Drive credentials are not loaded")
         if self._credentials.expired and self._credentials.refresh_token:
             self._credentials.refresh(GoogleRequest())
-            TOKEN_PATH.write_text(self._credentials.to_json())
+            self.token_path.write_text(self._credentials.to_json())
 
     def _auth_headers(self) -> Dict[str, str]:
         self._refresh_credentials_if_needed()
@@ -596,7 +647,7 @@ class GoogleDriveClient(SourcePlugin):
     async def _load_folder_cache(self) -> None:
         if self._folder_cache:
             return
-        path = WORKSPACE / f"{self.provider.id}_folder_cache.json"
+        path = self.folder_cache_path
         if path.exists():
             try:
                 self._folder_cache = json.loads(path.read_text())
@@ -605,7 +656,7 @@ class GoogleDriveClient(SourcePlugin):
                 self._folder_cache = {}
 
     async def _persist_folder_cache(self) -> None:
-        path = WORKSPACE / f"{self.provider.id}_folder_cache.json"
+        path = self.folder_cache_path
         try:
             path.write_text(json.dumps(self._folder_cache))
         except Exception as exc:

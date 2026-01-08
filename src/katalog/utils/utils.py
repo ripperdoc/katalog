@@ -1,10 +1,10 @@
 import base64
 import importlib
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 import json
 from fnmatch import fnmatch
-from typing import Any, Iterable, Mapping, NamedTuple, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 
 def import_plugin_class(
@@ -42,6 +42,49 @@ def timestamp_to_utc(ts: float | None) -> datetime | None:
     if ts is None:
         return None
     return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def parse_datetime_utc(
+    value: datetime | str | None, *, strict: bool = False
+) -> datetime | None:
+    """Parse an ISO8601 datetime/date into a timezone-aware UTC datetime.
+
+    Accepts:
+    - `datetime` (naive treated as UTC)
+    - ISO8601 `str` like '2025-01-01', '2025-01-01T12:34:56', '2025-01-01T12:34:56Z'
+    - `None`
+
+    If `strict=False`, returns None for invalid values.
+    If `strict=True`, raises ValueError/TypeError for invalid values.
+    """
+    if value is None:
+        return None
+
+    dt: datetime
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        # Accept ISO8601 with 'Z' suffix.
+        raw = raw.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            if strict:
+                raise
+            return None
+    else:
+        if strict:
+            raise TypeError(
+                f"Invalid datetime type: {type(value)!r}. Expected datetime, str, or None."
+            )
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def parse_google_drive_datetime(dt_str: Optional[str]) -> Optional[datetime]:

@@ -1,7 +1,5 @@
-from datetime import UTC, datetime
 import json
 from pathlib import Path
-import re
 import time
 from typing import Any, Mapping
 
@@ -28,8 +26,6 @@ from katalog.models import (
     Metadata,
     MetadataRegistry,
     MetadataType,
-    Provider,
-    ProviderType,
 )
 from katalog.views import ViewSpec
 

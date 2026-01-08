@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 from typing import Any, Dict
+
+from pydantic import BaseModel, ConfigDict, Field
 from urllib.parse import unquote, urlparse
 
 if os.name == "nt":
@@ -53,12 +55,24 @@ class FilesystemClient(SourcePlugin):
     title = "Local filesystem"
     description = "Scan a directory tree on the local machine."
 
-    def __init__(
-        self, provider: Provider, root_path: str, max_files: int = 500, **kwargs: Any
-    ) -> None:
-        super().__init__(provider, **kwargs)
-        self.root_path = root_path
-        self.max_files = max_files
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(populate_by_name=True)
+
+        root_path: Path = Field(..., alias="rootPath", description="Directory to scan")
+        max_files: int = Field(
+            default=500,
+            ge=0,
+            description="Stop after this many files (0 means no limit)",
+        )
+
+    config_model = ConfigModel
+
+    def __init__(self, provider: Provider, **config: Any) -> None:
+        cfg = self.config_model.model_validate(config or {})
+        super().__init__(provider, **config)
+        # Store normalized values for runtime use.
+        self.root_path = str(cfg.root_path)
+        self.max_files = cfg.max_files
 
     def get_info(self) -> Dict[str, Any]:
         return {

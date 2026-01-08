@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import magic
+from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.metadata import FILE_TYPE
 from katalog.processors.base import (
@@ -24,6 +25,21 @@ class MimeTypeProcessor(Processor):
     dependencies = file_data_change_dependencies
     outputs = frozenset({FILE_TYPE})
 
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        probe_length: int = Field(
+            default=2048,
+            gt=0,
+            description="Number of bytes to inspect from start of file",
+        )
+
+    config_model = ConfigModel
+
+    def __init__(self, provider, **config):
+        self.config = self.config_model.model_validate(config or {})
+        super().__init__(provider, **config)
+
     def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
         # TODO, some services report application/octet-stream but there is probably a better mime type to find
         # Is there a logic where we can check for that, without having to recheck every time?
@@ -37,7 +53,7 @@ class MimeTypeProcessor(Processor):
                 status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
             )
         m = magic.Magic(mime=True)
-        buf = await asset.data.read(0, 2048, no_cache=True)
+        buf = await asset.data.read(0, self.config.probe_length, no_cache=True)
         mt = m.from_buffer(buf)
         return ProcessorResult(
             metadata=[make_metadata(FILE_TYPE, mt, self.provider.id)]

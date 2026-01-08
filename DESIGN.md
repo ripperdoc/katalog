@@ -405,7 +405,45 @@ whose modification time is newer than that value. The scanner then:
 Because the tables already expose the timestamps and uniqueness constraints we need, comparing the
 incremental payload to existing `assets` becomes an O(changes) operation—no full rescan is required.
 
-# Plugin guidelines
+# Developing plugins
+
+This section summarizes how to build and ship a plugin so that `katalog` can discover and run it.
+
+## Registration and discovery
+
+- Implement a subclass of `SourcePlugin`, `Processor`, or `Analyzer` from `katalog.plugins.*` and
+  add `plugin_id` (reverse DNS), `title`, `description`, and optional `version` as properties on the
+  class.
+- Keep the constructor signature `__init__(provider, **config)`; `provider.config` is passed as the
+  `config` dict when the plugin is instantiated.
+- Publish the class through a Python entry point in your `pyproject.toml`. The groups the runtime
+  scans are:
+  - `[project.entry-points."katalog.source"]` for sources
+  - `[project.entry-points."katalog.processor"]` for processors
+  - `[project.entry-points."katalog.analyzer"]` for analyzers
+- After `uv pip install -e .` in katalog (or installing the plugin package), plugins are picked up
+  automatically via `importlib.metadata.entry_points`. Use
+  `katalog.plugins.registry.refresh_plugins()` to reload without restarting a process.
+
+## Plugin configuration
+
+Each plugin should accept their Provider object from database to their `__init__` method. From that
+provider object, it can read the config dict. The recommendation is to have a Pydantic model which
+represents accepted configuration, and add it as class property e.g. `<PluginClass>.ConfigModel`.
+
+Then in `__init__`, just validate the provider config and save the instantiated ConfigModel to
+`self`.
+
+Keep keys snake_case, keep types descriptive (not necessarily Python types), and make `description`
+succinct. The runtime can later render this metadata in UIs or validate configs without changing
+plugin code.
+
+## General plugin principles
+
+- Try to make plugins focused on one thing and use limited dependencies
+- We encourage to re-use dependencies from core `katalog` or our `utils` package.
+- If your plugin need to persist files, call `provider_path` from `config.py` to ensure a subfolder
+  that won't conflict with other providers.
 
 ## Sources
 
@@ -418,20 +456,18 @@ incremental payload to existing `assets` becomes an O(changes) operation—no fu
 
 ## Processors
 
+- Correctly declare `dependencies`/`outputs` (processors), otherwise the processor may be skipped or
+  cause unnecessary work. The dependencies/outputs should be conservative, e.g. if there is any
+  chance that we depend on or change a field, it should be mentioned. If it should always be run,
+  give an empty `depencencies`
 - Strive for `run` be a pure functions that can be paralellized. We cannot block access to the
   database through TortoiseORM it should not be done
-- Should run must not be 100% precise - it can return false positives (e.g. said should run but
-  wasn't necessary), but not false negatives (e.g. said shouldn't run but should've). Sometimes only
-  the full algorithm in run can determine if a run was necessary or not
-
-### Processor contract (summary)
-
-- `should_run(asset, change_set)` is a _cheap_ pre-filter used to avoid scheduling work. It may
-  return false positives (run even if unnecessary) but should not return false negatives.
-- `run(asset, change_set)` performs the actual work and returns a `ProcessorResult`.
+- `should_run` should be quick and optimistic, it may return false positives (e.g. said should run
+  but wasn't necessary), but not false negatives (e.g. said shouldn't run but should've). Sometimes
+  only the full algorithm in run can determine if a run was necessary or not
 - If `run` cannot execute due to missing prerequisites (e.g. no data accessor, missing required
   metadata, unsupported file type), it should return `ProcessorResult(status=SKIPPED, message=...)`.
-- Exceptions from `run` should be reserved for unexpected failures; the runtime treats those as
-  `ERROR` and logs them.
 - A processor may return `COMPLETED` with an empty `metadata` list to mean “ran but produced no
   changes”.
+- Exceptions from `run` should be reserved for unexpected failures; the runtime treats those as
+  `ERROR` and logs them.

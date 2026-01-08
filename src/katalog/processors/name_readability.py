@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from katalog.metadata import FILE_NAME, WARNING_NAME_READABILITY
 from katalog.models import (
     Asset,
@@ -21,6 +23,21 @@ class NameReadabilityProcessor(Processor):
     description = "Flag filenames that look auto-generated or hard to read."
     dependencies = frozenset({FILE_NAME})
     outputs = frozenset({WARNING_NAME_READABILITY})
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        min_length: int = Field(
+            default=5,
+            ge=1,
+            description="Minimum stem length to analyze; shorter names are skipped",
+        )
+
+    config_model = ConfigModel
+
+    def __init__(self, provider, **config):
+        self.config = self.config_model.model_validate(config or {})
+        super().__init__(provider, **config)
 
     _HEXISH_ID = re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE)
     _GUID = re.compile(
@@ -43,6 +60,9 @@ class NameReadabilityProcessor(Processor):
         name = self._resolve_file_name(asset)
         if not name:
             return ProcessorResult(status=OpStatus.SKIPPED, message="No filename found")
+        if len(Path(name).stem or name) < self.config.min_length:
+            return ProcessorResult(status=OpStatus.SKIPPED, message="Name too short")
+
         analysis = self._analyze_name(name)
         signals = analysis["signals"]
         if not signals:

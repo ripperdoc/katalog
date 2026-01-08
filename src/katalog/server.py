@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import RedirectResponse, StreamingResponse
 from loguru import logger
 from tortoise import Tortoise
@@ -15,6 +15,7 @@ from katalog.processors.runtime import run_processors, sort_processors
 from katalog.queries import list_assets_for_view, sync_config
 from katalog.plugins.registry import (
     PluginSpec,
+    get_plugin_class,
     get_plugin_spec,
     refresh_plugins,
 )
@@ -379,6 +380,22 @@ class ProviderUpdate(BaseModel):
     config: dict[str, Any] | None = None
 
 
+def _validate_and_normalize_config(plugin_cls, config: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate provider config against plugin config_model (if declared) and return normalized dict."""
+    config_model = getattr(plugin_cls, "config_model", None)
+    if config_model is None:
+        return config or {}
+    try:
+        model = config_model.model_validate(config or {})
+    except ValidationError as exc:
+        # Use JSON-serializable error payload for REST clients.
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Invalid config", "errors": exc.errors()},
+        ) from exc
+    return model.model_dump(mode="json", by_alias=False)
+
+
 @app.get("/plugins")
 async def list_plugins_endpoint():
     plugins = [p.to_dict() for p in refresh_plugins().values()]
@@ -393,16 +410,22 @@ async def create_provider(request: Request):
         spec = refresh_plugins().get(payload.plugin_id)
     if spec is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
+    try:
+        plugin_cls = spec.cls if hasattr(spec, "cls") and spec.cls else get_plugin_class(payload.plugin_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="Plugin not found") from exc
 
     existing = await Provider.get_or_none(name=payload.name)
     if existing:
         raise HTTPException(status_code=400, detail="Provider name already exists")
 
+    normalized_config = _validate_and_normalize_config(plugin_cls, payload.config)
+
     provider = await Provider.create(
         name=payload.name,
         plugin_id=payload.plugin_id,
         type=spec.provider_type,
-        config=payload.config or {},
+        config=normalized_config,
     )
     return {"provider": provider.to_dict()}
 
@@ -436,7 +459,11 @@ async def update_provider(provider_id: int, request: Request):
     if payload.name:
         provider.name = payload.name
     if payload.config is not None:
-        provider.config = payload.config
+        try:
+            plugin_cls = get_plugin_class(provider.plugin_id)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=404, detail="Plugin not found") from exc
+        provider.config = _validate_and_normalize_config(plugin_cls, payload.config)
     await provider.save()
     return {"provider": provider.to_dict()}
 

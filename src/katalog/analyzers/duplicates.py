@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.analyzers.base import (
     Analyzer,
@@ -11,7 +13,7 @@ from katalog.analyzers.base import (
     FileGroupFinding,
     RelationshipRecord,
 )
-from katalog.models import Metadata, Snapshot
+from katalog.models import Metadata, Provider, Snapshot
 from katalog.metadata import HASH_MD5
 
 
@@ -23,6 +25,21 @@ class ExactDuplicateAnalyzer(Analyzer):
     description = "Group files that share identical MD5 checksums."
     dependencies = frozenset({HASH_MD5})
     outputs = frozenset()
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        max_groups: int = Field(
+            default=5000,
+            gt=0,
+            description="Hard cap on number of duplicate groups emitted to avoid unbounded memory",
+        )
+
+    config_model = ConfigModel
+
+    def __init__(self, provider: Provider, **config: Any) -> None:
+        self.config = self.config_model.model_validate(config or {})
+        super().__init__(provider, **config)
 
     def should_run(self, *, snapshot: Snapshot) -> bool:  # noqa: D401
         """Currently always runs; future versions may add change detection."""
@@ -70,6 +87,9 @@ class ExactDuplicateAnalyzer(Analyzer):
         for hash_value, file_ids in groups_by_hash.items():
             if len(file_ids) < 2:
                 continue
+            if len(groups) >= self.config.max_groups:
+                logger.warning("Duplicate groups capped at max_groups=%s", self.config.max_groups)
+                break
             sorted_members = sorted(file_ids)
             member_providers = sorted(
                 {

@@ -12,6 +12,7 @@ from katalog.metadata import (
 )
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.models import Asset, make_metadata, MetadataChangeSet, OpStatus
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MD5HashProcessor(Processor):
@@ -20,6 +21,21 @@ class MD5HashProcessor(Processor):
     description = "Compute md5 checksum for assets."
     dependencies = frozenset({DATA_KEY, FILE_SIZE, TIME_MODIFIED})
     outputs = frozenset({HASH_MD5})
+
+    class ConfigModel(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        chunk_size: int = Field(
+            default=8192,
+            gt=0,
+            description="Bytes per read when hashing (tunes IO behavior)",
+        )
+
+    config_model = ConfigModel
+
+    def __init__(self, provider, **config):
+        self.config = self.config_model.model_validate(config or {})
+        super().__init__(provider, **config)
 
     def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
         changes = change_set.changed_keys()
@@ -42,18 +58,19 @@ class MD5HashProcessor(Processor):
 
         # If the accessor exposes a local path, hash it in a thread to leverage GIL release.
         if hasattr(d, "path"):
-            digest = await asyncio.to_thread(_hash_file_path, Path(d.path))  # type: ignore
+            digest = await asyncio.to_thread(
+                _hash_file_path, Path(d.path), self.config.chunk_size
+            )  # type: ignore[arg-type]
         else:
-            digest = await _hash_stream_async(d)
+            digest = await _hash_stream_async(d, self.config.chunk_size)
 
         return ProcessorResult(
             metadata=[make_metadata(HASH_MD5, digest, self.provider.id)]
         )
 
 
-def _hash_file_path(path: Path) -> str:
+def _hash_file_path(path: Path, chunk_size: int) -> str:
     hash_md5 = hashlib.md5()
-    chunk_size = 8192
 
     with path.open("rb") as handle:
         while True:
@@ -64,11 +81,9 @@ def _hash_file_path(path: Path) -> str:
     return hash_md5.hexdigest()
 
 
-async def _hash_stream_async(accessor) -> str:
+async def _hash_stream_async(accessor, chunk_size: int) -> str:
     hash_md5 = hashlib.md5()
     offset = 0
-    chunk_size = 8192
-
     while True:
         chunk = await accessor.read(offset, chunk_size)
         if not chunk:
