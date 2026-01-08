@@ -104,3 +104,32 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
     assert schema["registry_id"] == key_id
     assert schema["key"] == key_str
     assert schema["plugin_id"]
+
+
+@pytest.mark.asyncio
+async def test_list_assets_for_view_search_allows_special_chars(db: None):
+    provider = await Provider.create(
+        name="provider-1", plugin_id="plugin-1", type=ProviderType.SOURCE
+    )
+    snap = await Snapshot.create(provider=provider, status=OpStatus.COMPLETED)
+    asset = await Asset.create(
+        provider=provider,
+        canonical_id="asset-1",
+        canonical_uri="file:///asset-1",
+        created_snapshot=snap,
+        last_snapshot=snap,
+    )
+
+    # Populate the FTS table so the MATCH query is actually exercised and can
+    # return the asset.
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query(
+        "INSERT INTO asset_search(rowid, doc) VALUES (?, ?)",
+        [asset.id, "a-b_c"],
+    )
+
+    view = default_view()
+    result = await list_assets_for_view(view, search="a-b_c", include_total=True)
+
+    assert result["stats"]["returned"] == 1
+    assert result["items"][0]["asset/id"] == asset.id

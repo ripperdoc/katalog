@@ -33,7 +33,7 @@ def main():
         db_path = ws / "katalog.db"
         os.environ["KATALOG_DATABASE_URL"] = f"sqlite:///{db_path}"
 
-    # Change working directory so server reads workspace-local files (e.g. katalog.toml)
+    # Change working directory so server reads workspace-local files
     os.chdir(str(ws))
 
     # If the project layout includes a top-level `src` directory, ensure it is on sys.path

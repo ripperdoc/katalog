@@ -18,6 +18,9 @@ from katalog.models import OpStatus
 
 
 class MimeTypeProcessor(Processor):
+    plugin_id = "katalog.processors.mime_type.MimeTypeProcessor"
+    title = "MIME type"
+    description = "Detect MIME type from file bytes using libmagic."
     dependencies = file_data_change_dependencies
     outputs = frozenset({FILE_TYPE})
 

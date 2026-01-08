@@ -6,7 +6,7 @@ from typing import Any, ClassVar, FrozenSet, cast
 
 from katalog.models import Metadata, MetadataKey, Provider, Snapshot
 from katalog.plugins.base import PluginBase
-from katalog.utils.utils import import_plugin_class
+from katalog.plugins.registry import get_plugin_class
 
 
 @dataclass(slots=True)
@@ -82,5 +82,5 @@ class Analyzer(PluginBase, ABC):
 
 
 def make_analyzer_instance(analyzer_record: Provider) -> Analyzer:
-    AnalyzerClass = cast(type[Analyzer], import_plugin_class(analyzer_record.plugin_id))
+    AnalyzerClass = cast(type[Analyzer], get_plugin_class(analyzer_record.plugin_id))
     return AnalyzerClass(provider=analyzer_record, **(analyzer_record.config or {}))

@@ -12,7 +12,7 @@ from katalog.models import (
     make_metadata,
 )
 from katalog.plugins.base import PluginBase
-from katalog.utils.utils import import_plugin_class
+from katalog.plugins.registry import get_plugin_class
 
 
 @dataclass(slots=True)
@@ -82,5 +82,5 @@ class SourcePlugin(PluginBase):
 
 
 def make_source_instance(source_record: Provider) -> SourcePlugin:
-    SourceClass = cast(type[SourcePlugin], import_plugin_class(source_record.plugin_id))
+    SourceClass = cast(type[SourcePlugin], get_plugin_class(source_record.plugin_id))
     return SourceClass(provider=source_record, **(source_record.config or {}))

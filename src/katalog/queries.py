@@ -1,13 +1,14 @@
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import re
 import time
 from typing import Any, Mapping
 
 from loguru import logger
 from tortoise import Tortoise
 
-from katalog.config import DB_PATH, read_config_file
+from katalog.config import DB_PATH
 from katalog.metadata import (
     ASSET_CANONICAL_ID,
     ASSET_CANONICAL_URI,
@@ -31,6 +32,58 @@ from katalog.models import (
     ProviderType,
 )
 from katalog.views import ViewSpec
+
+
+def _fts5_query_from_user_text(raw: str) -> str:
+    """Convert arbitrary user input into a safe FTS5 MATCH query.
+
+    We intentionally do not expose FTS query syntax to the UI search box.
+    Characters like '-' can be parsed as operators and crash the query.
+
+    Important: our FTS table is created with `detail='none'` for minimal index
+    size, which means FTS5 phrase queries (double-quoted terms) are not
+    supported.
+
+    We therefore create an AND query of *tokens* only.
+
+    Example:
+    input:  "foo-bar baz" -> "foo AND bar AND baz"
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        return ""
+
+    # Extract only alphanumeric runs; everything else is treated as a separator.
+    # This intentionally splits on '_' as well, because the unicode61 tokenizer
+    # may treat it as a separator. If we pass a token containing '_' through to
+    # FTS5, it may be internally split into multiple adjacent tokens, which then
+    # becomes a phrase query (unsupported with detail='none').
+    cleaned = text.replace('"', " ")
+    parts: list[str] = []
+    buf: list[str] = []
+    for ch in cleaned:
+        if ch.isalnum():
+            buf.append(ch)
+        else:
+            if buf:
+                parts.append("".join(buf))
+                buf.clear()
+    if buf:
+        parts.append("".join(buf))
+    if not parts:
+        return ""
+
+    # Prevent accidental operator injection / parse errors for reserved keywords.
+    # Appending '*' makes it a term token (prefix query), including the exact
+    # keyword itself, without needing phrase quotes.
+    reserved = {"and", "or", "not", "near"}
+    safe_parts: list[str] = []
+    for part in parts:
+        lowered = part.lower()
+        safe_parts.append(f"{part}*" if lowered in reserved else part)
+
+    return " AND ".join(safe_parts)
 
 
 async def setup_db(db_path: Path) -> Path:
@@ -114,41 +167,11 @@ async def sync_metadata_registry() -> None:
         METADATA_REGISTRY_BY_ID[int(row.id)] = updated
 
 
-async def sync_providers():
-    """Reads current config file and consolidates with in-DB providers."""
-    config_file = read_config_file()
-    for section, ptype in (
-        ("sources", ProviderType.SOURCE),
-        ("processors", ProviderType.PROCESSOR),
-        ("analyzers", ProviderType.ANALYZER),
-    ):
-        for entry in config_file.get(section, []) or []:
-            entry_name = entry.get("name") or entry.get("plugin_id")
-            if not entry_name:
-                logger.warning(
-                    f"Ignoring config entry as it's missing a name or plugin_id: {entry}"
-                )
-                continue
-            # TODO recreating Provider may be wasteful as it may mean recreating expensive SDK clients
-            prov = await Provider.get_or_none(name=entry_name)
-            if prov:
-                prov.config = dict(entry)
-                prov.updated_at = datetime.now(UTC)
-                await prov.save()
-            else:
-                await Provider.create(
-                    name=entry_name,
-                    type=ptype,
-                    plugin_id=entry.get("plugin_id"),
-                    config=dict(entry),
-                )
-
-
 async def sync_config():
+    """Initialize database and registry. Legacy name kept for compatibility."""
     await setup_db(DB_PATH)
     await sync_metadata_registry()
-    await sync_providers()
-    logger.info("Synchronized configuration with database")
+    logger.info("Synchronized database schema and metadata registry")
 
 
 asset_filter_fields = {
@@ -314,10 +337,13 @@ async def list_assets_for_view(
         filter_params.insert(0, provider_id)
 
     if search is not None and search.strip():
+        fts_query = _fts5_query_from_user_text(search)
+        if not fts_query:
+            raise ValueError("Invalid search query")
         conditions.append(
             "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
         )
-        filter_params.append(search.strip())
+        filter_params.append(fts_query)
 
     where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

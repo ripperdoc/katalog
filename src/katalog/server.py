@@ -1,9 +1,10 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse, StreamingResponse
 from loguru import logger
 from tortoise import Tortoise
@@ -12,6 +13,11 @@ from katalog.config import DB_URL, WORKSPACE
 from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Snapshot
 from katalog.processors.runtime import run_processors, sort_processors
 from katalog.queries import list_assets_for_view, sync_config
+from katalog.plugins.registry import (
+    PluginSpec,
+    get_plugin_spec,
+    refresh_plugins,
+)
 from katalog.sources.runtime import get_source_plugin, run_sources
 from katalog.utils.snapshot_events import (
     SnapshotEventManager,
@@ -27,6 +33,16 @@ logger.info(f"Using database: {DB_URL}")
 @asynccontextmanager
 async def lifespan(app):
     # run startup logic
+    plugins = refresh_plugins()
+    if plugins:
+        logger.info(
+            "Discovered plugins ({}): {}",
+            len(plugins),
+            ", ".join(sorted(plugins.keys())),
+        )
+    else:
+        logger.warning("No plugins discovered via entry points")
+
     await sync_config()
     event_manager.bind_loop(asyncio.get_running_loop())
     event_manager.ensure_sink()
@@ -352,9 +368,43 @@ async def cancel_snapshot(snapshot_id: int):
 # region PROVIDERS
 
 
+class ProviderCreate(BaseModel):
+    name: str = Field(min_length=1)
+    plugin_id: str
+    config: dict[str, Any] | None = None
+
+
+class ProviderUpdate(BaseModel):
+    name: str | None = None
+    config: dict[str, Any] | None = None
+
+
+@app.get("/plugins")
+async def list_plugins_endpoint():
+    plugins = [p.to_dict() for p in refresh_plugins().values()]
+    return {"plugins": plugins}
+
+
 @app.post("/providers")
 async def create_provider(request: Request):
-    raise NotImplementedError()
+    payload = ProviderCreate.model_validate(await request.json())
+    spec: PluginSpec | None = get_plugin_spec(payload.plugin_id)
+    if spec is None:
+        spec = refresh_plugins().get(payload.plugin_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    existing = await Provider.get_or_none(name=payload.name)
+    if existing:
+        raise HTTPException(status_code=400, detail="Provider name already exists")
+
+    provider = await Provider.create(
+        name=payload.name,
+        plugin_id=payload.plugin_id,
+        type=spec.provider_type,
+        config=payload.config or {},
+    )
+    return {"provider": provider.to_dict()}
 
 
 @app.get("/providers")
@@ -378,8 +428,17 @@ async def get_provider(provider_id: int):
 
 
 @app.patch("/providers/{provider_id}")
-async def update_provider(provider_id: int):
-    raise NotImplementedError()
+async def update_provider(provider_id: int, request: Request):
+    provider = await Provider.get_or_none(id=provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    payload = ProviderUpdate.model_validate(await request.json())
+    if payload.name:
+        provider.name = payload.name
+    if payload.config is not None:
+        provider.config = payload.config
+    await provider.save()
+    return {"provider": provider.to_dict()}
 
 
 # endregion

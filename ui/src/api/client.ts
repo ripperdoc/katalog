@@ -3,7 +3,10 @@ import type {
   ViewListResponse,
   ViewResponse,
   ProviderListResponse,
+  PluginListResponse,
   ProviderResponse,
+  ProviderCreateResponse,
+  ProviderUpdateResponse,
   Snapshot,
   SnapshotListResponse,
   SnapshotResponse,
@@ -81,6 +84,13 @@ export async function fetchProviders(): Promise<ProviderListResponse> {
   return handleResponse(response);
 }
 
+export async function fetchPlugins(): Promise<PluginListResponse> {
+  const response = await fetch(`${API_BASE}/plugins`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
 export async function fetchProvider(id: number): Promise<ProviderResponse> {
   const response = await fetch(`${API_BASE}/providers/${id}`, {
     headers: { Accept: "application/json" },
@@ -91,6 +101,40 @@ export async function fetchProvider(id: number): Promise<ProviderResponse> {
 export async function fetchSnapshots(): Promise<SnapshotListResponse> {
   const response = await fetch(`${API_BASE}/snapshots`, {
     headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function createProvider(payload: {
+  name: string;
+  plugin_id: string;
+  config?: Record<string, unknown> | null;
+}): Promise<ProviderCreateResponse> {
+  const response = await fetch(`${API_BASE}/providers`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function updateProvider(
+  id: number,
+  payload: {
+    name?: string;
+    config?: Record<string, unknown> | null;
+  }
+): Promise<ProviderUpdateResponse> {
+  const response = await fetch(`${API_BASE}/providers/${id}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
   return handleResponse(response);
 }
@@ -124,6 +168,14 @@ export async function cancelSnapshot(snapshotId: number): Promise<void> {
     headers: { Accept: "application/json" },
   });
   await handleResponse(response);
+}
+
+export async function runAllProcessors(): Promise<Snapshot> {
+  const response = await fetch(`${API_BASE}/processors/run`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
 }
 
 export async function syncConfig(): Promise<void> {

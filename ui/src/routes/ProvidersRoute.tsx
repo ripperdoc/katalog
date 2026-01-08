@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { fetchProviders, startScan } from "../api/client";
-import type { Provider } from "../types/api";
+import {
+  fetchPlugins,
+  fetchProviders,
+  createProvider,
+  updateProvider,
+  startScan,
+  runAllProcessors,
+} from "../api/client";
+import type { Provider, PluginSpec } from "../types/api";
 
 function ProvidersRoute() {
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [plugins, setPlugins] = useState<PluginSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanningId, setScanningId] = useState<number | null>(null);
+  const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
+  const [formType, setFormType] = useState<"source" | "processor" | "analyzer">("source");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formPluginId, setFormPluginId] = useState("");
+  const [configText, setConfigText] = useState("{}");
   const navigate = useNavigate();
 
   const loadProviders = useCallback(async () => {
@@ -25,9 +39,26 @@ function ProvidersRoute() {
     }
   }, []);
 
+  const loadPlugins = useCallback(async () => {
+    try {
+      const response = await fetchPlugins();
+      setPlugins(response.plugins ?? []);
+      const defaults = response.plugins ?? [];
+      if (defaults.length > 0) {
+        const firstSource = defaults.find((p) => p.type === "SOURCE");
+        setFormPluginId(firstSource?.plugin_id || defaults[0].plugin_id);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setPlugins([]);
+    }
+  }, []);
+
   useEffect(() => {
     void loadProviders();
-  }, [loadProviders]);
+    void loadPlugins();
+  }, [loadProviders, loadPlugins]);
 
   const triggerScan = async (providerId?: number) => {
     setScanningId(providerId ?? 0);
@@ -43,44 +74,260 @@ function ProvidersRoute() {
     }
   };
 
+  const handleSave = async () => {
+    setError(null);
+    try {
+      let config: Record<string, unknown> | null = null;
+      const trimmed = configText.trim();
+      if (trimmed.length > 0) {
+        config = JSON.parse(trimmed);
+      }
+      if (formMode === "edit" && editingId) {
+        await updateProvider(editingId, {
+          name: formName || undefined,
+          config,
+        });
+      } else {
+        await createProvider({
+          name: formName || formPluginId,
+          plugin_id: formPluginId,
+          config,
+        });
+      }
+      resetForm();
+      await loadProviders();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    }
+  };
+
+  const resetForm = () => {
+    setFormMode(null);
+    setFormType("source");
+    setEditingId(null);
+    setFormName("");
+    setFormPluginId("");
+    setConfigText("{}");
+  };
+
+  const grouped = {
+    sources: providers.filter((p) => p.type === "SOURCE"),
+    processors: providers.filter((p) => p.type === "PROCESSOR"),
+    analyzers: providers.filter((p) => p.type === "ANALYZER"),
+  };
+
+  const filteredPlugins = (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER") =>
+    plugins.filter((p) => p.type === ptype);
+
+  const openCreate = (ptype: "source" | "processor" | "analyzer") => {
+    const typeKey = ptype.toUpperCase() as "SOURCE" | "PROCESSOR" | "ANALYZER";
+    const available = filteredPlugins(typeKey);
+    setFormType(ptype);
+    setFormMode("create");
+    setEditingId(null);
+    setFormName("");
+    setConfigText("{}");
+    setFormPluginId(available[0]?.plugin_id ?? "");
+  };
+
+  const openEdit = (provider: Provider) => {
+    setEditingId(provider.id);
+    setFormMode("edit");
+    setFormName(provider.name);
+    setFormPluginId(provider.plugin_id || "");
+    setConfigText(JSON.stringify(provider.config ?? {}, null, 2));
+    const kind =
+      provider.type === "PROCESSOR"
+        ? "processor"
+        : provider.type === "ANALYZER"
+          ? "analyzer"
+          : "source";
+    setFormType(kind);
+  };
+
   return (
     <section className="panel">
       <header className="panel-header">
         <div>
           <h2>Providers</h2>
-          <p>Configured source and processor providers.</p>
+          <p>Configured source, processor, and analyzer providers.</p>
         </div>
-        <button type="button" onClick={() => triggerScan(undefined)} disabled={loading || scanningId !== null}>
-          {scanningId === null ? "Scan all sources" : "Starting..."}
-        </button>
       </header>
       {error && <p className="error">{error}</p>}
-      <div className="record-list">
-        {providers.map((provider) => (
-          <div key={provider.id} className="file-card">
-            <div className="status-bar">
-              <strong>
-                #{provider.id} {provider.name}
-              </strong>
-              <span>{provider.type}</span>
+      {(["sources", "processors", "analyzers"] as const).map((groupKey) => {
+        const typeLabel =
+          groupKey === "sources" ? "Sources" : groupKey === "processors" ? "Processors" : "Analyzers";
+        const typeConst =
+          groupKey === "sources" ? "SOURCE" : groupKey === "processors" ? "PROCESSOR" : "ANALYZER";
+        const list = grouped[groupKey];
+        const availablePlugins = filteredPlugins(typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER");
+        const runAllEnabled = groupKey === "sources" || groupKey === "processors";
+
+        const renderProviderCard = (
+          provider: Provider | null,
+          mode: "view" | "edit" | "create"
+        ) => {
+          const isCreate = mode === "create";
+          const isEdit = mode === "edit";
+          const pluginOptions = availablePlugins.map((plugin) => (
+            <option key={plugin.plugin_id} value={plugin.plugin_id}>
+              {plugin.title ?? plugin.plugin_id} ({plugin.type.toLowerCase()})
+            </option>
+          ));
+          const disabledPluginSelect = isEdit;
+          const disabledConfig = mode === "view";
+
+          return (
+            <div
+              className="file-card"
+              key={
+                isCreate ? "create-form" : isEdit ? `edit-form-${provider?.id}` : `view-${provider?.id}`
+              }
+            >
+              <div className="status-bar">
+                <strong>
+                  {isCreate ? "New provider" : `#${provider?.id ?? ""} ${provider?.name ?? ""}`}
+                </strong>
+                <span>{typeLabel}</span>
+              </div>
+              <p>Plugin: {provider?.plugin_id ?? formPluginId ?? "n/a"}</p>
+              <div className="meta-grid">
+                <div>Created: {provider?.created_at ?? "—"}</div>
+                <div>Updated: {provider?.updated_at ?? "—"}</div>
+              </div>
+              <label className="form-row">
+                <span>Plugin</span>
+                <select
+                  value={isCreate ? formPluginId : provider?.plugin_id || formPluginId}
+                  onChange={(e) => setFormPluginId(e.target.value)}
+                  disabled={disabledPluginSelect}
+                >
+                  {pluginOptions}
+                </select>
+              </label>
+              <label className="form-row">
+                <span>Name</span>
+                <input
+                  type="text"
+                  placeholder="Friendly name"
+                  value={isCreate || isEdit ? formName : provider?.name || ""}
+                  onChange={(e) => setFormName(e.target.value)}
+                  disabled={mode === "view"}
+                />
+              </label>
+              <label className="form-row">
+                <span>Config (JSON)</span>
+                <textarea
+                  rows={4}
+                  value={isCreate || isEdit ? configText : JSON.stringify(provider?.config ?? {}, null, 2)}
+                  onChange={(e) => setConfigText(e.target.value)}
+                  spellCheck={false}
+                  readOnly={disabledConfig}
+                />
+              </label>
+              <div className="button-row">
+                {mode === "view" ? (
+                  <>
+                    <Link to={`/providers/${provider?.id}`} className="link-button">
+                      Details
+                    </Link>
+                    <button type="button" onClick={() => openEdit(provider!)}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerScan(provider?.id)}
+                      disabled={scanningId !== null}
+                    >
+                      {scanningId === provider?.id ? "Starting..." : "Scan"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={handleSave} disabled={!formPluginId || loading}>
+                      {isEdit ? "Save" : "Create"}
+                    </button>
+                    <button type="button" onClick={resetForm}>
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-            <p>Plugin: {provider.plugin_id ?? "n/a"}</p>
-            <div className="button-row">
-              <Link to={`/providers/${provider.id}`} className="link-button">
-                Details
-              </Link>
+          );
+        };
+
+        return (
+          <div key={groupKey} className="subsection">
+            <div className="panel-header">
+              <h3>{typeLabel}</h3>
               <button
                 type="button"
-                onClick={() => triggerScan(provider.id)}
-                disabled={scanningId !== null}
+                onClick={() =>
+                  openCreate(
+                    groupKey === "sources" ? "source" : groupKey === "processors" ? "processor" : "analyzer"
+                  )
+                }
+                disabled={availablePlugins.length === 0}
+                title={availablePlugins.length === 0 ? "No plugins installed for this type" : undefined}
               >
-                {scanningId === provider.id ? "Starting..." : "Scan"}
+                Add
               </button>
+              {runAllEnabled && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setError(null);
+                    try {
+                      if (groupKey === "sources") {
+                        await triggerScan(undefined);
+                      } else if (groupKey === "processors") {
+                        setScanningId(0);
+                        const snap = await runAllProcessors();
+                        navigate(`/snapshots/${snap.id}`);
+                      }
+                    } catch (err) {
+                      const message = err instanceof Error ? err.message : String(err);
+                      setError(message);
+                    } finally {
+                      setScanningId(null);
+                    }
+                  }}
+                  disabled={scanningId !== null || loading}
+                  title={
+                    groupKey === "sources"
+                      ? "Scan all sources"
+                      : "Run all processors on assets"
+                  }
+                >
+                  {groupKey === "sources"
+                    ? scanningId === null
+                      ? "Scan all sources"
+                      : "Starting..."
+                    : "Run all processors"}
+                </button>
+              )}
+            </div>
+            <div className="record-list">
+              {formMode === "create" &&
+                formType ===
+                  (groupKey === "sources"
+                    ? "source"
+                    : groupKey === "processors"
+                      ? "processor"
+                      : "analyzer") &&
+                renderProviderCard(null, "create")}
+              {list.map((provider) =>
+                formMode === "edit" && editingId === provider.id
+                  ? renderProviderCard(provider, "edit")
+                  : renderProviderCard(provider, "view")
+              )}
+              {!loading && list.length === 0 && <div className="empty-state">No {typeLabel.toLowerCase()} found.</div>}
             </div>
           </div>
-        ))}
-        {!loading && providers.length === 0 && <div className="empty-state">No providers found.</div>}
-      </div>
+        );
+      })}
     </section>
   );
 }

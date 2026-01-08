@@ -17,7 +17,6 @@ function App() {
           <Link to="/providers">Providers</Link>
           <Link to="/snapshots">Snapshots</Link>
           <Link to="/assets">Assets</Link>
-          <ReloadButton />
         </nav>
       </header>
       <main>
@@ -39,21 +38,3 @@ function App() {
 }
 
 export default App;
-
-function ReloadButton() {
-  const navigate = useNavigate();
-  const handleReload = async () => {
-    try {
-      await syncConfig();
-      navigate("/providers");
-    } catch (err) {
-      console.error("syncConfig failed:", err);
-    }
-  };
-
-  return (
-    <button onClick={handleReload} title="Reload configuration from server">
-      Reload
-    </button>
-  );
-}

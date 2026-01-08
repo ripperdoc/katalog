@@ -13,7 +13,7 @@ from katalog.models import (
 from katalog.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.plugins.base import PluginBase
 
-from katalog.utils.utils import import_plugin_class
+from katalog.plugins.registry import get_plugin_class
 
 
 @dataclass(slots=True)
@@ -82,7 +82,5 @@ file_data_change_dependencies = frozenset({DATA_KEY, HASH_MD5, TIME_MODIFIED})
 
 
 def make_processor_instance(processor_record: Provider) -> Processor:
-    ProcessorClass = cast(
-        type[Processor], import_plugin_class(processor_record.plugin_id)
-    )
+    ProcessorClass = cast(type[Processor], get_plugin_class(processor_record.plugin_id))
     return ProcessorClass(provider=processor_record, **(processor_record.config or {}))

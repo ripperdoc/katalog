@@ -32,3 +32,15 @@ dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler"]
 [project.scripts]
 # Installable console script: runs katalog.cli:main as `katalog`
 katalog = "katalog.cli:main"
+
+[project.entry-points."katalog.source"]
+filesystem = "katalog.sources.filesystem:FilesystemClient"
+gdrive = "katalog.sources.googledrive:GoogleDriveClient"
+
+[project.entry-points."katalog.processor"]
+md5 = "katalog.processors.md5_hash:MD5HashProcessor"
+mime = "katalog.processors.mime_type:MimeTypeProcessor"
+name_readability = "katalog.processors.name_readability:NameReadabilityProcessor"
+
+[project.entry-points."katalog.analyzer"]
+exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"

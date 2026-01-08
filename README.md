@@ -60,11 +60,12 @@ the FastAPI backend for local exploration.
 1. Start the backend via the CLI so FastAPI exposes `http://localhost:8000`:
 
 ```bash
-python -m katalog.cli ./hg_workspace
+python -m katalog.cli workspace/path
 ```
 
-Replace `./hg_workspace` with any workspace directory that includes `katalog.toml`. 2. Install UI
-dependencies and launch the dev server (served on <http://localhost:5173>):
+Replace `workspace/path` with any workspace directory that includes `katalog.db`.
+
+2. Install UI dependencies and launch the dev server (served on <http://localhost:5173>):
 
 ```bash
 cd ui
@@ -72,9 +73,10 @@ npm install
 npm run dev
 ```
 
-The Vite dev proxy forwards `/api/*` calls to the FastAPI server, so no extra CORS setup is
-needed. 3. (Optional) When serving the built UI elsewhere, set `VITE_API_BASE_URL` before
-`npm run dev` or `npm run build` so API calls target the correct backend, e.g.:
+The Vite dev proxy forwards `/api/*` calls to the FastAPI server, so no extra CORS setup is needed.
+
+3. (Optional) When serving the built UI elsewhere, set `VITE_API_BASE_URL` before `npm run dev` or
+   `npm run build` so API calls target the correct backend, e.g.:
 
 ```bash
 VITE_API_BASE_URL="http://localhost:8000" npm run build

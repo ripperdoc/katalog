@@ -49,6 +49,10 @@ class FilesystemClient(SourcePlugin):
     Client for accessing and listing files in a local file system source.
     """
 
+    plugin_id = "katalog.sources.filesystem.FilesystemClient"
+    title = "Local filesystem"
+    description = "Scan a directory tree on the local machine."
+
     def __init__(
         self, provider: Provider, root_path: str, max_files: int = 500, **kwargs: Any
     ) -> None:

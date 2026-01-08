@@ -116,6 +116,10 @@ class GoogleDriveClient(SourcePlugin):
     - Supports max_files limit to stop scans early when enough files have been yielded
     """
 
+    plugin_id = "katalog.sources.googledrive.GoogleDriveClient"
+    title = "Google Drive"
+    description = "List files from a Google Drive account using OAuth2."
+
     def __init__(
         self,
         provider: Provider,

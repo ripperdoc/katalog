@@ -68,6 +68,19 @@ export interface Provider {
   updated_at: string | null;
 }
 
+export interface PluginSpec {
+  plugin_id: string;
+  type: string;
+  title: string;
+  description: string | null;
+  origin: string;
+  version: string | null;
+}
+
+export interface PluginListResponse {
+  plugins: PluginSpec[];
+}
+
 export type SnapshotStatus =
   | "in_progress"
   | "partial"
@@ -94,6 +107,14 @@ export interface ProviderListResponse {
 export interface ProviderResponse {
   provider: Provider;
   snapshots: Snapshot[];
+}
+
+export interface ProviderCreateResponse {
+  provider: Provider;
+}
+
+export interface ProviderUpdateResponse {
+  provider: Provider;
 }
 
 export interface SnapshotListResponse {

@@ -16,6 +16,9 @@ from katalog.processors.base import Processor, ProcessorResult
 class NameReadabilityProcessor(Processor):
     """Flags filenames that look auto-generated or otherwise unreadable."""
 
+    plugin_id = "katalog.processors.name_readability.NameReadabilityProcessor"
+    title = "Name readability"
+    description = "Flag filenames that look auto-generated or hard to read."
     dependencies = frozenset({FILE_NAME})
     outputs = frozenset({WARNING_NAME_READABILITY})
 

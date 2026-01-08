@@ -15,6 +15,9 @@ from katalog.models import Asset, make_metadata, MetadataChangeSet, OpStatus
 
 
 class MD5HashProcessor(Processor):
+    plugin_id = "katalog.processors.md5_hash.MD5HashProcessor"
+    title = "MD5 hash"
+    description = "Compute md5 checksum for assets."
     dependencies = frozenset({DATA_KEY, FILE_SIZE, TIME_MODIFIED})
     outputs = frozenset({HASH_MD5})
 

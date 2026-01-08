@@ -157,10 +157,9 @@ Example analyzers: mark duplicate files, find similar files, suggest re-organiza
 
 ### Workspace model
 
-A given user may have multiple workspaces. A workspace represents both a separate database and a
-separate sets of configured sources and settings (`katalog.toml`). Assets are only tracked and
-de-duplicated within a workspace. A workspace can be backed up and moved around, and it contains all
-caches.
+A given user may have multiple workspaces. A workspace represents a separate database and all
+related caches, such as downloaded files. Assets are only tracked and de-duplicated within a
+workspace. A workspace can be backed up and moved around, and it contains all caches.
 
 ### Database model
 
