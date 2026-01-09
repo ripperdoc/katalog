@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+from tortoise import Tortoise
 
 from katalog.analyzers.base import (
     Analyzer,
     AnalyzerIssue,
     AnalyzerResult,
     FileGroupFinding,
-    RelationshipRecord,
 )
 from katalog.models import Metadata, Provider, Snapshot
-from katalog.metadata import HASH_MD5
+from katalog.metadata import HASH_MD5, get_metadata_id
 
 
 class ExactDuplicateAnalyzer(Analyzer):
@@ -47,88 +46,132 @@ class ExactDuplicateAnalyzer(Analyzer):
         return True
 
     async def run(self, *, snapshot: Snapshot) -> AnalyzerResult:
-        provider_id = getattr(self, "provider_id", snapshot.provider_id)
-        latest_hash_rows = database.get_latest_metadata_by_key(HASH_MD5)
-        per_file_hashes: dict[str, set[str]] = defaultdict(set)
-        per_file_providers: dict[str, str] = {}
+        """Find duplicate assets by MD5 using SQL-only grouping."""
+
+        md5_registry_id = get_metadata_id(HASH_MD5)
+        max_groups = int(self.config.max_groups)
+        conn = Tortoise.get_connection("default")
+
+        # Step 1: detect assets with conflicting current MD5 values (different providers disagree).
+        conflict_sql = """
+        WITH latest_md5 AS (
+            SELECT
+                m.asset_id,
+                m.provider_id,
+                lower(trim(m.value_text)) AS md5,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.asset_id, m.provider_id
+                    ORDER BY m.snapshot_id DESC
+                ) AS rn
+            FROM metadata AS m
+            WHERE m.metadata_key_id = ?
+              AND m.removed = 0
+              AND m.value_text IS NOT NULL
+        ),
+        current_md5 AS (
+            SELECT asset_id, provider_id, md5
+            FROM latest_md5
+            WHERE rn = 1 AND md5 != ''
+        )
+        SELECT asset_id, GROUP_CONCAT(DISTINCT md5) AS hashes
+        FROM current_md5
+        GROUP BY asset_id
+        HAVING COUNT(DISTINCT md5) > 1
+        """
+
+        conflict_rows = await conn.execute_query_dict(conflict_sql, [md5_registry_id])
+
         issues: list[AnalyzerIssue] = []
-
-        for file_id, metadata in latest_hash_rows:
-            hash_value = self._extract_hash(metadata)
-            if hash_value is None:
-                continue
-            per_file_hashes[file_id].add(hash_value)
-            per_file_providers[file_id] = metadata.provider_id or ""
-
-        confirmed_hashes: dict[str, str] = {}
-        for file_id, hash_values in per_file_hashes.items():
-            if len(hash_values) == 1:
-                confirmed_hashes[file_id] = next(iter(hash_values))
-                continue
-            conflict = sorted(hash_values)
-            message = f"Multiple current hash/md5 values for file {file_id}: {', '.join(conflict)}"
+        for row in conflict_rows:
+            hashes = sorted((row.get("hashes") or "").split(","))
+            message = (
+                "Multiple current hash/md5 values for asset "
+                f"{row['asset_id']}: {', '.join(hashes)}"
+            )
             logger.error(message)
             issues.append(
                 AnalyzerIssue(
                     level="error",
                     message=message,
-                    file_ids=[file_id],
-                    extra={"hashes": conflict},
+                    file_ids=[str(row["asset_id"])],
+                    extra={"hashes": hashes},
                 )
             )
 
-        groups: list[FileGroupFinding] = []
-        relationships: list[RelationshipRecord] = []
-        groups_by_hash: dict[str, list[str]] = defaultdict(list)
-
-        for file_id, hash_value in confirmed_hashes.items():
-            groups_by_hash[hash_value].append(file_id)
-
-        for hash_value, file_ids in groups_by_hash.items():
-            if len(file_ids) < 2:
-                continue
-            if len(groups) >= self.config.max_groups:
-                logger.warning("Duplicate groups capped at max_groups=%s", self.config.max_groups)
-                break
-            sorted_members = sorted(file_ids)
-            member_providers = sorted(
-                {
-                    provider_id
-                    for provider_id in (
-                        per_file_providers.get(fid) for fid in sorted_members
-                    )
-                    if provider_id
-                }
+        # Step 2: group remaining assets by MD5 entirely in SQL, returning only duplicate sets.
+        group_sql = """
+        WITH latest_md5 AS (
+            SELECT
+                m.asset_id,
+                m.provider_id,
+                lower(trim(m.value_text)) AS md5,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.asset_id, m.provider_id
+                    ORDER BY m.snapshot_id DESC
+                ) AS rn
+            FROM metadata AS m
+            WHERE m.metadata_key_id = ?
+              AND m.removed = 0
+              AND m.value_text IS NOT NULL
+        ),
+        current_md5 AS (
+            SELECT asset_id, provider_id, md5
+            FROM latest_md5
+            WHERE rn = 1 AND md5 != ''
+        ),
+        deduped AS (
+            SELECT asset_id, provider_id, md5
+            FROM current_md5
+            WHERE asset_id NOT IN (
+                SELECT asset_id FROM (
+                    SELECT asset_id
+                    FROM current_md5
+                    GROUP BY asset_id
+                    HAVING COUNT(DISTINCT md5) > 1
+                )
             )
+        )
+        SELECT
+            md5,
+            COUNT(*) AS file_count,
+            GROUP_CONCAT(DISTINCT asset_id) AS asset_ids,
+            GROUP_CONCAT(DISTINCT provider_id) AS provider_ids
+        FROM deduped
+        GROUP BY md5
+        HAVING COUNT(*) > 1
+        ORDER BY file_count DESC, md5
+        LIMIT ?
+        """
+
+        rows = await conn.execute_query_dict(group_sql, [md5_registry_id, max_groups])
+
+        groups: list[FileGroupFinding] = []
+        for row in rows:
+            asset_ids = sorted(
+                int(a) for a in (row.get("asset_ids") or "").split(",") if a
+            )
+            provider_ids = sorted(
+                {int(p) for p in (row.get("provider_ids") or "").split(",") if p}
+            )
+            md5_value = row.get("md5") or ""
             groups.append(
                 FileGroupFinding(
                     kind="exact_duplicate",
-                    label=hash_value,
-                    file_ids=list(sorted_members),
+                    label=md5_value,
+                    file_ids=[str(a) for a in asset_ids],
                     attributes={
-                        "hash": hash_value,
-                        "file_count": len(sorted_members),
-                        "provider_ids": member_providers,
+                        "hash": md5_value,
+                        "file_count": int(row.get("file_count") or 0),
+                        "asset_ids": asset_ids,
+                        "provider_ids": provider_ids,
                     },
                 )
             )
-            anchor = sorted_members[0]
-            for other in sorted_members[1:]:
-                relationships.append(
-                    RelationshipRecord(
-                        from_id=anchor,
-                        to_id=other,
-                        relationship_type="exact_duplicate",
-                        provider_id=provider_id,
-                        confidence=1.0,
-                        description=f"Exact duplicate group for hash {hash_value}",
-                        attributes={"hash": hash_value},
-                    )
-                )
 
+        # Relationships can be derived later when we decide how to persist duplicate groups.
         return AnalyzerResult(
             metadata=[],
-            relationships=relationships,
+            relationships=[],
             groups=groups,
             issues=issues,
         )

@@ -12,7 +12,13 @@ from tortoise import Tortoise
 from katalog.config import DB_URL, WORKSPACE
 from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Snapshot
 from katalog.processors.runtime import run_processors, sort_processors
-from katalog.queries import list_assets_for_view, sync_config
+from katalog.analyzers.runtime import run_analyzers
+from katalog.queries import (
+    list_assets_for_view,
+    list_grouped_assets,
+    build_group_member_filter,
+    sync_config,
+)
 from katalog.plugins.registry import (
     PluginSpec,
     get_plugin_class,
@@ -67,6 +73,62 @@ RUNNING_SNAPSHOTS: dict[int, SnapshotRunState] = {}
 async def list_assets(provider_id: Optional[int] = None):
     view = get_view("default")
     return await list_assets_for_view(view, provider_id=provider_id)
+
+
+@app.get("/assets/grouped")
+async def list_grouped_assets_endpoint(
+    group_by: str = Query(..., description="Grouping key, e.g. 'hash/md5' or 'a.provider_id'"),
+    group_value: Optional[str] = Query(
+        None, description="When set, returns members of this group value instead of the group list."
+    ),
+    provider_id: Optional[int] = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    filters: list[str] | None = Query(None),
+    search: Optional[str] = Query(None),
+):
+    """
+    Grouped asset listing:
+    - Without group_value: returns group aggregates (row_kind='group').
+    - With group_value: returns assets within that group (row_kind='asset').
+    """
+
+    view = get_view("default")
+
+    if group_value is None:
+        return await list_grouped_assets(
+            view,
+            group_by=group_by,
+            provider_id=provider_id,
+            offset=offset,
+            limit=limit,
+            filters=filters,
+            search=search,
+            include_total=True,
+        )
+
+    extra_where = build_group_member_filter(group_by, group_value)
+    members = await list_assets_for_view(
+        view,
+        provider_id=provider_id,
+        offset=offset,
+        limit=limit,
+        sort=None,
+        filters=filters,
+        columns=None,
+        search=search,
+        include_total=True,
+        extra_where=extra_where,
+    )
+    # Tag rows so UI can distinguish assets returned via grouping.
+    for item in members.get("items", []):
+        item["row_kind"] = "asset"
+        item["group_key"] = group_by
+        item["group_value"] = group_value
+    members["mode"] = "members"
+    members["group_by"] = group_by
+    members["group_value"] = group_value
+    return members
 
 
 @app.post("/assets")
@@ -245,22 +307,30 @@ async def do_run_processor(ids: list[int] | None = Query(None)):
 
 
 @app.post("/analyzers/{analyzer_id}/run")
-async def do_run_analyzers(asset_ids: list[int] | None = Query(None)):
-    target_ids = set(asset_ids or [])
+async def do_run_analyzers(analyzer_id: str):
+    """Run all analyzers or a specific analyzer provider id."""
 
-    assets_query = Asset.filter(deleted_snapshot_id__isnull=True)
-    if target_ids:
-        assets_query = assets_query.filter(id__in=sorted(target_ids))
-    # TODO this can be slow if there are many assets
-    assets = await assets_query
-    if target_ids and len(assets) != len(target_ids):
-        raise HTTPException(
-            status_code=404, detail="One or more asset ids not found or deleted"
-        )
-    if not assets:
-        raise HTTPException(status_code=404, detail="No assets found to process")
+    target_ids: list[int] | None
+    if analyzer_id.lower() == "all":
+        target_ids = None
+    else:
+        try:
+            target_ids = [int(analyzer_id)]
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="analyzer_id must be an integer provider id or 'all'",
+            )
 
-    raise NotImplementedError("Analyzer execution not yet implemented")
+    try:
+        results = await run_analyzers(target_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Analyzer execution failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"analyzers": results}
 
 
 # endregion
@@ -380,7 +450,9 @@ class ProviderUpdate(BaseModel):
     config: dict[str, Any] | None = None
 
 
-def _validate_and_normalize_config(plugin_cls, config: dict[str, Any] | None) -> dict[str, Any]:
+def _validate_and_normalize_config(
+    plugin_cls, config: dict[str, Any] | None
+) -> dict[str, Any]:
     """Validate provider config against plugin config_model (if declared) and return normalized dict."""
     config_model = getattr(plugin_cls, "config_model", None)
     if config_model is None:
@@ -411,7 +483,11 @@ async def create_provider(request: Request):
     if spec is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
     try:
-        plugin_cls = spec.cls if hasattr(spec, "cls") and spec.cls else get_plugin_class(payload.plugin_id)
+        plugin_cls = (
+            spec.cls
+            if hasattr(spec, "cls") and spec.cls
+            else get_plugin_class(payload.plugin_id)
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=404, detail="Plugin not found") from exc
 

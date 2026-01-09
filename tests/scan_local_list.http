@@ -2,7 +2,7 @@
 POST http://127.0.0.1:8000/sources/run HTTP/1.1
 
 ### Run analysis
-POST http://127.0.0.1:8000/analyzers/run HTTP/1.1
+POST http://127.0.0.1:8000/analyzers/3/run HTTP/1.1
 
 ### List providers
 GET http://127.0.0.1:8000/providers HTTP/1.1

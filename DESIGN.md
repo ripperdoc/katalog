@@ -137,16 +137,20 @@ updated.
 When the processor has run, which may take some time, it outputs a list of new metadata that can be
 saved to the database using a new snapshot.
 
+Processors can be seen as "map" functions in a map-reduce paradigm.
+
 Example processors: calculate file hash, flag a file based on naming patterns, extract binary inline
 metadata, generate a summary.
 
 ## Analyzers
 
-An analyzer is like a processor but for a set of assets - two all the way up to all assets together.
-This allows them to compare assets against each other and create relationships between them, as well
-as suggest batch updates. The output of an analyzer can be large amount of changes across many
-assets, and should either be possible to review before applying, or it should be appended as a
-snapshot that isn't yet considered canonical, e.g. fully undoable.
+*NOTE: Analyzers are still WIP and their purpose and API may change*s
+
+An analyzer is like a processor but for a whole set of assets - two all the way up to all assets
+together. This allows them to compare assets against each other and create relationships between
+them, as well as suggest batch updates. The output of an analyzer can be large amount of changes
+across many assets, and should either be possible to review before applying, or it should be
+appended as a snapshot that isn't yet considered canonical, e.g. fully undoable.
 
 Note that if we want an analyzer to apply something back to the source, e.g. things get more
 complicated and there may not be possible to fully capture the proposed edit.
@@ -178,9 +182,8 @@ link them together.
 settings. It's not the same as the `plugin_id`, e.g. one workspace can have multiple Google Drive's
 setup.
 
-`plugin_id` is globally unique reversed DNS identifier for a plugin, e.g the implementation of a
-source, e.g. `se.helmgast.gdrive`. This allows multiple plugins even for the same API or cloud
-provider to co-exist.
+`plugin_id` is a Python package path that by definition has to be unique in the current imported
+code. It should be globally unique but can't be enforced without a plugin registry.
 
 `metadata_key` is a globally unique identifier for a type of metadata. It has the format
 `<category>/<property>`, e.g. `time/created_at`. This allows us to easily filter metadata, e.g. all
@@ -412,8 +415,8 @@ This section summarizes how to build and ship a plugin so that `katalog` can dis
 ## Registration and discovery
 
 - Implement a subclass of `SourcePlugin`, `Processor`, or `Analyzer` from `katalog.plugins.*` and
-  add `plugin_id` (reverse DNS), `title`, `description`, and optional `version` as properties on the
-  class.
+  add `plugin_id` (package path), `title`, `description`, and optional `version` as properties on
+  the class.
 - Keep the constructor signature `__init__(provider, **config)`; `provider.config` is passed as the
   `config` dict when the plugin is instantiated.
 - Publish the class through a Python entry point in your `pyproject.toml`. The groups the runtime
