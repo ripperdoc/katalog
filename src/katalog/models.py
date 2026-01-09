@@ -83,6 +83,7 @@ class Provider(Model):
     name = CharField(max_length=255, unique=True)
     plugin_id = CharField(max_length=1024, null=True)
     config = JSONField(null=True)
+    config_toml = TextField(null=True)
     type = IntEnumField(ProviderType)
     created_at = DatetimeField(auto_now_add=True)
     updated_at = DatetimeField(auto_now=True)
@@ -96,6 +97,7 @@ class Provider(Model):
             else self.type,
             "plugin_id": self.plugin_id,
             "config": self.config,
+            "config_toml": getattr(self, "config_toml", None),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

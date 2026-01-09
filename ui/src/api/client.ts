@@ -109,6 +109,7 @@ export async function createProvider(payload: {
   name: string;
   plugin_id: string;
   config?: Record<string, unknown> | null;
+  config_toml?: string;
 }): Promise<ProviderCreateResponse> {
   const response = await fetch(`${API_BASE}/providers`, {
     method: "POST",
@@ -126,6 +127,7 @@ export async function updateProvider(
   payload: {
     name?: string;
     config?: Record<string, unknown> | null;
+    config_toml?: string;
   }
 ): Promise<ProviderUpdateResponse> {
   const response = await fetch(`${API_BASE}/providers/${id}`, {
@@ -172,6 +174,14 @@ export async function cancelSnapshot(snapshotId: number): Promise<void> {
 
 export async function runAllProcessors(): Promise<Snapshot> {
   const response = await fetch(`${API_BASE}/processors/run`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function runAllAnalyzers(): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE}/analyzers/all/run`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });

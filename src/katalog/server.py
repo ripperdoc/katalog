@@ -1,10 +1,12 @@
 import asyncio
+import traceback
 import json
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
+import tomllib
 from fastapi.responses import RedirectResponse, StreamingResponse
 from loguru import logger
 from tortoise import Tortoise
@@ -77,9 +79,12 @@ async def list_assets(provider_id: Optional[int] = None):
 
 @app.get("/assets/grouped")
 async def list_grouped_assets_endpoint(
-    group_by: str = Query(..., description="Grouping key, e.g. 'hash/md5' or 'a.provider_id'"),
+    group_by: str = Query(
+        ..., description="Grouping key, e.g. 'hash/md5' or 'a.provider_id'"
+    ),
     group_value: Optional[str] = Query(
-        None, description="When set, returns members of this group value instead of the group list."
+        None,
+        description="When set, returns members of this group value instead of the group list.",
     ),
     provider_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
@@ -263,9 +268,18 @@ async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
                 await snapshot.finalize(status=OpStatus.CANCELED)
             finally:
                 raise
-        except Exception:
+        except Exception as exc:
             with logger.contextualize(snapshot_id=snapshot.id):
-                logger.exception(f"Snapshot {snapshot.id} failed")
+                logger.exception(f"Snapshot {snapshot.id} failed: {exc}")
+            try:
+                tb = traceback.format_exc()
+                meta = dict(snapshot.metadata or {})
+                meta["error_message"] = str(exc)
+                meta["error_traceback"] = tb
+                snapshot.metadata = meta
+            except Exception:
+                # Best-effort; don't block finalization on metadata failure.
+                pass
             await snapshot.finalize(status=OpStatus.ERROR)
         finally:
             done_event.set()
@@ -442,11 +456,13 @@ class ProviderCreate(BaseModel):
     name: str = Field(min_length=1)
     plugin_id: str
     config: dict[str, Any] | None = None
+    config_toml: str | None = None
 
 
 class ProviderUpdate(BaseModel):
     name: str | None = None
     config: dict[str, Any] | None = None
+    config_toml: str | None = None
 
 
 def _validate_and_normalize_config(
@@ -464,7 +480,8 @@ def _validate_and_normalize_config(
             status_code=400,
             detail={"message": "Invalid config", "errors": exc.errors()},
         ) from exc
-    return model.model_dump(mode="json", by_alias=False)
+    config_json = model.model_dump(mode="json", by_alias=False)
+    return config_json
 
 
 @app.get("/plugins")
@@ -494,13 +511,24 @@ async def create_provider(request: Request):
     if existing:
         raise HTTPException(status_code=400, detail="Provider name already exists")
 
-    normalized_config = _validate_and_normalize_config(plugin_cls, payload.config)
+    raw_config: dict[str, Any] | None = payload.config
+    if payload.config_toml is not None:
+        try:
+            raw_config = tomllib.loads(payload.config_toml)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "Invalid TOML", "errors": str(exc)},
+            ) from exc
+
+    normalized_config = _validate_and_normalize_config(plugin_cls, raw_config)
 
     provider = await Provider.create(
         name=payload.name,
         plugin_id=payload.plugin_id,
         type=spec.provider_type,
         config=normalized_config,
+        config_toml=payload.config_toml,
     )
     return {"provider": provider.to_dict()}
 
@@ -533,12 +561,22 @@ async def update_provider(provider_id: int, request: Request):
     payload = ProviderUpdate.model_validate(await request.json())
     if payload.name:
         provider.name = payload.name
-    if payload.config is not None:
+    if payload.config is not None or payload.config_toml is not None:
         try:
             plugin_cls = get_plugin_class(provider.plugin_id)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=404, detail="Plugin not found") from exc
-        provider.config = _validate_and_normalize_config(plugin_cls, payload.config)
+        raw_config = payload.config
+        if payload.config_toml is not None:
+            try:
+                raw_config = tomllib.loads(payload.config_toml)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "Invalid TOML", "errors": str(exc)},
+                ) from exc
+            provider.config_toml = payload.config_toml
+        provider.config = _validate_and_normalize_config(plugin_cls, raw_config)
     await provider.save()
     return {"provider": provider.to_dict()}
 

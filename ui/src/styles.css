@@ -64,6 +64,13 @@ footer {
   margin-bottom: 1rem;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
 .search-bar {
   margin-bottom: 1rem;
 }
@@ -100,6 +107,16 @@ select {
   padding: 0.6rem 0.8rem;
   font-size: 1rem;
   background-color: #f8fafc;
+}
+
+textarea {
+  border: 1px solid #cbd5f5;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  font-size: 1rem;
+  background-color: #f8fafc;
+  resize: vertical;
+  min-height: 120px;
 }
 
 button {

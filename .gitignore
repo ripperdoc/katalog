@@ -75,3 +75,5 @@ credentials.json
 token.json
 
 *_workspace/
+
+.npm-cache/

@@ -14,7 +14,7 @@ from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request as GoogleRequest
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from katalog.config import PORT, WORKSPACE, provider_path
+from katalog.config import PORT, provider_path
 from katalog.metadata import (
     ACCESS_LAST_MODIFYING_USER,
     ACCESS_OWNER,
@@ -112,6 +112,7 @@ class GoogleDriveClient(SourcePlugin):
     - Supports exclude/include_path filters to skip (ignore) files that don't have matching name or ID paths
     - Supports restricting scan range with modified_from/modified_to (applied to Drive modifiedTime)
     - Supports max_files limit to stop scans early when enough files have been yielded
+
     """
 
     plugin_id = "katalog.sources.googledrive.GoogleDriveClient"
@@ -126,7 +127,7 @@ class GoogleDriveClient(SourcePlugin):
         )
         corpora: str = Field(
             default="user",
-            description='Drive corpus: "user", "allDrives", "domain", or "drive:<id>"',
+            description='Drive corpus: "user" (no Shared Drives), "allDrives" (user + Shared Drives), "domain", or "drive"',
         )
         allow_incremental: bool = Field(
             default=False, description="Enable incremental scanning using checkpoints"
@@ -162,7 +163,7 @@ class GoogleDriveClient(SourcePlugin):
         )
 
         drive_id: str | None = Field(
-            default=None, description="Derived when corpora=drive:<id>", exclude=True
+            default=None, description="Required when corpora=drive"
         )
 
         @field_validator("include_paths", "exclude_paths", mode="before")
@@ -665,17 +666,18 @@ class GoogleDriveClient(SourcePlugin):
     async def _prefetch_folders(self) -> None:
         crawler = await make_crawler()
         concurrent = 1
+        total_folders = 0
 
         @crawler.router.default_handler
         async def folder_request_handler(context: HttpCrawlingContext) -> None:
-            nonlocal concurrent
+            nonlocal concurrent, total_folders
             data = await context.http_response.read()
             payload: dict = json.loads(data)
             files = payload.get("files", [])
             earliest = None
             if files:
                 earliest = files[-1].get("modifiedTime")
-
+            total_folders += len(files)
             for file in files:
                 folder_id = file.get("id")
                 if folder_id:
@@ -684,6 +686,9 @@ class GoogleDriveClient(SourcePlugin):
                         "parents": file.get("parents") or [],
                     }
 
+            logger.info(
+                f"Prefetched {len(files)} folders into cache (total fetched {total_folders})"
+            )
             ts = TimeSlice.from_dict(context.request.user_data.get("time_slice"))
             if not ts:
                 raise RuntimeError("Missing time_slice in request user_data")

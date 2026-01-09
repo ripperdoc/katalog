@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
+      global: "window", // polyfill for node-targeted libs like @iarna/toml
     },
   };
 });

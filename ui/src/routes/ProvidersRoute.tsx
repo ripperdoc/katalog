@@ -7,8 +7,11 @@ import {
   updateProvider,
   startScan,
   runAllProcessors,
+  runAllAnalyzers,
 } from "../api/client";
 import type { Provider, PluginSpec } from "../types/api";
+import * as toml from "@iarna/toml";
+import type { JsonMap } from "@iarna/toml";
 
 function ProvidersRoute() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -77,21 +80,16 @@ function ProvidersRoute() {
   const handleSave = async () => {
     setError(null);
     try {
-      let config: Record<string, unknown> | null = null;
-      const trimmed = configText.trim();
-      if (trimmed.length > 0) {
-        config = JSON.parse(trimmed);
-      }
       if (formMode === "edit" && editingId) {
         await updateProvider(editingId, {
           name: formName || undefined,
-          config,
+          config_toml: configText || undefined,
         });
       } else {
         await createProvider({
           name: formName || formPluginId,
           plugin_id: formPluginId,
-          config,
+          config_toml: configText || undefined,
         });
       }
       resetForm();
@@ -108,7 +106,7 @@ function ProvidersRoute() {
     setEditingId(null);
     setFormName("");
     setFormPluginId("");
-    setConfigText("{}");
+    setConfigText("");
   };
 
   const grouped = {
@@ -127,7 +125,7 @@ function ProvidersRoute() {
     setFormMode("create");
     setEditingId(null);
     setFormName("");
-    setConfigText("{}");
+    setConfigText("");
     setFormPluginId(available[0]?.plugin_id ?? "");
   };
 
@@ -136,7 +134,16 @@ function ProvidersRoute() {
     setFormMode("edit");
     setFormName(provider.name);
     setFormPluginId(provider.plugin_id || "");
-    setConfigText(JSON.stringify(provider.config ?? {}, null, 2));
+    if (provider.config_toml) {
+      setConfigText(provider.config_toml);
+    } else {
+      try {
+        const cfg = (provider.config ?? {}) as JsonMap;
+        setConfigText(toml.stringify(cfg));
+      } catch {
+        setConfigText(JSON.stringify(provider.config ?? {}, null, 2));
+      }
+    }
     const kind =
       provider.type === "PROCESSOR"
         ? "processor"
@@ -162,7 +169,8 @@ function ProvidersRoute() {
           groupKey === "sources" ? "SOURCE" : groupKey === "processors" ? "PROCESSOR" : "ANALYZER";
         const list = grouped[groupKey];
         const availablePlugins = filteredPlugins(typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER");
-        const runAllEnabled = groupKey === "sources" || groupKey === "processors";
+        const runAllEnabled = groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
+        const hasProviders = list.length > 0;
 
         const renderProviderCard = (
           provider: Provider | null,
@@ -217,10 +225,26 @@ function ProvidersRoute() {
                 />
               </label>
               <label className="form-row">
-                <span>Config (JSON)</span>
+                <span>Config (TOML)</span>
                 <textarea
                   rows={4}
-                  value={isCreate || isEdit ? configText : JSON.stringify(provider?.config ?? {}, null, 2)}
+                  value={
+                    isCreate || isEdit
+                      ? configText
+                      : provider?.config_toml ??
+                        (() => {
+                          try {
+                            return toml.stringify((provider?.config ?? {}) as JsonMap);
+                          } catch {
+                            return JSON.stringify(provider?.config ?? {}, null, 2);
+                          }
+                        })()
+                  }
+                  onInput={(e) => {
+                    const el = e.currentTarget;
+                    el.style.height = "auto";
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   onChange={(e) => setConfigText(e.target.value)}
                   spellCheck={false}
                   readOnly={disabledConfig}
@@ -262,52 +286,63 @@ function ProvidersRoute() {
           <div key={groupKey} className="subsection">
             <div className="panel-header">
               <h3>{typeLabel}</h3>
-              <button
-                type="button"
-                onClick={() =>
-                  openCreate(
-                    groupKey === "sources" ? "source" : groupKey === "processors" ? "processor" : "analyzer"
-                  )
-                }
-                disabled={availablePlugins.length === 0}
-                title={availablePlugins.length === 0 ? "No plugins installed for this type" : undefined}
-              >
-                Add
-              </button>
-              {runAllEnabled && (
+              <div className="panel-actions">
+                {runAllEnabled && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setError(null);
+                      try {
+                        if (groupKey === "sources") {
+                          await triggerScan(undefined);
+                        } else if (groupKey === "processors") {
+                          setScanningId(0);
+                          const snap = await runAllProcessors();
+                          navigate(`/snapshots/${snap.id}`);
+                        } else if (groupKey === "analyzers") {
+                          setScanningId(0);
+                          await runAllAnalyzers();
+                        }
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : String(err);
+                        setError(message);
+                      } finally {
+                        setScanningId(null);
+                      }
+                    }}
+                    disabled={scanningId !== null || loading || !hasProviders}
+                    title={
+                      hasProviders
+                        ? groupKey === "sources"
+                          ? "Scan all sources"
+                          : groupKey === "processors"
+                            ? "Run all processors on assets"
+                            : "Run all analyzers"
+                        : "Add a provider to enable this action"
+                    }
+                  >
+                    {groupKey === "sources"
+                      ? scanningId === null
+                        ? "Scan all sources"
+                        : "Starting..."
+                      : groupKey === "processors"
+                        ? "Run all processors"
+                        : "Run all analyzers"}
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={async () => {
-                    setError(null);
-                    try {
-                      if (groupKey === "sources") {
-                        await triggerScan(undefined);
-                      } else if (groupKey === "processors") {
-                        setScanningId(0);
-                        const snap = await runAllProcessors();
-                        navigate(`/snapshots/${snap.id}`);
-                      }
-                    } catch (err) {
-                      const message = err instanceof Error ? err.message : String(err);
-                      setError(message);
-                    } finally {
-                      setScanningId(null);
-                    }
-                  }}
-                  disabled={scanningId !== null || loading}
-                  title={
-                    groupKey === "sources"
-                      ? "Scan all sources"
-                      : "Run all processors on assets"
+                  onClick={() =>
+                    openCreate(
+                      groupKey === "sources" ? "source" : groupKey === "processors" ? "processor" : "analyzer"
+                    )
                   }
+                  disabled={availablePlugins.length === 0}
+                  title={availablePlugins.length === 0 ? "No plugins installed for this type" : undefined}
                 >
-                  {groupKey === "sources"
-                    ? scanningId === null
-                      ? "Scan all sources"
-                      : "Starting..."
-                    : "Run all processors"}
+                  Add
                 </button>
-              )}
+              </div>
             </div>
             <div className="record-list">
               {formMode === "create" &&
