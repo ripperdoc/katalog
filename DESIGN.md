@@ -332,9 +332,6 @@ To achieve this, there are a few important technical choices to make:
   - What actions we take in SQL, and what we do in code
   - What to index on
   - Can we generate faster de-normalized tables and read from them?
-- Finally, we still need to keep the tables compact. 1M files could mean SQLite databases larger
-  than 1GB, so any indexing and denormalization on top of that could make the DB much bigger. A user
-  would not expect multi-GB databases for this.
 
 ### Main server
 

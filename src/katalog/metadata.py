@@ -101,7 +101,7 @@ ASSET_PROVIDER_ID = define_metadata(
     "asset/provider_id", MetadataType.INT, "Provider ID"
 )
 ASSET_EXTERNAL_ID = define_metadata(
-    "asset/external_id", MetadataType.STRING, "Canonical ID"
+    "asset/external_id", MetadataType.STRING, "External ID"
 )
 ASSET_CANONICAL_URI = define_metadata(
     "asset/canonical_uri", MetadataType.STRING, "Canonical URI"

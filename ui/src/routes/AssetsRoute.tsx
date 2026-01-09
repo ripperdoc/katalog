@@ -208,9 +208,12 @@ function RecordsRoute() {
       <header className="panel-header">
         <div>
           <h2>Records</h2>
-          <p>
-            Displaying records from view “{DEFAULT_VIEW_ID}”, total {total}.
-          </p>
+          {!loading && (
+            <p>
+              Displaying records from view “{DEFAULT_VIEW_ID}”, total {total}, query time{" "}
+              {durationMs || 0}ms.
+            </p>
+          )}
         </div>
         <button type="button" onClick={() => void loadPage(1)} disabled={loading}>
           {loading ? "Loading..." : "Reload"}
@@ -272,13 +275,6 @@ function RecordsRoute() {
           void loadPage(1, undefined, sort, nextFilters);
         }}
       />
-      {durationMs !== null && (
-        <div
-          style={{ marginTop: "0.5rem", fontStyle: "italic", fontSize: "0.9rem", color: "#555" }}
-        >
-          Query time: {durationMs} ms
-        </div>
-      )}
     </section>
   );
 }

@@ -466,6 +466,10 @@ class GoogleDriveClient(SourcePlugin):
                 finally:
                     # Make best effort to notify the consumer even if it's already cancelled.
                     try:
+                        crawler.stop()
+                        # Clear crawler storage
+                        rq = await crawler.get_request_manager()
+                        await rq.drop()
                         await result_queue.put(None)
                     except asyncio.CancelledError:
                         logger.debug(

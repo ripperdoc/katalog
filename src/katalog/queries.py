@@ -266,7 +266,8 @@ def filter_conditions(filters):
 
 asset_sort_fields = {
     str(ASSET_ID): "a.id",
-    str(ASSET_PROVIDER_ID): "asset_provider_id",
+    # Provider sort temporarily disabled to avoid expensive lookups; see list_assets_for_view.
+    # str(ASSET_PROVIDER_ID): "asset_provider_id",
     str(ASSET_EXTERNAL_ID): "a.external_id",
     str(ASSET_CANONICAL_URI): "a.canonical_uri",
 }
@@ -287,6 +288,8 @@ def sort_conditions(sort: tuple[str, str] | None, view: ViewSpec):
     if not sort_spec.sortable:
         raise ValueError(f"Sorting not supported for column: {sort_col}")
 
+    if sort_col == str(ASSET_PROVIDER_ID):
+        raise ValueError("Sorting by provider is temporarily disabled")
     if sort_col not in asset_sort_fields:
         raise ValueError(f"Sorting not implemented for column: {sort_col}")
     return f"{asset_sort_fields[sort_col]} {sort_dir.upper()}, a.id ASC"
@@ -523,6 +526,10 @@ async def list_assets_for_view(
     if limit < 0 or offset < 0:
         raise ValueError("offset and limit must be non-negative")
 
+    if provider_id is not None:
+        # Provider scoping temporarily disabled to avoid expensive AssetState joins.
+        raise ValueError("Filtering by provider_id is temporarily disabled")
+
     column_map = view.column_map()
     requested_columns = set(columns) if columns else set(column_map)
     unknown = requested_columns - set(column_map)
@@ -533,18 +540,10 @@ async def list_assets_for_view(
 
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
-    state_table = AssetState._meta.db_table
+    # NOTE: We deliberately avoid joining AssetState here to keep the query fast.
 
     # WHERE clause builder
     conditions, filter_params = filter_conditions(filters)
-
-    if provider_id is not None:
-        conditions.insert(
-            0,
-            f"EXISTS (SELECT 1 FROM {state_table} aps WHERE aps.asset_id = a.id AND aps.provider_id = ? AND aps.state = ?)",
-        )
-        filter_params.insert(0, AssetStateStatus.ACTIVE.value)
-        filter_params.insert(0, provider_id)
 
     if extra_where:
         conditions.append(extra_where[0])
@@ -571,24 +570,12 @@ async def list_assets_for_view(
 
     # NOTE this approach means we cannot sort by metadata columns
     assets_sql = f"""
-    WITH latest_provider AS (
-        SELECT
-            s.asset_id,
-            s.provider_id,
-            ROW_NUMBER() OVER (
-                PARTITION BY s.asset_id
-                ORDER BY s.snapshot_id DESC, s.id DESC
-            ) AS rn
-        FROM {state_table} s
-        WHERE s.state = {int(AssetStateStatus.ACTIVE)}
-    )
     SELECT
         a.id AS asset_id,
-        lp.provider_id AS asset_provider_id,
+        NULL AS asset_provider_id,
         a.external_id,
         a.canonical_uri
     FROM {asset_table} a
-    LEFT JOIN latest_provider lp ON lp.asset_id = a.id AND lp.rn = 1
     {where_sql}
     ORDER BY {order_by_clause}
     LIMIT ? OFFSET ?
