@@ -4,12 +4,9 @@ from dataclasses import asdict, dataclass
 from typing import Iterable, Sequence
 
 from katalog.metadata import (
-    ASSET_CANONICAL_ID,
+    ASSET_EXTERNAL_ID,
     ASSET_CANONICAL_URI,
-    ASSET_CREATED_SNAPSHOT,
-    ASSET_DELETED_SNAPSHOT,
     ASSET_ID,
-    ASSET_LAST_SNAPSHOT,
     ASSET_PROVIDER_ID,
     FILE_NAME,
     FILE_PATH,
@@ -93,11 +90,8 @@ def _asset_columns() -> Iterable[ColumnSpec]:
     for key in [
         ASSET_ID,
         ASSET_PROVIDER_ID,
-        ASSET_CANONICAL_ID,
+        ASSET_EXTERNAL_ID,
         ASSET_CANONICAL_URI,
-        ASSET_CREATED_SNAPSHOT,
-        ASSET_LAST_SNAPSHOT,
-        ASSET_DELETED_SNAPSHOT,
     ]:
         definition = get_metadata_def_by_key(key)
         sortable = definition.value_type in (
@@ -106,6 +100,9 @@ def _asset_columns() -> Iterable[ColumnSpec]:
             MetadataType.FLOAT,
             MetadataType.DATETIME,
         )
+        filterable = sortable
+        if key == ASSET_PROVIDER_ID:
+            filterable = False  # provider now resolved via AssetState; filtering handled separately
         yield ColumnSpec(
             id=str(definition.key),
             value_type=definition.value_type,
@@ -114,7 +111,7 @@ def _asset_columns() -> Iterable[ColumnSpec]:
             description=definition.description,
             width=definition.width,
             sortable=sortable,
-            filterable=sortable,
+            filterable=filterable,
             searchable=definition.value_type == MetadataType.STRING,
             plugin_id=definition.plugin_id,
         )

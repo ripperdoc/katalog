@@ -100,20 +100,11 @@ ASSET_ID = define_metadata("asset/id", MetadataType.INT, "Asset ID")
 ASSET_PROVIDER_ID = define_metadata(
     "asset/provider_id", MetadataType.INT, "Provider ID"
 )
-ASSET_CANONICAL_ID = define_metadata(
-    "asset/canonical_id", MetadataType.STRING, "Canonical ID"
+ASSET_EXTERNAL_ID = define_metadata(
+    "asset/external_id", MetadataType.STRING, "Canonical ID"
 )
 ASSET_CANONICAL_URI = define_metadata(
     "asset/canonical_uri", MetadataType.STRING, "Canonical URI"
-)
-ASSET_CREATED_SNAPSHOT = define_metadata(
-    "asset/created_snapshot", MetadataType.INT, "Created snapshot"
-)
-ASSET_LAST_SNAPSHOT = define_metadata(
-    "asset/last_snapshot", MetadataType.INT, "Last seen snapshot"
-)
-ASSET_DELETED_SNAPSHOT = define_metadata(
-    "asset/deleted_snapshot", MetadataType.INT, "Deleted snapshot"
 )
 
 # Built-in metadata

@@ -60,7 +60,7 @@ def make_record() -> Asset:
     asset = Asset()
     asset.id = 1
     asset.provider_id = 1
-    asset.canonical_id = "cid"
+    asset.external_id = "cid"
     asset.canonical_uri = "uri://file"
     return asset
 

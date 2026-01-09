@@ -44,13 +44,11 @@ class PipelineFixture:
             type=ProviderType.SOURCE,
         )
         snapshot = await Snapshot.create(provider=provider, status=OpStatus.IN_PROGRESS)
-        asset = await Asset.create(
-            provider=provider,
-            canonical_id="asset-1",
+        asset = Asset(
+            external_id="asset-1",
             canonical_uri="file:///asset-1",
-            created_snapshot=snapshot,
-            last_snapshot=snapshot,
         )
+        await asset.save_record(snapshot=snapshot, provider=provider)
         return cls(provider=provider, snapshot=snapshot, asset=asset)
 
     def metadata(

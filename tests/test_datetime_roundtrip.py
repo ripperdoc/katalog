@@ -40,13 +40,11 @@ async def _seed_records() -> tuple[Provider, Snapshot, Asset]:
         type=ProviderType.SOURCE,
     )
     snapshot = await Snapshot.create(provider=provider, status=OpStatus.IN_PROGRESS)
-    asset = await Asset.create(
-        provider=provider,
-        canonical_id="asset-tz",
+    asset = Asset(
+        external_id="asset-tz",
         canonical_uri="file:///asset-tz",
-        created_snapshot=snapshot,
-        last_snapshot=snapshot,
     )
+    await asset.save_record(snapshot=snapshot, provider=provider)
     return provider, snapshot, asset
 
 

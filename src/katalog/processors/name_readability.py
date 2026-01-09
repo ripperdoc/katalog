@@ -82,7 +82,7 @@ class NameReadabilityProcessor(Processor):
         if self.database:
             entries = self.database.get_metadata_for_file(
                 asset.id,
-                provider_id=asset.provider_id,
+                provider_id=self.provider.id,
                 metadata_key=FILE_NAME,
             )
             if entries:

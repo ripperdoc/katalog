@@ -24,7 +24,9 @@ async def _persist_scan_only_item(
     snapshot: Snapshot,
 ) -> None:
     # Ensure asset row exists and snapshot markers are updated.
-    was_created = await item.asset.save_record(snapshot=snapshot)
+    was_created = await item.asset.save_record(
+        snapshot=snapshot, provider=snapshot.provider
+    )
     if was_created:
         snapshot.stats.assets_added += 1
         # Newly created assets cannot have existing metadata.
@@ -111,7 +113,9 @@ async def run_sources(
             snapshot.stats.assets_saved += 1
 
             if has_processors:
-                was_created = await result.asset.save_record(snapshot=snapshot)
+                was_created = await result.asset.save_record(
+                    snapshot=snapshot, provider=snapshot.provider or source
+                )
                 if was_created:
                     snapshot.stats.assets_added += 1
                     result.asset._metadata_cache = []

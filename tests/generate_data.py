@@ -162,22 +162,16 @@ async def populate_test_data(
         # Assets
         assets: list[Asset] = []
         for asset_idx in range(assets_per_provider):
-            canonical_id = f"{provider.id}:{asset_idx}"
+            external_id = f"{provider.id}:{asset_idx}"
             canonical_uri = f"katalog://{provider.name}/asset/{asset_idx}"
-            assets.append(
-                Asset(
-                    provider=provider,
-                    canonical_id=canonical_id,
-                    canonical_uri=canonical_uri,
-                    created_snapshot=created_snapshot,
-                    last_snapshot=last_snapshot,
-                    deleted_snapshot=None,
-                )
+            asset = Asset(
+                external_id=external_id,
+                canonical_uri=canonical_uri,
             )
-        await Asset.bulk_create(assets)
-
-        # Re-load IDs after bulk_create so we can FK from metadata/relationships.
-        assets = await Asset.filter(provider=provider).order_by("id")
+            await asset.save_record(snapshot=created_snapshot, provider=provider)
+            if last_snapshot.id != created_snapshot.id:
+                await asset.save_record(snapshot=last_snapshot, provider=provider)
+            assets.append(asset)
 
         # Metadata (inserted for the last snapshot only by default)
         metadata_entries: list[Metadata] = []
@@ -396,8 +390,8 @@ def analyze_sqlite(db_path: Path) -> None:
             return str(val)
 
         stats = {
-            "asset.avg_len(canonical_id)": _try_scalar(
-                "select avg(length(canonical_id)) from asset"
+            "asset.avg_len(external_id)": _try_scalar(
+                "select avg(length(external_id)) from asset"
             ),
             "asset.avg_len(canonical_uri)": _try_scalar(
                 "select avg(length(canonical_uri)) from asset"

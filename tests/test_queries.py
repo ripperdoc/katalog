@@ -38,20 +38,18 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
         provider=other_provider, status=OpStatus.COMPLETED
     )
 
-    asset = await Asset.create(
-        provider=provider,
-        canonical_id="asset-1",
+    asset = Asset(
+        external_id="asset-1",
         canonical_uri="file:///asset-1",
-        created_snapshot=snap1,
-        last_snapshot=snap2,
     )
-    other_asset = await Asset.create(
-        provider=other_provider,
-        canonical_id="asset-2",
+    await asset.save_record(snapshot=snap1, provider=provider)
+    await asset.save_record(snapshot=snap2, provider=provider)
+
+    other_asset = Asset(
+        external_id="asset-2",
         canonical_uri="file:///asset-2",
-        created_snapshot=snap_other,
-        last_snapshot=snap_other,
     )
+    await other_asset.save_record(snapshot=snap_other, provider=other_provider)
 
     key_def = METADATA_REGISTRY[FILE_PATH]
     key_id = get_metadata_id(FILE_PATH)
@@ -94,10 +92,6 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
 
     asset_entry = result["items"][0]
     assert asset_entry[str(FILE_PATH)] == "/new/path"
-    assert asset_entry["asset/created_snapshot"] == snap1.id
-    assert asset_entry["asset/last_snapshot"] == snap2.id
-    assert asset_entry["asset/deleted_snapshot"] is None
-
     key_str = str(FILE_PATH)
     schema_by_key = {col["key"]: col for col in result["schema"]}
     schema = schema_by_key[key_str]
@@ -112,13 +106,11 @@ async def test_list_assets_for_view_search_allows_special_chars(db: None):
         name="provider-1", plugin_id="plugin-1", type=ProviderType.SOURCE
     )
     snap = await Snapshot.create(provider=provider, status=OpStatus.COMPLETED)
-    asset = await Asset.create(
-        provider=provider,
-        canonical_id="asset-1",
+    asset = Asset(
+        external_id="asset-1",
         canonical_uri="file:///asset-1",
-        created_snapshot=snap,
-        last_snapshot=snap,
     )
+    await asset.save_record(snapshot=snap, provider=provider)
 
     # Populate the FTS table so the MATCH query is actually exercised and can
     # return the asset.

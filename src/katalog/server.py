@@ -289,10 +289,9 @@ async def do_run_processor(ids: list[int] | None = Query(None)):
 
     target_ids = set(ids or [])
 
-    assets_query = Asset.filter(deleted_snapshot_id__isnull=True)
+    assets_query = Asset.all()
     if target_ids:
         assets_query = assets_query.filter(id__in=sorted(target_ids))
-    # TODO this can be slow if there are many assets
     assets = await assets_query
     if target_ids and len(assets) != len(target_ids):
         raise HTTPException(

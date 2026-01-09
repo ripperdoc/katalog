@@ -120,13 +120,13 @@ class FilesystemClient(SourcePlugin):
                         device = getattr(stat, "st_dev", None)
                         if inode and device:
                             # POSIX st_ino/st_dev survive renames on macOS/Linux; Windows often reports 0 so we fall back to the path identifier there.
-                            canonical_id = f"inode:{device}:{inode}"
+                            external_id = f"inode:{device}:{inode}"
                         else:
-                            canonical_id = f"path:{full_path}"
+                            external_id = f"path:{full_path}"
 
                         abs_path = Path(full_path).resolve()
                         asset = Asset(
-                            canonical_id=canonical_id,
+                            external_id=external_id,
                             canonical_uri=abs_path.as_uri(),
                             provider_id=self.provider.id,
                         )

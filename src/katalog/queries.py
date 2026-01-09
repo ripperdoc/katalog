@@ -8,12 +8,9 @@ from tortoise import Tortoise
 
 from katalog.config import DB_PATH
 from katalog.metadata import (
-    ASSET_CANONICAL_ID,
+    ASSET_EXTERNAL_ID,
     ASSET_CANONICAL_URI,
-    ASSET_CREATED_SNAPSHOT,
-    ASSET_DELETED_SNAPSHOT,
     ASSET_ID,
-    ASSET_LAST_SNAPSHOT,
     ASSET_PROVIDER_ID,
     METADATA_REGISTRY,
     METADATA_REGISTRY_BY_ID,
@@ -24,6 +21,8 @@ from katalog.metadata import (
 from katalog.metadata import MetadataKey as MK
 from katalog.models import (
     Asset,
+    AssetState,
+    AssetStateStatus,
     Metadata,
     MetadataRegistry,
     MetadataType,
@@ -180,12 +179,8 @@ async def sync_config():
 
 asset_filter_fields = {
     str(ASSET_ID): ("a.id", "int"),
-    str(ASSET_PROVIDER_ID): ("a.provider_id", "int"),
-    str(ASSET_CANONICAL_ID): ("a.canonical_id", "str"),
+    str(ASSET_EXTERNAL_ID): ("a.external_id", "str"),
     str(ASSET_CANONICAL_URI): ("a.canonical_uri", "str"),
-    str(ASSET_CREATED_SNAPSHOT): ("a.created_snapshot_id", "int"),
-    str(ASSET_LAST_SNAPSHOT): ("a.last_snapshot_id", "int"),
-    str(ASSET_DELETED_SNAPSHOT): ("a.deleted_snapshot_id", "int"),
 }
 
 
@@ -271,12 +266,9 @@ def filter_conditions(filters):
 
 asset_sort_fields = {
     str(ASSET_ID): "a.id",
-    str(ASSET_PROVIDER_ID): "a.provider_id",
-    str(ASSET_CANONICAL_ID): "a.canonical_id",
+    str(ASSET_PROVIDER_ID): "asset_provider_id",
+    str(ASSET_EXTERNAL_ID): "a.external_id",
     str(ASSET_CANONICAL_URI): "a.canonical_uri",
-    str(ASSET_CREATED_SNAPSHOT): "a.created_snapshot_id",
-    str(ASSET_LAST_SNAPSHOT): "a.last_snapshot_id",
-    str(ASSET_DELETED_SNAPSHOT): "a.deleted_snapshot_id",
 }
 
 
@@ -336,7 +328,11 @@ async def list_grouped_assets(
 
     conditions, filter_params = filter_conditions(filters)
     if provider_id is not None:
-        conditions.insert(0, "a.provider_id = ?")
+        conditions.insert(
+            0,
+            "EXISTS (SELECT 1 FROM assetstate aps WHERE aps.asset_id = a.id AND aps.provider_id = ? AND aps.state = ?)",
+        )
+        filter_params.insert(0, AssetStateStatus.ACTIVE.value)
         filter_params.insert(0, provider_id)
     if search is not None and search.strip():
         fts_query = _fts5_query_from_user_text(search)
@@ -454,11 +450,8 @@ async def list_grouped_assets(
                 # mimic asset columns so the table can render a unified schema
                 str(ASSET_ID): f"group:{row.get('group_value')}",
                 str(ASSET_PROVIDER_ID): None,
-                str(ASSET_CANONICAL_ID): None,
+                str(ASSET_EXTERNAL_ID): None,
                 str(ASSET_CANONICAL_URI): None,
-                str(ASSET_CREATED_SNAPSHOT): None,
-                str(ASSET_LAST_SNAPSHOT): None,
-                str(ASSET_DELETED_SNAPSHOT): None,
             }
         )
 
@@ -540,12 +533,17 @@ async def list_assets_for_view(
 
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
+    state_table = AssetState._meta.db_table
 
     # WHERE clause builder
     conditions, filter_params = filter_conditions(filters)
 
     if provider_id is not None:
-        conditions.insert(0, "a.provider_id = ?")
+        conditions.insert(
+            0,
+            f"EXISTS (SELECT 1 FROM {state_table} aps WHERE aps.asset_id = a.id AND aps.provider_id = ? AND aps.state = ?)",
+        )
+        filter_params.insert(0, AssetStateStatus.ACTIVE.value)
         filter_params.insert(0, provider_id)
 
     if extra_where:
@@ -573,15 +571,24 @@ async def list_assets_for_view(
 
     # NOTE this approach means we cannot sort by metadata columns
     assets_sql = f"""
+    WITH latest_provider AS (
+        SELECT
+            s.asset_id,
+            s.provider_id,
+            ROW_NUMBER() OVER (
+                PARTITION BY s.asset_id
+                ORDER BY s.snapshot_id DESC, s.id DESC
+            ) AS rn
+        FROM {state_table} s
+        WHERE s.state = {int(AssetStateStatus.ACTIVE)}
+    )
     SELECT
         a.id AS asset_id,
-        a.provider_id AS asset_provider_id,
-        a.canonical_id,
-        a.canonical_uri,
-        a.created_snapshot_id,
-        a.last_snapshot_id,
-        a.deleted_snapshot_id
+        lp.provider_id AS asset_provider_id,
+        a.external_id,
+        a.canonical_uri
     FROM {asset_table} a
+    LEFT JOIN latest_provider lp ON lp.asset_id = a.id AND lp.rn = 1
     {where_sql}
     ORDER BY {order_by_clause}
     LIMIT ? OFFSET ?
@@ -605,11 +612,8 @@ async def list_assets_for_view(
         asset_entry: dict[str, Any] = {
             str(ASSET_ID): asset_id,
             str(ASSET_PROVIDER_ID): row["asset_provider_id"],
-            str(ASSET_CANONICAL_ID): row["canonical_id"],
+            str(ASSET_EXTERNAL_ID): row["external_id"],
             str(ASSET_CANONICAL_URI): row["canonical_uri"],
-            str(ASSET_CREATED_SNAPSHOT): row["created_snapshot_id"],
-            str(ASSET_LAST_SNAPSHOT): row["last_snapshot_id"],
-            str(ASSET_DELETED_SNAPSHOT): row["deleted_snapshot_id"],
         }
         for key in metadata_keys:
             asset_entry[key] = None

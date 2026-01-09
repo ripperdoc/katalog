@@ -73,6 +73,11 @@ class ProviderType(IntEnum):
     EXPORTER = 4
 
 
+class AssetStateStatus(IntEnum):
+    ACTIVE = 0
+    DELETED = 1
+
+
 class Provider(Model):
     id = IntField(pk=True)
     name = CharField(max_length=255, unique=True)
@@ -340,25 +345,8 @@ class FileAccessor(ABC):
 
 class Asset(Model):
     id = IntField(pk=True)
-    provider = ForeignKeyField(orm(Provider), related_name="assets", on_delete=CASCADE)
-    canonical_id = CharField(max_length=255, unique=True)
-    canonical_uri = CharField(max_length=1024, unique=True)
-    created_snapshot = ForeignKeyField(
-        orm(Snapshot), related_name="created_assets", on_delete=RESTRICT
-    )
-    last_snapshot = ForeignKeyField(
-        orm(Snapshot), related_name="last_assets", on_delete=RESTRICT
-    )
-    deleted_snapshot = ForeignKeyField(
-        orm(Snapshot),
-        related_name="deleted_assets",
-        null=True,
-        on_delete=SET_NULL,
-    )
-    # Just for fixing type errors, these are populated via ForeignKeyField
-    created_snapshot_id: int
-    last_snapshot_id: int
-    deleted_snapshot_id: int | None
+    external_id = CharField(max_length=255, unique=True)
+    canonical_uri = CharField(max_length=1024, unique=False)
     _data_accessor: FileAccessor | None = None
     _metadata_cache: list["Metadata"] | None = None
 
@@ -372,19 +360,14 @@ class Asset(Model):
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": int(self.id),
-            "provider_id": int(self.provider_id),
-            "canonical_id": self.canonical_id,
+            "external_id": self.external_id,
             "canonical_uri": self.canonical_uri,
-            "created_snapshot_id": int(self.created_snapshot_id),
-            "last_snapshot_id": int(self.last_snapshot_id),
-            "deleted_snapshot_id": int(self.deleted_snapshot_id)
-            if self.deleted_snapshot_id is not None
-            else None,
         }
 
     async def save_record(
         self,
         snapshot: "Snapshot",
+        provider: Provider | None = None,
     ) -> bool:
         """Persist the asset row, reusing an existing canonical asset when present.
 
@@ -392,22 +375,29 @@ class Asset(Model):
             True if the asset was newly created in the DB, otherwise False.
         """
 
+        provider = provider or getattr(snapshot, "provider", None)
+        if provider is None:
+            raise ValueError("provider must be supplied to save_record")
+
         was_created = False
         if self.id is None:
-            existing = await Asset.get_or_none(canonical_id=self.canonical_id)
+            existing = await Asset.get_or_none(external_id=self.external_id)
             if existing:
                 self.id = existing.id
                 self._saved_in_db = True
-                self.created_snapshot_id = existing.created_snapshot_id
-                self.provider_id = existing.provider_id
+                # Keep the first-seen canonical_uri; do not overwrite on merge.
                 self.canonical_uri = existing.canonical_uri
             else:
                 was_created = True
-        if self.created_snapshot_id is None:
-            self.created_snapshot = snapshot
-        self.last_snapshot = snapshot
-        self.deleted_snapshot = None
         await self.save()
+        # Record append-only state for undo/redo via snapshot deletion.
+        await AssetState.record_state(
+            asset=self,
+            snapshot=snapshot,
+            state=AssetStateStatus.ACTIVE,
+            provider=provider,
+            canonical_uri=self.canonical_uri,
+        )
         return was_created
 
     async def load_metadata(self) -> Sequence["Metadata"]:
@@ -428,19 +418,99 @@ class Asset(Model):
         """
         if not provider_ids:
             return 0
-        provider_ids = list(provider_ids)
-        updated = (
-            await cls.filter(
-                provider_id__in=provider_ids,
-                deleted_snapshot_id__isnull=True,
+        total = 0
+        conn = Tortoise.get_connection("default")
+        for pid in provider_ids:
+            rows = await conn.execute_query_dict(
+                """
+                WITH latest AS (
+                    SELECT s.asset_id, s.state, s.snapshot_id
+                    FROM assetstate s
+                    WHERE s.provider_id = ?
+                      AND s.snapshot_id = (
+                        SELECT MAX(s2.snapshot_id)
+                        FROM assetstate s2
+                        WHERE s2.provider_id = s.provider_id
+                          AND s2.asset_id = s.asset_id
+                    )
+                )
+                SELECT asset_id
+                FROM latest
+                WHERE state = ? AND snapshot_id <> ?
+                """,
+                [pid, AssetStateStatus.ACTIVE.value, snapshot.id],
             )
-            .exclude(last_snapshot_id=snapshot.id)
-            .update(deleted_snapshot_id=snapshot.id)
-        )
-        return updated
+            asset_ids = [int(r["asset_id"]) for r in rows]
+            if not asset_ids:
+                continue
+            states = [
+                AssetState(
+                    asset_id=aid,
+                    snapshot_id=snapshot.id,
+                    provider_id=pid,
+                    canonical_uri=None,
+                    state=AssetStateStatus.DELETED,
+                )
+                for aid in asset_ids
+            ]
+            await AssetState.bulk_create(states)
+            total += len(states)
+        return total
 
     class Meta(Model.Meta):
-        indexes = (("provider", "last_snapshot"),)
+        indexes = ()
+
+
+class AssetState(Model):
+    id = IntField(pk=True)
+    asset = ForeignKeyField(orm(Asset), related_name="states", on_delete=CASCADE)
+    snapshot = ForeignKeyField(
+        orm(Snapshot), related_name="asset_states", on_delete=CASCADE
+    )
+    provider = ForeignKeyField(
+        orm(Provider), related_name="asset_states", on_delete=CASCADE
+    )
+    canonical_uri = CharField(max_length=1024, null=True)
+    state = IntEnumField(AssetStateStatus)
+    created_at = DatetimeField(auto_now_add=True)
+
+    class Meta(Model.Meta):
+        unique_together = ("asset", "provider", "snapshot", "state")
+        indexes = (
+            ("asset", "snapshot"),
+            ("asset", "state"),
+            ("provider", "asset"),
+            ("provider", "snapshot"),
+        )
+
+    @classmethod
+    async def record_state(
+        cls,
+        *,
+        asset: Asset,
+        snapshot: Snapshot,
+        state: AssetStateStatus,
+        provider: Provider,
+        canonical_uri: str | None = None,
+    ) -> "AssetState":
+        """Append an asset state entry if one doesn't exist for this snapshot/state."""
+
+        existing = await cls.get_or_none(
+            asset_id=asset.id,
+            snapshot_id=snapshot.id,
+            state=state,
+            provider_id=provider.id,
+        )
+        if existing:
+            return existing
+
+        return await cls.create(
+            asset_id=asset.id,
+            snapshot_id=snapshot.id,
+            provider_id=provider.id,
+            canonical_uri=canonical_uri or asset.canonical_uri,
+            state=state,
+        )
 
 
 class MetadataRegistry(Model):

@@ -130,11 +130,8 @@ export interface SnapshotResponse {
 export interface AssetDetailRecord {
   id: number;
   provider_id: number;
-  canonical_id: string;
+  external_id: string;
   canonical_uri: string;
-  created_snapshot_id: number;
-  last_snapshot_id: number;
-  deleted_snapshot_id: number | null;
 }
 
 export interface MetadataRecord {

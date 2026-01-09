@@ -248,7 +248,7 @@ class GoogleDriveClient(SourcePlugin):
         canonical_uri = f"https://drive.google.com/file/d/{file_id}"
 
         asset = Asset(
-            canonical_id=file_id,
+            external_id=file_id,
             provider_id=self.provider.id,
             canonical_uri=canonical_uri,
         )

@@ -75,14 +75,11 @@ class UpsertFixture:
         snapshot = await cls._ensure_snapshot(
             provider=provider, snapshot_id=snapshot_id
         )
-        asset = await Asset.create(
-            provider=provider,
-            canonical_id=f"canonical-{provider_id}",
+        asset = Asset(
+            external_id=f"canonical-{provider_id}",
             canonical_uri=f"uri://{provider_id}",
-            created_snapshot=snapshot,
-            last_snapshot=snapshot,
-            deleted_snapshot=None,
         )
+        await asset.save_record(snapshot=snapshot, provider=provider)
         return cls(asset=asset, snapshot=snapshot, provider=provider)
 
     async def upsert(
@@ -96,7 +93,7 @@ class UpsertFixture:
             m.provider = provider
             m.snapshot = snapshot
             m.asset = self.asset
-        await self.asset.save_record(snapshot=snapshot)
+        await self.asset.save_record(snapshot=snapshot, provider=provider)
         change_set = MetadataChangeSet(
             loaded=await self.asset.load_metadata(), staged=list(metas)
         )

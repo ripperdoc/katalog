@@ -172,7 +172,7 @@ async def test_md5_skips_when_hash_already_present(pipeline_db):
     existing_md5 = make_metadata(HASH_MD5, "abc", provider_id=ctx.provider.id)
     existing_md5.asset = ctx.asset
     existing_md5.snapshot = ctx.snapshot
-    await ctx.asset.save_record(snapshot=ctx.snapshot)
+    await ctx.asset.save_record(snapshot=ctx.snapshot, provider=ctx.provider)
     change_set = MetadataChangeSet(
         loaded=await ctx.asset.load_metadata(), staged=[existing_md5]
     )

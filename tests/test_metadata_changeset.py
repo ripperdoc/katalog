@@ -46,13 +46,11 @@ async def _seed() -> tuple[Provider, Snapshot, Asset]:
         started_at=datetime.now(UTC),
         completed_at=datetime.now(UTC),
     )
-    asset = await Asset.create(
-        provider=provider,
-        canonical_id="asset-1",
+    asset = Asset(
+        external_id="asset-1",
         canonical_uri="file:///asset-1",
-        created_snapshot=snapshot,
-        last_snapshot=snapshot,
     )
+    await asset.save_record(snapshot=snapshot, provider=provider)
     return provider, snapshot, asset
 
 
