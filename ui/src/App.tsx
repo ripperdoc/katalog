@@ -12,7 +12,6 @@ function App() {
     <div className="app-shell">
       <header>
         <h1>Katalog</h1>
-        <p>Bring order to and analyze your digital assets.</p>
         <nav className="nav">
           <Link to="/providers">Providers</Link>
           <Link to="/snapshots">Snapshots</Link>

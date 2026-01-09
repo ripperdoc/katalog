@@ -2,53 +2,115 @@ _Current status: WIP, get in touch if you want to collaborate_
 
 # KATALOG
 
-Katalog is an app intended for people and companies that have that feeling that their digital
-content is hard to keep track of: unstructured, duplicated, spread over filesystems, external
-drives, cloud storage and publishing tools. Over time, it's easy to lose control and oversight.
+Katalog is a tool for tracking digital assets, files, posts, web pages and more. Files tend gather
+like dust, across file systems, old drives, cloud providers, websites. Finding something is hard,
+you see duplication, versionitis, poor folder structures and naming schemes.
 
-There are many apps in this space focusing on different aspects. This is our take on what Katalog
-should provide:
+There is an endless stream of tools that try to attack specific parts of this problem: file
+searching, syncing, file sorters, AI analyzers, digital asset management, and more. My observation
+has been that they tend to solve a specific task for a specific storage system, without exposing the
+data to other tools. A lot of them need to re-invent the same wheel over and over - databases,
+syncing, fetching, scanning, file conversion.
 
-- Ability to catalogue (scan) user created digital assets, e.g. documents, photos, media or
-  ultimately, any file.
-- Can connect many content sources; local folders, network drivers, external drives, cloud storage,
-  FTPs, CMS:es and support an easy plugin-architecture to connect more. These sources can be scanned
-  once or repeatedly, depending on use case.
-- Can analyze and process each asset with plugins, AI or commands, in order to build metadata or
-  generated content.
-- Provide an interface to search, browse and filter the assets
-- Analyze the catalog in order to organize it; uncover forgotten content, de-duplicate, build
-  version histories
-- Provide various overviews, such as where assets tend to be, how well it's backed up, what projects
-  dominate, etc.
+Instead, if we find a common way of storing the metadata about digital assets, we can make a
+pluggable system that both can ingest data (`sources`), that can process that data (`processors`)
+and visualize that data (`views`). It allows us to keep the data consistent and over time just add
+(or) remove processors. With AI, this pattern becomes even more powerful, as the data is what
+carries true value, and users (with or without AI help) can easily create snippets of code that
+ingest, process or analyze parts or all of that data. Often a thin wrapper around best-practice
+open-source tools and SDKs.
+
+## Example use cases
+
+- Catalogue (scan) all digital assets you've created across both local and remote storage providers
+- Find files using filters, text search or semantic search (vector search)
+- Browse and list files faster and with more detail, even if the cloud provider is slow, broken or
+  offline
+- Efficiently process metadata, like making thumbnails, tags, fix filenames or more, and connect AI
+  APIs to do this with less coding and better outcomes
+- Find sets of files and batch export in some other format
+- Be a digital archeologist, find forgotten files and file formats, download or create plugins to
+  convert them to new formats, de-duplicate, build version histories
+- Visualize files in different dimensions - as tables, folders, events over time, image galleries
+- Provide useful statistics, such as typical and total file size, type, projects, folders
+- Connect to backup and sync providers, to gather metadata over time, tracking how files have
+  changed over the years
 - Ultimately, to also provide the ability to see where content has been published and make it easy
   to manage assets across all systems
 
-## What it is not:
-
-- A new Spotlight. There are many great UIs for quickly finding and using files on an OS. These are
-  better suited for quick access, and often also aim at finding all possible files and executables
-  on a system.
-- A backup or file management solution. There are great, robust tools for backup, syncing, copying
-  and cloning. Katalog does not aim to recreate these - but it might provide shortcuts or interfaces
-  to such tools.
-
 ## Who is it for?
 
-- Content creators who are losing overview of all their content, especially with cloud and remote
-  storage becoming the norm
-- Archivists and data hoarders who want to manage their archives across many types of media
-- Small businesses needing a flexible Digital Asset Management solution
+- Content creators
+- Archivists and data hoarders
+- Small businesses
+- Data analysts
 
-## Principles for user experience
+## Design principles
 
-- Performant
-- Don't load/process when not needed (e.g. cache)
-- Give full access to data, don't dumb down
-- Good default settings, but advanced customization possible
-- Feels and is safe to use:
-  - Can see in advance what large operations will do
-  - Can undo small and large operations
+- Open source and open, pluggable ecosystem
+- Local-first, helps you control _your_ data
+- Fast and responsive
+- Power-user and developer focused
+- Keeps data safe: any operation can be undone
+
+## Feature roadmap
+
+### Source plugins
+
+_Supported sources of digital assets_
+
+- ✓ Local filesystems
+- ✓ Google Drive
+- ⏳ (planned) Compressed archives
+- ⏳ (planned) List of URLs (web scraping)
+- ⏳ (planned) List of data (e.g CSVs, Google Sheets)
+- ⏳ (planned) Dropbox
+- ⏳ (planned) OneDrive
+- ⏳ (planned) S3 and compatible cloud storage
+- ⏳ (planned) Wikis
+- ⏳ (planned) Wordpress
+- ⏳ (planned) Git repositories
+- ⏳ (planned) Backups apps
+
+### Processor plugins
+
+_Supported processors of digital assets._
+
+- ✓ MD5 content fingerprinting
+- ✓ File type detection (magic)
+- ✓ Duplicate finder
+- ⏳ (planned) Create semantic embeddings
+- ⏳ (planned) AI prompted file cleaning
+- ⏳ (planned) Rule-based file renaming
+- ⏳ (planned) Rule-based folder organizer
+- ⏳ (planned) Summarize text content
+- ⏳ (planned) Translate text content
+- ⏳ (planned) Junk file detector
+- ⏳ (planned) Thumbnail creator
+- ⏳ (planned) Extract text content
+- ⏳ (planned) Office docs reader
+- ⏳ (planned) PDF reader
+
+### Core features
+
+- ✓ Web-based minimalistic UI
+- ✓ Snapshot-based append-only data model - any change can be undone
+- ✓ Efficiently scan or crawl REST APIs
+- ✓ Extensible metadata model
+- ✓ Discover, import and configure plugins
+- ✓ Efficient processing pipelines that stream results to UI
+- ✓ Asset table view with free text search
+- ✓ Can ingest 500k files and 10M metadata points
+- ⏳ (planned) Semantic search using embeddings
+- ⏳ (planned) Full filtering and sorting for all metadata
+- ⏳ (planned) User-editable metadata
+- ⏳ (planned) Custom grouped views, ability to define and save groups of files
+- ⏳ (planned) Stats for assets
+- ⏳ (planned) Export tools for tables and file data
+- ⏳ (planned) Tools to write changes back to providers (e.g. rename in source)
+- ⏳ (planned) Customized processing pipelines
+
+See `TODO.md` for more details.
 
 # Usage
 
@@ -84,3 +146,10 @@ VITE_API_BASE_URL="http://localhost:8000" npm run build
 
 The UI currently lets you enter a source id, query `/files/{provider_id}` with the `flat` or
 `complete` view, and render each file record with its metadata payload.
+
+# AI policy
+
+As a developer for 25+ years, I have very mixed feelings for AI-tools for coding. Some things are
+great, others are terrible. With that said, I use them daily and this project is no exception. But
+it's a very iterative process - bounce ideas, get proposal, reject proposal, new proposal, rewrite
+manually, and so on.

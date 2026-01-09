@@ -88,27 +88,6 @@ Use journalling system of file systems to only scan what has changed since last.
 
 # Ideas
 
-## Source ideas
-
-Various ideas for sources that can be connected to katalog.
-
-- Scrape a website for documents and files
-  - May work a lot better with a browser extension as middle man
-  - A lot of website specific sources can be developed
-- Dropbox
-- OneDrive
-- A CSV, e.g. a webshop export or similar
-  - Needs mapping between columns and potential metadata fields. Doesn't normally contain file data
-- Wordpress database (e.g. SQL file or live DB)
-- Mediawiki database, API or similar
-- Github Repository (allows reading historical snapshots as well)
-- Specific app databases, like iTunes, Photos, Lightroom
-- Online database tools like Airtable
-- File list: we could have a "metasource" which contains a list of specific files from various
-  sources, e.g. a bookmark file. To access the files we might need to use another source client.
-- Backups, allowing us to record file snapshots over time (either backup with a known model, like
-  arq, or referencing a filesystem where a naming pattern identifies snapshots at different times)
-
 ## Source improvements
 
 - Settings to filter incoming file records e.g. based on path or other criteria (filter before
@@ -139,9 +118,19 @@ Various ideas for sources that can be connected to katalog.
 - Warnings - create various warnings that can be surfaced about files, such as:
   - [ ] Empty folders
   - [ ] Empty files (may be more than just 0 bytes)
-  - [ ] Variant, version, copy file-names -> likely a variant
+  - [ ] Filenames with space in end or beginning, including paths with same problem
+  - [ ] Empty filenames
+  - [ ] Disallowed characters in filenames
+  - [ ] Variant, version, "Copy of" or " (1)" or similar automated copying names -> likely a variant
   - [ ] Corrupt files -> corrupt
   - [ ] Bad dates -> dates like 1970-01-01, 0000-…, future dates
+  - [ ] Sidecar files
+    - [ ] .DS_Store,
+    - [ ] `~$marbetsavtal WWP och LD.docx` vs real `Samarbetsavtal WWP och LD.docx`, e.g temp Office
+          files
+    - [ ] Extended attribute sidecars from MacOS
+          `._World of Darkness_ The Documentary - 85' VA_SD540p.mp4` vs
+          `World of Darkness_ The Documentary - 85' VA_SD540p.mp4`
   - [ ] Name readability -> short names, many underscores, no spaces. Can be applied to most string
         based metadata.
 
