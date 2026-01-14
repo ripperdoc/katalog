@@ -184,6 +184,148 @@ asset_filter_fields = {
 }
 
 
+def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]:
+    """Build SQL predicate + params for a metadata-based filter."""
+
+    accessor = filt.get("accessor")
+    operator = filt.get("operator")
+    value = filt.get("value")
+    values = filt.get("values")
+
+    key = MetadataKey(accessor) if accessor is not None else None
+    definition = METADATA_REGISTRY.get(key)
+    if definition is None:
+        raise ValueError(f"Filtering not supported for column: {accessor}")
+
+    registry_id = get_metadata_id(definition.key)
+    metadata_table = Metadata._meta.db_table
+
+    col_map: dict[MetadataType, tuple[str, str]] = {
+        MetadataType.STRING: ("m.value_text", "str"),
+        MetadataType.INT: ("m.value_int", "int"),
+        MetadataType.FLOAT: ("m.value_real", "float"),
+        MetadataType.DATETIME: ("m.value_datetime", "datetime"),
+        MetadataType.JSON: ("m.value_json", "str"),
+        MetadataType.RELATION: ("m.value_relation_id", "int"),
+    }
+    try:
+        column_name, col_type = col_map[definition.value_type]
+    except KeyError:  # pragma: no cover
+        raise ValueError(f"Unsupported metadata type for filtering: {definition.value_type}")
+
+    def cast_value(val: Any) -> Any:
+        if val is None:
+            return None
+        if col_type == "int":
+            return int(val)
+        if col_type == "float":
+            return float(val)
+        return val
+
+    string_ops = {"contains", "notContains", "startsWith", "endsWith"}
+
+    if operator in {
+        "equals",
+        "notEquals",
+        "greaterThan",
+        "lessThan",
+        "greaterThanOrEqual",
+        "lessThanOrEqual",
+    }:
+        if value is None:
+            raise ValueError("Filter value is required")
+        op_map = {
+            "equals": "=",
+            "notEquals": "!=",
+            "greaterThan": ">",
+            "lessThan": "<",
+            "greaterThanOrEqual": ">=",
+            "lessThanOrEqual": "<=",
+        }
+        predicate = f"{column_name} {op_map[operator]} ?"
+        value_params = [cast_value(value)]
+    elif col_type == "str" and operator in string_ops:
+        if value is None:
+            raise ValueError("Filter value is required")
+        pattern = str(value)
+        if operator == "contains":
+            predicate = f"{column_name} LIKE ?"
+            value_params = [f"%{pattern}%"]
+        elif operator == "notContains":
+            predicate = f"{column_name} NOT LIKE ?"
+            value_params = [f"%{pattern}%"]
+        elif operator == "startsWith":
+            predicate = f"{column_name} LIKE ?"
+            value_params = [f"{pattern}%"]
+        else:  # endsWith
+            predicate = f"{column_name} LIKE ?"
+            value_params = [f"%{pattern}"]
+    elif operator in {"between", "notBetween"}:
+        if not values or len(values) != 2:
+            raise ValueError("Filter values must contain two entries for between")
+        op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
+        predicate = f"{column_name} {op} ? AND ?"
+        value_params = [cast_value(values[0]), cast_value(values[1])]
+    elif operator == "isEmpty":
+        non_null = (
+            f"{column_name} IS NOT NULL AND {column_name} != ''"
+            if col_type == "str"
+            else f"{column_name} IS NOT NULL"
+        )
+        condition = (
+            "NOT EXISTS ("
+            f"SELECT 1 FROM {metadata_table} m "
+            "WHERE m.asset_id = a.id "
+            "AND m.metadata_key_id = ? "
+            "AND m.removed = 0 "
+            "AND m.snapshot_id = ("
+            f"    SELECT MAX(m2.snapshot_id) FROM {metadata_table} m2 "
+            "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? AND m2.removed = 0"
+            ") "
+            f"AND {non_null}"
+            ")"
+        )
+        return condition, [registry_id, registry_id]
+    elif operator == "isNotEmpty":
+        non_null = (
+            f"{column_name} IS NOT NULL AND {column_name} != ''"
+            if col_type == "str"
+            else f"{column_name} IS NOT NULL"
+        )
+        condition = (
+            "EXISTS ("
+            f"SELECT 1 FROM {metadata_table} m "
+            "WHERE m.asset_id = a.id "
+            "AND m.metadata_key_id = ? "
+            "AND m.removed = 0 "
+            "AND m.snapshot_id = ("
+            f"    SELECT MAX(m2.snapshot_id) FROM {metadata_table} m2 "
+            "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? AND m2.removed = 0"
+            ") "
+            f"AND {non_null}"
+            ")"
+        )
+        return condition, [registry_id, registry_id]
+    else:
+        raise ValueError(f"Unsupported filter operator: {operator}")
+
+    condition = (
+        "EXISTS ("
+        f"SELECT 1 FROM {metadata_table} m "
+        "WHERE m.asset_id = a.id "
+        "AND m.metadata_key_id = ? "
+        "AND m.removed = 0 "
+        "AND m.snapshot_id = ("
+        f"    SELECT MAX(m2.snapshot_id) FROM {metadata_table} m2 "
+        "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? AND m2.removed = 0"
+        ") "
+        f"AND {predicate}"
+        ")"
+    )
+    params = [registry_id, registry_id, *value_params]
+    return condition, params
+
+
 def filter_conditions(filters):
     filters = filters or []
     conditions = []
@@ -198,69 +340,72 @@ def filter_conditions(filters):
         value = filt.get("value")
         values = filt.get("values")
 
-        if accessor not in asset_filter_fields:
-            raise ValueError(f"Filtering not supported for column: {accessor}")
-        column_name, col_type = asset_filter_fields[accessor]
+        if accessor in asset_filter_fields:
+            column_name, col_type = asset_filter_fields[accessor]
 
-        def cast_value(val: Any) -> Any:
-            if col_type == "int":
-                return int(val) if val is not None else None
-            return val
+            def cast_value(val: Any) -> Any:
+                if col_type == "int":
+                    return int(val) if val is not None else None
+                return val
 
-        if operator in {
-            "equals",
-            "notEquals",
-            "greaterThan",
-            "lessThan",
-            "greaterThanOrEqual",
-            "lessThanOrEqual",
-        }:
-            if value is None:
-                raise ValueError("Filter value is required")
-            op_map = {
-                "equals": "=",
-                "notEquals": "!=",
-                "greaterThan": ">",
-                "lessThan": "<",
-                "greaterThanOrEqual": ">=",
-                "lessThanOrEqual": "<=",
-            }
-            conditions.append(f"{column_name} {op_map[operator]} ?")
-            filter_params.append(cast_value(value))
-        elif col_type == "str" and operator in {
-            "contains",
-            "notContains",
-            "startsWith",
-            "endsWith",
-        }:
-            if value is None:
-                raise ValueError("Filter value is required")
-            pattern = str(value)
-            if operator == "contains":
-                conditions.append(f"{column_name} LIKE ?")
-                filter_params.append(f"%{pattern}%")
-            elif operator == "notContains":
-                conditions.append(f"{column_name} NOT LIKE ?")
-                filter_params.append(f"%{pattern}%")
-            elif operator == "startsWith":
-                conditions.append(f"{column_name} LIKE ?")
-                filter_params.append(f"{pattern}%")
-            elif operator == "endsWith":
-                conditions.append(f"{column_name} LIKE ?")
-                filter_params.append(f"%{pattern}")
-        elif operator in {"between", "notBetween"}:
-            if not values or len(values) != 2:
-                raise ValueError("Filter values must contain two entries for between")
-            op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
-            conditions.append(f"{column_name} {op} ? AND ?")
-            filter_params.append(cast_value(values[0]))
-            filter_params.append(cast_value(values[1]))
-        elif operator == "isEmpty":
-            conditions.append(f"{column_name} IS NULL")
-        elif operator == "isNotEmpty":
-            conditions.append(f"{column_name} IS NOT NULL")
+            if operator in {
+                "equals",
+                "notEquals",
+                "greaterThan",
+                "lessThan",
+                "greaterThanOrEqual",
+                "lessThanOrEqual",
+            }:
+                if value is None:
+                    raise ValueError("Filter value is required")
+                op_map = {
+                    "equals": "=",
+                    "notEquals": "!=",
+                    "greaterThan": ">",
+                    "lessThan": "<",
+                    "greaterThanOrEqual": ">=",
+                    "lessThanOrEqual": "<=",
+                }
+                conditions.append(f"{column_name} {op_map[operator]} ?")
+                filter_params.append(cast_value(value))
+            elif col_type == "str" and operator in {
+                "contains",
+                "notContains",
+                "startsWith",
+                "endsWith",
+            }:
+                if value is None:
+                    raise ValueError("Filter value is required")
+                pattern = str(value)
+                if operator == "contains":
+                    conditions.append(f"{column_name} LIKE ?")
+                    filter_params.append(f"%{pattern}%")
+                elif operator == "notContains":
+                    conditions.append(f"{column_name} NOT LIKE ?")
+                    filter_params.append(f"%{pattern}%")
+                elif operator == "startsWith":
+                    conditions.append(f"{column_name} LIKE ?")
+                    filter_params.append(f"{pattern}%")
+                elif operator == "endsWith":
+                    conditions.append(f"{column_name} LIKE ?")
+                    filter_params.append(f"%{pattern}")
+            elif operator in {"between", "notBetween"}:
+                if not values or len(values) != 2:
+                    raise ValueError("Filter values must contain two entries for between")
+                op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
+                conditions.append(f"{column_name} {op} ? AND ?")
+                filter_params.append(cast_value(values[0]))
+                filter_params.append(cast_value(values[1]))
+            elif operator == "isEmpty":
+                conditions.append(f"{column_name} IS NULL")
+            elif operator == "isNotEmpty":
+                conditions.append(f"{column_name} IS NOT NULL")
+            else:
+                raise ValueError(f"Unsupported filter operator: {operator}")
         else:
-            raise ValueError(f"Unsupported filter operator: {operator}")
+            condition, params = _metadata_filter_condition(filt)
+            conditions.append(condition)
+            filter_params.extend(params)
     return conditions, filter_params
 
 
@@ -526,10 +671,6 @@ async def list_assets_for_view(
     if limit < 0 or offset < 0:
         raise ValueError("offset and limit must be non-negative")
 
-    if provider_id is not None:
-        # Provider scoping temporarily disabled to avoid expensive AssetState joins.
-        raise ValueError("Filtering by provider_id is temporarily disabled")
-
     column_map = view.column_map()
     requested_columns = set(columns) if columns else set(column_map)
     unknown = requested_columns - set(column_map)
@@ -544,6 +685,13 @@ async def list_assets_for_view(
 
     # WHERE clause builder
     conditions, filter_params = filter_conditions(filters)
+
+    if provider_id is not None:
+        # Scope to assets active for the provider; EXISTS keeps the query lightweight.
+        conditions.append(
+            "EXISTS (SELECT 1 FROM assetstate aps WHERE aps.asset_id = a.id AND aps.provider_id = ? AND aps.state = ?)"
+        )
+        filter_params.extend([provider_id, AssetStateStatus.ACTIVE.value])
 
     if extra_where:
         conditions.append(extra_where[0])

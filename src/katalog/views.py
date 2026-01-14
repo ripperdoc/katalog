@@ -80,7 +80,7 @@ def _metadata_column(def_key: MetadataKey) -> ColumnSpec:
         description=definition.description,
         width=definition.width,
         sortable=False,
-        filterable=False,
+        filterable=True,
         searchable=False,
         plugin_id=definition.plugin_id,
     )

@@ -2,10 +2,9 @@
 
 # Next up
 
-- [ ] Easily create subsets of assets. As a start, it's about running processors/analyzers on the
-      currently shown files (e.g. after filtering/searching). Later it is about saving a
-      search/filter for quick re-use. And beyond that, it's a matter of having a tag system that
-      let's us create virtual folders of assets.
+- [ ] Easily create **collections** of assets. Are they constructed by saved queries, or by
+      remembering every ID? Queries have a strong benefit of updating themselves when new data comes
+      in, but often a user might want to manually add/remove from a collection. Can we have both?
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
@@ -20,14 +19,17 @@
 
 # Backlog
 
+- [ ] Plugin system for **views**. A view is defined as a set of columns, computed columns (?) and
+      the visualization e.g. web frontend component for them?
 - [ ] Dynamic concurrency strategy for GDrive fetches - split the search space dynamically over time
       to always be able to work with concurrent fetchers.
 - [ ] Speed up time to save to DB after scan, can we batch more writes?
 - [ ] Add deletion of snapshots for quick undo.
+- [ ] Google Canonical URI to folders should be different than files
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.
 - [ ] Replace TortoiseORM with [SQLSpec](https://sqlspec.dev/usage/data_flow.html) for more
-      efficient, decoupled database usage
+      efficient, decoupled database p usage
 - [ ] Show detailed progress stats during scan/process, e.g. events and progress per file, but
       streamed to UI?
 - [ ] Show in errors which provider, asset and/or metadata that was being processed
@@ -58,6 +60,7 @@ E.g. what do I need `katalog` to do now for White Wolf?
       in library
 - [ ] Automatically move files to Shared Drive but keeping owners? (Seems too hard or risky to do
       with my code?)
+- [ ] Find all art by Tim Bradstreet with a certain resolution
 
 # Filesystem efficient scan
 

@@ -26,6 +26,8 @@ open-source tools and SDKs.
 - Find files using filters, text search or semantic search (vector search)
 - Browse and list files faster and with more detail, even if the cloud provider is slow, broken or
   offline
+- Merge metadata for the same files from multiple sources, like the posts from a webpage with the
+  images in a Dropbox and the PDFs in a local drive
 - Efficiently process metadata, like making thumbnails, tags, fix filenames or more, and connect AI
   APIs to do this with less coding and better outcomes
 - Find sets of files and batch export in some other format

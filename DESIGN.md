@@ -167,10 +167,20 @@ workspace. A workspace can be backed up and moved around, and it contains all ca
 
 ### Database model
 
-See `db.py` for current database model. In general, we have one "narrow" table for assets and
-another "narrow" table for metadata, where each metadata value is linked to a snapshot and a asset.
-This makes it an Entity-Attribute-Value (EAV) type model. These tables should allow us to develop
-new functionality over time without modifying table structures.
+We have several difficult requirements that means we need to carefully choose the right database and
+database model:
+
+- Handle 1M files with 30 pieces of metadata each, being able to insert/upsert maybe 500k per scan
+  without causing large delays
+- Be as space efficient as possible
+- Handle an extensible number of metadata keys, atleast 30-50
+- Handle multiple opinions from multiple providers on every metadata, on every asset
+- Full version history on all metadata, enabling full undo, restore and editing of history
+- Support full sorting, filtering and grouping on all metadata fields
+- Support full text search and vector search (using necessary plugins)
+- Respond to queries quickly, at least below 200ms
+- With all of above, keep the schema and queries simple to create and understand, and make it easy
+  to create plugins and parse the database with other tools
 
 ### Identifiers
 
