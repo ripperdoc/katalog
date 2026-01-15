@@ -200,6 +200,63 @@ button:disabled {
   align-items: center;
 }
 
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.collection-card {
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.collection-card.selected {
+  border-color: #2563eb;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.2);
+}
+
+.collection-card__title {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.collection-card__meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.collections-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.collections-table th,
+.collections-table td {
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.collections-table tr {
+  cursor: pointer;
+}
+
+.collections-table tr:hover {
+  background: #f1f5f9;
+}
+
 .link-button {
   display: inline-flex;
   align-items: center;

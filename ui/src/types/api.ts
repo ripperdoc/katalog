@@ -128,6 +128,25 @@ export interface SnapshotResponse {
   running: boolean;
 }
 
+export interface AssetCollection {
+  id: number;
+  name: string;
+  description: string | null;
+  asset_count: number;
+  source: Record<string, unknown> | null;
+  refresh_mode: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CollectionListResponse {
+  collections: AssetCollection[];
+}
+
+export interface CollectionResponse {
+  collection: AssetCollection;
+}
+
 export interface AssetDetailRecord {
   id: number;
   provider_id: number;

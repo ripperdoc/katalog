@@ -46,6 +46,8 @@ open-source tools and SDKs.
 - Archivists and data hoarders
 - Small businesses
 - Data analysts
+- Data forensics
+- OSINT
 
 ## Design principles
 

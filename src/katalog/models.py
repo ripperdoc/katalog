@@ -515,6 +515,47 @@ class AssetState(Model):
         )
 
 
+class CollectionRefreshMode(str, Enum):
+    LIVE = "live"
+    ON_DEMAND = "on_demand"
+
+
+class AssetCollection(Model):
+    id = IntField(pk=True)
+    name = CharField(max_length=255, unique=True)
+    description = TextField(null=True)
+    source = JSONField(null=True)  # opaque JSON describing query/view used to create
+    refresh_mode = CharEnumField(CollectionRefreshMode, default=CollectionRefreshMode.ON_DEMAND)
+    created_at = DatetimeField(auto_now_add=True)
+    updated_at = DatetimeField(auto_now=True)
+
+    def to_dict(self, *, asset_count: int | None = None) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "asset_count": asset_count,
+            "source": self.source,
+            "refresh_mode": self.refresh_mode.value
+            if isinstance(self.refresh_mode, CollectionRefreshMode)
+            else str(self.refresh_mode),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class CollectionItem(Model):
+    collection = ForeignKeyField(
+        orm(AssetCollection), related_name="items", on_delete=CASCADE
+    )
+    asset = ForeignKeyField(orm(Asset), related_name="collections", on_delete=CASCADE)
+    added_at = DatetimeField(auto_now_add=True)
+
+    class Meta(Model.Meta):
+        unique_together = (("collection", "asset"),)
+        indexes = (("collection", "asset"), ("asset",))
+
+
 class MetadataRegistry(Model):
     id = IntField(pk=True)
     # Owner/defining plugin id (import path to the plugin class)

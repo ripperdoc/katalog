@@ -343,6 +343,25 @@ To achieve this, there are a few important technical choices to make:
   - What to index on
   - Can we generate faster de-normalized tables and read from them?
 
+### Asset collections
+
+Users often want to keep a set of assets around, not just rerun a query. To keep this simple and
+avoid overlapping concepts, we use a single persisted type:
+
+- **AssetCollection**
+  - Fields: `id`, `name`, `description?`, `asset_ids` (ordered), `source` (optional JSON),
+    `refresh_mode` (`live` or `on_demand`), `created_at`, `updated_at`.
+  - `source` JSON can store the query that produced the collection, the view/widget suggestion used
+    when it was saved, and provenance metadata such as client or timestamp. We do not persist
+    queries or views as first-class tables yet; they stay opaque in this JSON.
+  - “Save search” in the UI creates an AssetCollection from the current result set and stores the
+    query/view in `source` for future refresh.
+  - Opening a collection: if `refresh_mode = live`, rerun `source.query` and rebuild the ordered
+    `asset_ids` in memory (persist only when user explicitly saves the refresh); if `on_demand`,
+    keep stored `asset_ids` until the user clicks Refresh.
+  - Presentation: the UI may override `source.view` at render time to switch widgets; this does not
+    change the stored collection unless saved again.
+
 ### Main server
 
 The main module is implemented as a FastAPI server. It initializes the system, manages providers and

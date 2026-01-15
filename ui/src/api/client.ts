@@ -11,6 +11,9 @@ import type {
   SnapshotListResponse,
   SnapshotResponse,
   AssetDetailResponse,
+  AssetCollection,
+  CollectionListResponse,
+  CollectionResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -152,6 +155,80 @@ export async function fetchAssetDetail(assetId: number): Promise<AssetDetailResp
   const response = await fetch(`${API_BASE}/assets/${assetId}`, {
     headers: { Accept: "application/json" },
   });
+  return handleResponse(response);
+}
+
+export async function fetchCollections(): Promise<CollectionListResponse> {
+  const response = await fetch(`${API_BASE}/collections`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchCollection(
+  id: number
+): Promise<CollectionResponse> {
+  const response = await fetch(`${API_BASE}/collections/${id}`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function createCollection(payload: {
+  name: string;
+  description?: string | null;
+  asset_ids: number[];
+  source?: Record<string, unknown> | null;
+  refresh_mode?: string;
+}): Promise<{ collection: AssetCollection }> {
+  const response = await fetch(`${API_BASE}/collections`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function fetchCollectionAssets(
+  collectionId: number,
+  {
+    viewId = "default",
+    offset = 0,
+    limit = 100,
+    sort,
+    filters,
+    search,
+  }: {
+    viewId?: string;
+    offset?: number;
+    limit?: number;
+    sort?: string | undefined;
+    filters?: string[] | undefined;
+    search?: string | undefined;
+  }
+): Promise<ViewAssetsResponse> {
+  const params = new URLSearchParams();
+  params.set("offset", String(offset));
+  params.set("limit", String(limit));
+  params.set("view_id", viewId);
+  if (sort) {
+    params.set("sort", sort);
+  }
+  if (filters && filters.length > 0) {
+    filters.forEach((f) => params.append("filters", f));
+  }
+  if (search) {
+    params.set("search", search);
+  }
+  const response = await fetch(
+    `${API_BASE}/collections/${encodeURIComponent(collectionId)}/assets?${params}`,
+    {
+      headers: { Accept: "application/json" },
+    }
+  );
   return handleResponse(response);
 }
 
