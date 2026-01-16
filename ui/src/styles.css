@@ -257,6 +257,13 @@ button:disabled {
   background: #f1f5f9;
 }
 
+.collection-meta .field-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
 .link-button {
   display: inline-flex;
   align-items: center;

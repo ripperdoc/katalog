@@ -147,6 +147,10 @@ export interface CollectionResponse {
   collection: AssetCollection;
 }
 
+export interface CollectionUpdateResponse {
+  collection: AssetCollection;
+}
+
 export interface AssetDetailRecord {
   id: number;
   provider_id: number;

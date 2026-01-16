@@ -240,6 +240,12 @@ class CollectionCreate(BaseModel):
     refresh_mode: str | CollectionRefreshMode | None = None
 
 
+class CollectionUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    refresh_mode: str | CollectionRefreshMode | None = None
+
+
 @app.get("/collections")
 async def list_collections():
     collections = await AssetCollection.all().order_by("-created_at")
@@ -303,6 +309,40 @@ async def get_collection(collection_id: int):
     collection = await AssetCollection.get_or_none(id=collection_id)
     if collection is None:
         raise HTTPException(status_code=404, detail="Collection not found")
+    count = await CollectionItem.filter(collection_id=collection.id).count()
+    return {"collection": collection.to_dict(asset_count=count)}
+
+
+@app.patch("/collections/{collection_id}")
+async def update_collection(collection_id: int, request: Request):
+    collection = await AssetCollection.get_or_none(id=collection_id)
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    payload = CollectionUpdate.model_validate(await request.json())
+
+    if payload.name:
+        existing = await AssetCollection.get_or_none(name=payload.name)
+        if existing and existing.id != collection.id:
+            raise HTTPException(status_code=400, detail="Collection name already exists")
+        collection.name = payload.name
+
+    if payload.description is not None:
+        collection.description = payload.description
+
+    if payload.refresh_mode:
+        try:
+            collection.refresh_mode = (
+                CollectionRefreshMode(payload.refresh_mode)
+                if isinstance(payload.refresh_mode, str)
+                else payload.refresh_mode
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=400, detail="refresh_mode must be 'live' or 'on_demand'"
+            )
+
+    await collection.save()
     count = await CollectionItem.filter(collection_id=collection.id).count()
     return {"collection": collection.to_dict(asset_count=count)}
 

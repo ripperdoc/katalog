@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DataTable from "../components/DataTable";
-import { fetchCollection, fetchCollectionAssets } from "../api/client";
+import { fetchCollection, fetchCollectionAssets, updateCollection } from "../api/client";
 import type { AssetCollection, ViewAssetsResponse } from "../types/api";
 
 const DEFAULT_VIEW_ID = "default";
@@ -11,6 +11,9 @@ function CollectionDetailRoute() {
   const navigate = useNavigate();
   const [collection, setCollection] = useState<AssetCollection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [nameDraft, setNameDraft] = useState<string>("");
+  const [descDraft, setDescDraft] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const load = async () => {
@@ -25,6 +28,8 @@ function CollectionDetailRoute() {
       try {
         const res = await fetchCollection(idNum);
         setCollection(res.collection);
+        setNameDraft(res.collection.name);
+        setDescDraft(res.collection.description ?? "");
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
@@ -32,6 +37,27 @@ function CollectionDetailRoute() {
     };
     void load();
   }, [collectionId]);
+
+  const handleSaveMeta = useCallback(async () => {
+    if (!collection) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await updateCollection(collection.id, {
+        name: nameDraft.trim() || collection.name,
+        description: descDraft === undefined ? collection.description : descDraft,
+      });
+      setCollection(res.collection);
+      setNameDraft(res.collection.name);
+      setDescDraft(res.collection.description ?? "");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to update collection: ${message}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [collection, nameDraft, descDraft]);
 
   const fetchPage = useCallback(
     ({
@@ -84,21 +110,49 @@ function CollectionDetailRoute() {
   }
 
   return (
-    <DataTable
-      title={collection.name}
-      subtitle={
-        collection.description
-          ? collection.description
-          : `Collection #${collection.id} · ${collection.asset_count ?? 0} assets`
-      }
-      fetchPage={fetchPage}
-      searchPlaceholder="Search within collection…"
-      actions={
-        <button type="button" onClick={() => navigate("/collections")}>
-          Back to collections
-        </button>
-      }
-    />
+    <section className="panel">
+      <header className="panel-header">
+        <div className="collection-meta">
+          <div className="field-group">
+            <label>
+              Name
+              <input
+                type="text"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                placeholder="Collection name"
+              />
+            </label>
+            <label>
+              Description
+              <textarea
+                value={descDraft ?? ""}
+                onChange={(e) => setDescDraft(e.target.value)}
+                placeholder="Optional description"
+              />
+            </label>
+          </div>
+          <div className="panel-actions">
+            <button type="button" onClick={() => navigate("/collections")}>
+              Back to collections
+            </button>
+            <button type="button" onClick={() => void handleSaveMeta()} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+          <p>
+            Collection #{collection.id} · {collection.asset_count ?? 0} assets · mode{" "}
+            {collection.refresh_mode ?? "on_demand"}
+          </p>
+        </div>
+      </header>
+      <DataTable
+        title="Assets"
+        subtitle={collection.description || collection.name}
+        fetchPage={fetchPage}
+        searchPlaceholder="Search within collection…"
+      />
+    </section>
   );
 }
 

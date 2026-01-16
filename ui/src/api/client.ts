@@ -14,6 +14,7 @@ import type {
   AssetCollection,
   CollectionListResponse,
   CollectionResponse,
+  CollectionUpdateResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -170,6 +171,25 @@ export async function fetchCollection(
 ): Promise<CollectionResponse> {
   const response = await fetch(`${API_BASE}/collections/${id}`, {
     headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function updateCollection(
+  id: number,
+  payload: {
+    name?: string;
+    description?: string | null;
+    refresh_mode?: string;
+  }
+): Promise<CollectionUpdateResponse> {
+  const response = await fetch(`${API_BASE}/collections/${id}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
   return handleResponse(response);
 }
