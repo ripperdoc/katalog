@@ -2,17 +2,12 @@
 
 # Next up
 
-- [ ] Easily create **collections** of assets. Are they constructed by saved queries, or by
-      remembering every ID? Queries have a strong benefit of updating themselves when new data comes
-      in, but often a user might want to manually add/remove from a collection. Can we have both?
 - [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
       status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
       that ok?
-- [ ] Store parent/child relationships from Google drive as relationship metadata. But how can we do
-      that if we want the source scanner to not touch the DB?
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
@@ -23,6 +18,8 @@
       the visualization e.g. web frontend component for them?
 - [ ] Dynamic concurrency strategy for GDrive fetches - split the search space dynamically over time
       to always be able to work with concurrent fetchers.
+- [ ] Store parent/child relationships from Google drive as relationship metadata. But how can we do
+      that if we want the source scanner to not touch the DB?
 - [ ] Speed up time to save to DB after scan, can we batch more writes?
 - [ ] Use `react-jsonschema-form` to directly render a UI from Pydantic Config model for each
       plugin, instead taking in TOML
@@ -70,13 +67,11 @@ E.g. what do I need `katalog` to do now for White Wolf?
 Use journalling system of file systems to only scan what has changed since last.
 
 - [ ] **Windows (NTFS)**: Use **USN Change Journal**
-
   - Kernel-maintained log of file changes
   - Extremely fast, reliable
   - Journal can truncate → need fallback scan
 
 - [ ] **macOS (APFS)**: Use **FSEvents**
-
   - Persistent directory-level change events
   - Efficient, survives reboots
   - Coarse-grained → may need verification

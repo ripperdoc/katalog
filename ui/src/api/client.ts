@@ -10,6 +10,7 @@ import type {
   Snapshot,
   SnapshotListResponse,
   SnapshotResponse,
+  DeleteSnapshotResponse,
   SnapshotChangesResponse,
   AssetDetailResponse,
   AssetCollection,
@@ -308,6 +309,14 @@ export async function cancelSnapshot(snapshotId: number): Promise<void> {
     headers: { Accept: "application/json" },
   });
   await handleResponse(response);
+}
+
+export async function deleteSnapshot(snapshotId: number): Promise<DeleteSnapshotResponse> {
+  const response = await fetch(`${API_BASE}/snapshots/${snapshotId}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
 }
 
 export async function runAllProcessors(): Promise<Snapshot> {

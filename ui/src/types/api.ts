@@ -127,6 +127,11 @@ export interface SnapshotResponse {
   running: boolean;
 }
 
+export interface DeleteSnapshotResponse {
+  status: string;
+  snapshot_id: number;
+}
+
 export interface AssetCollection {
   id: number;
   name: string;

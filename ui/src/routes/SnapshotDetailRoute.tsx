@@ -4,6 +4,7 @@ import {
   cancelSnapshot,
   fetchSnapshot,
   fetchSnapshotChanges,
+  deleteSnapshot,
   snapshotEventsUrl,
 } from "../api/client";
 import type { Snapshot, SnapshotChangeRecord } from "../types/api";
@@ -19,6 +20,7 @@ function SnapshotDetailRoute() {
   const [changesLoading, setChangesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [changesError, setChangesError] = useState<string | null>(null);
   const [changes, setChanges] = useState<SnapshotChangeRecord[]>([]);
   const [changesTotal, setChangesTotal] = useState<number | null>(null);
@@ -151,6 +153,28 @@ function SnapshotDetailRoute() {
     }
   };
 
+  const requestDelete = async () => {
+    if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
+      setError("Invalid snapshot id");
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteSnapshot(snapshotIdNum);
+      // After delete, clear UI state.
+      setSnapshot(null);
+      setLogs([]);
+      setChanges([]);
+      setChangesTotal(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const changeHeaders: HeaderObject[] = [
     { accessor: "id", label: "ID", width: 80, type: "number" },
     { accessor: "asset_id", label: "Asset", width: 120, type: "number" },
@@ -199,6 +223,17 @@ function SnapshotDetailRoute() {
           {isRunning && (
             <button type="button" onClick={requestCancel} disabled={cancelling}>
               {cancelling ? "Cancelling..." : "Cancel"}
+            </button>
+          )}
+          {!isRunning && snapshot && (
+            <button
+              type="button"
+              onClick={requestDelete}
+              disabled={deleting}
+              className="danger"
+              title="Delete this snapshot and undo its changes"
+            >
+              {deleting ? "Deleting..." : "Delete snapshot"}
             </button>
           )}
         </div>

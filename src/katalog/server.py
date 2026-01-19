@@ -559,6 +559,24 @@ async def get_snapshot(snapshot_id: int, stream: bool = Query(False)):
     }
 
 
+@app.delete("/snapshots/{snapshot_id}")
+async def delete_snapshot(snapshot_id: int):
+    """Undo a snapshot by deleting it (cascade removes related rows)."""
+    snapshot = await Snapshot.get_or_none(id=snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    # Prevent deletion of in-flight snapshots to avoid partial state.
+    if snapshot.status == OpStatus.IN_PROGRESS:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a snapshot while it is in progress",
+        )
+
+    await snapshot.delete()
+    return {"status": "deleted", "snapshot_id": snapshot_id}
+
+
 @app.get("/snapshots/{snapshot_id}/changes")
 async def list_snapshot_changes(
     snapshot_id: int,
