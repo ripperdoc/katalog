@@ -15,9 +15,9 @@ function App() {
         <h1>Katalog</h1>
         <nav className="nav">
           <Link to="/providers">Providers</Link>
-          <Link to="/snapshots">Snapshots</Link>
           <Link to="/assets">Assets</Link>
           <Link to="/collections">Collections</Link>
+          <Link to="/snapshots">History</Link>
         </nav>
       </header>
       <main>

@@ -6,7 +6,6 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
-import tomllib
 from fastapi.responses import RedirectResponse, StreamingResponse
 from loguru import logger
 from tortoise import Tortoise
@@ -635,13 +634,11 @@ class ProviderCreate(BaseModel):
     name: str = Field(min_length=1)
     plugin_id: str
     config: dict[str, Any] | None = None
-    config_toml: str | None = None
 
 
 class ProviderUpdate(BaseModel):
     name: str | None = None
     config: dict[str, Any] | None = None
-    config_toml: str | None = None
 
 
 def _validate_and_normalize_config(
@@ -669,6 +666,25 @@ async def list_plugins_endpoint():
     return {"plugins": plugins}
 
 
+def _config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
+    spec: PluginSpec | None = get_plugin_spec(plugin_id) or refresh_plugins().get(plugin_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+    try:
+        plugin_cls = spec.cls if hasattr(spec, "cls") and spec.cls else get_plugin_class(plugin_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Plugin not found") from exc
+    config_model = getattr(plugin_cls, "config_model", None)
+    if config_model is None:
+        return {"schema": {"type": "object", "properties": {}}}
+    return {"schema": config_model.model_json_schema()}
+
+
+@app.get("/plugins/{plugin_id}/config/schema")
+async def get_plugin_config_schema(plugin_id: str):
+    return _config_schema_for_plugin(plugin_id)
+
+
 @app.post("/providers")
 async def create_provider(request: Request):
     payload = ProviderCreate.model_validate(await request.json())
@@ -691,14 +707,6 @@ async def create_provider(request: Request):
         raise HTTPException(status_code=400, detail="Provider name already exists")
 
     raw_config: dict[str, Any] | None = payload.config
-    if payload.config_toml is not None:
-        try:
-            raw_config = tomllib.loads(payload.config_toml)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=400,
-                detail={"message": "Invalid TOML", "errors": str(exc)},
-            ) from exc
 
     normalized_config = _validate_and_normalize_config(plugin_cls, raw_config)
 
@@ -707,7 +715,6 @@ async def create_provider(request: Request):
         plugin_id=payload.plugin_id,
         type=spec.provider_type,
         config=normalized_config,
-        config_toml=payload.config_toml,
     )
     return {"provider": provider.to_dict()}
 
@@ -732,6 +739,15 @@ async def get_provider(provider_id: int):
     }
 
 
+@app.get("/providers/{provider_id}/config/schema")
+async def get_provider_config_schema(provider_id: int):
+    provider = await Provider.get_or_none(id=provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    schema_payload = _config_schema_for_plugin(provider.plugin_id)
+    return {**schema_payload, "value": provider.config or {}}
+
+
 @app.patch("/providers/{provider_id}")
 async def update_provider(provider_id: int, request: Request):
     provider = await Provider.get_or_none(id=provider_id)
@@ -740,22 +756,12 @@ async def update_provider(provider_id: int, request: Request):
     payload = ProviderUpdate.model_validate(await request.json())
     if payload.name:
         provider.name = payload.name
-    if payload.config is not None or payload.config_toml is not None:
+    if payload.config is not None:
         try:
             plugin_cls = get_plugin_class(provider.plugin_id)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=404, detail="Plugin not found") from exc
-        raw_config = payload.config
-        if payload.config_toml is not None:
-            try:
-                raw_config = tomllib.loads(payload.config_toml)
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail={"message": "Invalid TOML", "errors": str(exc)},
-                ) from exc
-            provider.config_toml = payload.config_toml
-        provider.config = _validate_and_normalize_config(plugin_cls, raw_config)
+        provider.config = _validate_and_normalize_config(plugin_cls, payload.config)
     await provider.save()
     return {"provider": provider.to_dict()}
 

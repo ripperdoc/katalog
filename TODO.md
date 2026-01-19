@@ -24,6 +24,9 @@
 - [ ] Dynamic concurrency strategy for GDrive fetches - split the search space dynamically over time
       to always be able to work with concurrent fetchers.
 - [ ] Speed up time to save to DB after scan, can we batch more writes?
+- [ ] Use `react-jsonschema-form` to directly render a UI from Pydantic Config model for each
+      plugin, instead taking in TOML
+  - [ ] However, that removes the simplicity of commenting and commenting out parts of a config
 - [ ] Add deletion of snapshots for quick undo.
 - [ ] Google Canonical URI to folders should be different than files
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in

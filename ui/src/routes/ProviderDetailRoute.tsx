@@ -81,7 +81,7 @@ function ProviderDetailRoute() {
             <pre>{JSON.stringify(provider, null, 2)}</pre>
           </div>
           <div className="file-card">
-            <h3>Snapshots</h3>
+            <h3>History</h3>
             {snapshots.length === 0 && <div className="empty-state">No snapshots yet.</div>}
             {snapshots.map((snap) => (
               <div key={snap.id} className="status-bar">

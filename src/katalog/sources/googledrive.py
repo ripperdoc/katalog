@@ -138,22 +138,22 @@ class GoogleDriveClient(SourcePlugin):
             le=50,
             description="Max concurrent time-slice fetchers",
         )
-        include_paths: list[str] | str | None = Field(
-            default=None,
+        include_paths: list[str] = Field(
+            default_factory=list,
             alias="includePaths",
             description="Glob patterns (names or ID paths) to include",
         )
-        exclude_paths: list[str] | str | None = Field(
-            default=None,
+        exclude_paths: list[str] = Field(
+            default_factory=list,
             alias="excludePaths",
             description="Glob patterns to exclude",
         )
-        modified_from: datetime | str | None = Field(
+        modified_from: datetime | None = Field(
             default=None,
             alias="modifiedFrom",
             description="ISO datetime lower bound (Drive modifiedTime)",
         )
-        modified_to: datetime | str | None = Field(
+        modified_to: datetime | None = Field(
             default=None,
             alias="modifiedTo",
             description="ISO datetime upper bound (Drive modifiedTime)",
@@ -169,7 +169,9 @@ class GoogleDriveClient(SourcePlugin):
         @field_validator("include_paths", "exclude_paths", mode="before")
         @classmethod
         def _ensure_list(cls, v):
-            if v is None or isinstance(v, list):
+            if v is None:
+                return []
+            if isinstance(v, list):
                 return v
             return [v]
 

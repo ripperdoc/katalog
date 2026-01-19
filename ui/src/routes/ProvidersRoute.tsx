@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import Form from "@rjsf/core";
+import validator from "@rjsf/validator-ajv8";
 import {
   fetchPlugins,
   fetchProviders,
   createProvider,
   updateProvider,
+  fetchProviderConfigSchema,
+  fetchPluginConfigSchema,
   startScan,
   runAllProcessors,
   runAllAnalyzers,
 } from "../api/client";
 import type { Provider, PluginSpec } from "../types/api";
-import * as toml from "@iarna/toml";
-import type { JsonMap } from "@iarna/toml";
 
 function ProvidersRoute() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -24,8 +26,10 @@ function ProvidersRoute() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formName, setFormName] = useState("");
   const [formPluginId, setFormPluginId] = useState("");
-  const [configText, setConfigText] = useState("{}");
+  const [configSchema, setConfigSchema] = useState<Record<string, unknown>>({ type: "object" });
+  const [configData, setConfigData] = useState<Record<string, unknown>>({});
   const navigate = useNavigate();
+  const didInit = useRef(false);
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
@@ -58,7 +62,39 @@ function ProvidersRoute() {
     }
   }, []);
 
+  const normalizeSchema = (schema: Record<string, unknown>): Record<string, unknown> => {
+    const clone = structuredClone(schema) as any;
+    const walk = (node: any) => {
+      if (node && typeof node === "object") {
+        if (Array.isArray(node.anyOf) && node.anyOf.length === 2) {
+          const hasString = node.anyOf.find((n: any) => n.type === "string");
+          const hasNull = node.anyOf.find((n: any) => n.type === "null");
+          if (hasString && hasNull) {
+            node.type = ["string", "null"];
+            if (hasString.format) {
+              node.format = hasString.format;
+            }
+            delete node.anyOf;
+          }
+        }
+        if (node.properties && typeof node.properties === "object") {
+          Object.values(node.properties).forEach(walk);
+        }
+        if (node.items) {
+          walk(node.items);
+        }
+      }
+    };
+    walk(clone);
+    return clone;
+  };
+
+
   useEffect(() => {
+    if (didInit.current) {
+      return;
+    }
+    didInit.current = true;
     void loadProviders();
     void loadPlugins();
   }, [loadProviders, loadPlugins]);
@@ -83,13 +119,13 @@ function ProvidersRoute() {
       if (formMode === "edit" && editingId) {
         await updateProvider(editingId, {
           name: formName || undefined,
-          config_toml: configText || undefined,
+          config: configData,
         });
       } else {
         await createProvider({
           name: formName || formPluginId,
           plugin_id: formPluginId,
-          config_toml: configText || undefined,
+          config: configData,
         });
       }
       resetForm();
@@ -106,7 +142,8 @@ function ProvidersRoute() {
     setEditingId(null);
     setFormName("");
     setFormPluginId("");
-    setConfigText("");
+    setConfigSchema({ type: "object" });
+    setConfigData({});
   };
 
   const grouped = {
@@ -118,32 +155,33 @@ function ProvidersRoute() {
   const filteredPlugins = (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER") =>
     plugins.filter((p) => p.type === ptype);
 
-  const openCreate = (ptype: "source" | "processor" | "analyzer") => {
+  const openCreate = async (ptype: "source" | "processor" | "analyzer") => {
     const typeKey = ptype.toUpperCase() as "SOURCE" | "PROCESSOR" | "ANALYZER";
     const available = filteredPlugins(typeKey);
     setFormType(ptype);
     setFormMode("create");
     setEditingId(null);
     setFormName("");
-    setConfigText("");
-    setFormPluginId(available[0]?.plugin_id ?? "");
+    const nextPlugin = available[0]?.plugin_id ?? "";
+    setFormPluginId(nextPlugin);
+    setConfigData({});
+    if (nextPlugin) {
+      try {
+        const schemaRes = await fetchPluginConfigSchema(nextPlugin);
+        setConfigSchema(normalizeSchema(schemaRes.schema || { type: "object" }));
+      } catch {
+        setConfigSchema({ type: "object" });
+      }
+    } else {
+      setConfigSchema({ type: "object" });
+    }
   };
 
-  const openEdit = (provider: Provider) => {
+  const openEdit = async (provider: Provider) => {
     setEditingId(provider.id);
     setFormMode("edit");
     setFormName(provider.name);
     setFormPluginId(provider.plugin_id || "");
-    if (provider.config_toml) {
-      setConfigText(provider.config_toml);
-    } else {
-      try {
-        const cfg = (provider.config ?? {}) as JsonMap;
-        setConfigText(toml.stringify(cfg));
-      } catch {
-        setConfigText(JSON.stringify(provider.config ?? {}, null, 2));
-      }
-    }
     const kind =
       provider.type === "PROCESSOR"
         ? "processor"
@@ -151,6 +189,14 @@ function ProvidersRoute() {
           ? "analyzer"
           : "source";
     setFormType(kind);
+    try {
+      const schemaRes = await fetchProviderConfigSchema(provider.id);
+      setConfigSchema(normalizeSchema(schemaRes.schema || { type: "object" }));
+      setConfigData(schemaRes.value || {});
+    } catch {
+      setConfigSchema({ type: "object" });
+      setConfigData(provider.config ?? {});
+    }
   };
 
   return (
@@ -183,9 +229,6 @@ function ProvidersRoute() {
               {plugin.title ?? plugin.plugin_id} ({plugin.type.toLowerCase()})
             </option>
           ));
-          const disabledPluginSelect = isEdit;
-          const disabledConfig = mode === "view";
-
           return (
             <div
               className="file-card"
@@ -208,8 +251,18 @@ function ProvidersRoute() {
                 <span>Plugin</span>
                 <select
                   value={isCreate ? formPluginId : provider?.plugin_id || formPluginId}
-                  onChange={(e) => setFormPluginId(e.target.value)}
-                  disabled={disabledPluginSelect}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    setFormPluginId(next);
+                    setConfigData({});
+                    try {
+                      const schemaRes = await fetchPluginConfigSchema(next);
+                      setConfigSchema(schemaRes.schema || { type: "object" });
+                    } catch {
+                      setConfigSchema({ type: "object" });
+                    }
+                  }}
+                  disabled={isEdit}
                 >
                   {pluginOptions}
                 </select>
@@ -225,30 +278,17 @@ function ProvidersRoute() {
                 />
               </label>
               <label className="form-row">
-                <span>Config (TOML)</span>
-                <textarea
-                  rows={4}
-                  value={
-                    isCreate || isEdit
-                      ? configText
-                      : provider?.config_toml ??
-                        (() => {
-                          try {
-                            return toml.stringify((provider?.config ?? {}) as JsonMap);
-                          } catch {
-                            return JSON.stringify(provider?.config ?? {}, null, 2);
-                          }
-                        })()
-                  }
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = "auto";
-                    el.style.height = `${el.scrollHeight}px`;
-                  }}
-                  onChange={(e) => setConfigText(e.target.value)}
-                  spellCheck={false}
-                  readOnly={disabledConfig}
-                />
+                <span>Config</span>
+                <Form
+                  schema={configSchema as any}
+                  formData={mode === "view" ? provider?.config ?? {} : configData}
+                  onChange={(evt) => setConfigData(evt.formData as Record<string, unknown>)}
+                  liveValidate={false}
+                  disabled={mode === "view"}
+                  validator={validator}
+                >
+                  <div />
+                </Form>
               </label>
               <div className="button-row">
                 {mode === "view" ? (
@@ -256,7 +296,7 @@ function ProvidersRoute() {
                     <Link to={`/providers/${provider?.id}`} className="link-button">
                       Details
                     </Link>
-                    <button type="button" onClick={() => openEdit(provider!)}>
+                    <button type="button" onClick={() => void openEdit(provider!)}>
                       Edit
                     </button>
                     <button

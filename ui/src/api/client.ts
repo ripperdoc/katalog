@@ -102,6 +102,24 @@ export async function fetchProvider(id: number): Promise<ProviderResponse> {
   return handleResponse(response);
 }
 
+export async function fetchProviderConfigSchema(
+  id: number
+): Promise<{ schema: Record<string, unknown>; value: Record<string, unknown> }> {
+  const response = await fetch(`${API_BASE}/providers/${id}/config/schema`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchPluginConfigSchema(
+  pluginId: string
+): Promise<{ schema: Record<string, unknown> }> {
+  const response = await fetch(`${API_BASE}/plugins/${encodeURIComponent(pluginId)}/config/schema`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
 export async function fetchSnapshots(): Promise<SnapshotListResponse> {
   const response = await fetch(`${API_BASE}/snapshots`, {
     headers: { Accept: "application/json" },

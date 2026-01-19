@@ -31,8 +31,8 @@ function SnapshotsRoute() {
     <section className="panel">
       <header className="panel-header">
         <div>
-          <h2>Snapshots</h2>
-          <p>Recent scans and processor runs.</p>
+          <h2>History</h2>
+          <p>Changes made to the data.</p>
         </div>
         <button type="button" onClick={() => loadSnapshots()} disabled={loading}>
           {loading ? "Loading..." : "Refresh"}
@@ -52,7 +52,9 @@ function SnapshotsRoute() {
             </small>
           </div>
         ))}
-        {!loading && snapshots.length === 0 && <div className="empty-state">No snapshots found.</div>}
+        {!loading && snapshots.length === 0 && (
+          <div className="empty-state">No snapshots found.</div>
+        )}
       </div>
     </section>
   );
