@@ -8,6 +8,7 @@ import {
   snapshotEventsUrl,
 } from "../api/client";
 import type { Snapshot, SnapshotChangeRecord } from "../types/api";
+import AppHeader from "../components/AppHeader";
 import { HeaderObject, SimpleTable } from "simple-table-core";
 import "simple-table-core/styles.css";
 
@@ -28,10 +29,7 @@ function SnapshotDetailRoute() {
   const changesLimit = 200;
   const streamRef = useRef<EventSource | null>(null);
 
-  const isRunning = useMemo(
-    () => snapshot?.status === "in_progress",
-    [snapshot?.status]
-  );
+  const isRunning = useMemo(() => snapshot?.status === "in_progress", [snapshot?.status]);
 
   const loadSnapshot = useCallback(async () => {
     if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
@@ -84,7 +82,7 @@ function SnapshotDetailRoute() {
         setChangesLoading(false);
       }
     },
-    [snapshotIdNum, changesLimit]
+    [snapshotIdNum, changesLimit],
   );
 
   useEffect(() => {
@@ -210,8 +208,8 @@ function SnapshotDetailRoute() {
   ];
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>Snapshot #{snapshotId}</h2>
           <p>Live view of scan progress and logs.</p>
@@ -221,7 +219,7 @@ function SnapshotDetailRoute() {
             Back
           </Link>
           {isRunning && (
-            <button type="button" onClick={requestCancel} disabled={cancelling}>
+            <button className="app-btn" type="button" onClick={requestCancel} disabled={cancelling}>
               {cancelling ? "Cancelling..." : "Cancel"}
             </button>
           )}
@@ -230,72 +228,78 @@ function SnapshotDetailRoute() {
               type="button"
               onClick={requestDelete}
               disabled={deleting}
-              className="danger"
+              className="app-btn danger"
               title="Delete this snapshot and undo its changes"
             >
               {deleting ? "Deleting..." : "Delete snapshot"}
             </button>
           )}
         </div>
-      </header>
-      {error && <p className="error">{error}</p>}
-      {snapshot && (
-        <div className="record-list">
-          <div className="file-card">
-            <h3>Snapshot JSON</h3>
-            <pre>{JSON.stringify(snapshot, null, 2)}</pre>
-          </div>
-          <div className="file-card">
-            <h3>Logs</h3>
-            <pre className="log-stream">{logs.join("\n")}</pre>
-          </div>
-          <div className="file-card" style={{ width: "100%" }}>
-            <div className="panel-header" style={{ padding: 0, marginBottom: "0.5rem" }}>
-              <div>
-                <h3>Changes</h3>
-                {!changesLoading && (
-                  <p>
-                    Total {changesTotal ?? changes.length}, page {changesPage}
-                  </p>
-                )}
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
+          {snapshot && (
+            <div className="record-list">
+              <div className="file-card">
+                <h3>Snapshot JSON</h3>
+                <pre>{JSON.stringify(snapshot, null, 2)}</pre>
               </div>
-              <div className="panel-actions">
-                <button
-                  type="button"
-                  onClick={() => void loadChanges(changesPage)}
-                  disabled={changesLoading}
-                >
-                  {changesLoading ? "Loading..." : "Reload"}
-                </button>
+              <div className="file-card">
+                <h3>Logs</h3>
+                <pre className="log-stream">{logs.join("\n")}</pre>
+              </div>
+              <div className="file-card" style={{ width: "100%" }}>
+                <div className="panel-header" style={{ padding: 0, marginBottom: "0.5rem" }}>
+                  <div>
+                    <h3>Changes</h3>
+                    {!changesLoading && (
+                      <p>
+                        Total {changesTotal ?? changes.length}, page {changesPage}
+                      </p>
+                    )}
+                  </div>
+                  <div className="panel-actions">
+                    <button
+                      type="button"
+                      className="app-btn"
+                      onClick={() => void loadChanges(changesPage)}
+                      disabled={changesLoading}
+                    >
+                      {changesLoading ? "Loading..." : "Reload"}
+                    </button>
+                  </div>
+                </div>
+                {changesError && <p className="error">{changesError}</p>}
+                {!changesError && !changesLoading && changes.length === 0 && (
+                  <div className="empty-state">No changes in this snapshot.</div>
+                )}
+                <SimpleTable
+                  defaultHeaders={changeHeaders}
+                  rows={changes as unknown as Record<string, any>[]}
+                  height={"60vh"}
+                  selectableCells={true}
+                  shouldPaginate={true}
+                  rowsPerPage={changesLimit}
+                  serverSidePagination={true}
+                  totalRowCount={changesTotal ?? changes.length}
+                  onPageChange={(page) => {
+                    if (page === changesPage) {
+                      return;
+                    }
+                    void loadChanges(page);
+                  }}
+                  isLoading={changesLoading}
+                />
               </div>
             </div>
-            {changesError && <p className="error">{changesError}</p>}
-            {!changesError && !changesLoading && changes.length === 0 && (
-              <div className="empty-state">No changes in this snapshot.</div>
-            )}
-            <SimpleTable
-              defaultHeaders={changeHeaders}
-              rows={changes}
-              height={"60vh"}
-              selectableCells={true}
-              rowIdAccessor="id"
-              shouldPaginate={true}
-              rowsPerPage={changesLimit}
-              serverSidePagination={true}
-              totalRowCount={changesTotal ?? changes.length}
-              onPageChange={(page) => {
-                if (page === changesPage) {
-                  return;
-                }
-                void loadChanges(page);
-              }}
-              isLoading={changesLoading}
-            />
-          </div>
-        </div>
-      )}
-      {!snapshot && !loading && !error && <div className="empty-state">Snapshot not found.</div>}
-    </section>
+          )}
+          {!snapshot && !loading && !error && (
+            <div className="empty-state">Snapshot not found.</div>
+          )}
+        </section>
+      </main>
+    </>
   );
 }
 

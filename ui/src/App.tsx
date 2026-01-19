@@ -1,4 +1,4 @@
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import AssetsRoute from "./routes/AssetsRoute";
 import AssetDetailRoute from "./routes/AssetDetailRoute";
 import ProviderDetailRoute from "./routes/ProviderDetailRoute";
@@ -11,31 +11,17 @@ import CollectionDetailRoute from "./routes/CollectionDetailRoute";
 function App() {
   return (
     <div className="app-shell">
-      <header>
-        <h1>Katalog</h1>
-        <nav className="nav">
-          <Link to="/providers">Providers</Link>
-          <Link to="/assets">Assets</Link>
-          <Link to="/collections">Collections</Link>
-          <Link to="/snapshots">History</Link>
-        </nav>
-      </header>
-      <main>
-        <Routes>
-          <Route path="/providers" element={<ProvidersRoute />} />
-          <Route path="/providers/:providerId" element={<ProviderDetailRoute />} />
-          <Route path="/snapshots" element={<SnapshotsRoute />} />
-          <Route path="/snapshots/:snapshotId" element={<SnapshotDetailRoute />} />
-          <Route path="/assets" element={<AssetsRoute />} />
-          <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
-          <Route path="/collections" element={<CollectionsRoute />} />
-          <Route path="/collections/:collectionId" element={<CollectionDetailRoute />} />
-          <Route path="*" element={<Navigate to="/providers" replace />} />
-        </Routes>
-      </main>
-      <footer>
-        <small>Version {__APP_VERSION__ ?? "dev"}</small>
-      </footer>
+      <Routes>
+        <Route path="/providers" element={<ProvidersRoute />} />
+        <Route path="/providers/:providerId" element={<ProviderDetailRoute />} />
+        <Route path="/snapshots" element={<SnapshotsRoute />} />
+        <Route path="/snapshots/:snapshotId" element={<SnapshotDetailRoute />} />
+        <Route path="/assets" element={<AssetsRoute />} />
+        <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
+        <Route path="/collections" element={<CollectionsRoute />} />
+        <Route path="/collections/:collectionId" element={<CollectionDetailRoute />} />
+        <Route path="*" element={<Navigate to="/providers" replace />} />
+      </Routes>
     </div>
   );
 }

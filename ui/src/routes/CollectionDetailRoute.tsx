@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import DataTable from "../components/DataTable";
+import AssetTable from "../components/AssetTable";
+import AppHeader from "../components/AppHeader";
 import { fetchCollection, fetchCollectionAssets, updateCollection } from "../api/client";
 import type { AssetCollection, ViewAssetsResponse } from "../types/api";
 
@@ -90,69 +91,87 @@ function CollectionDetailRoute() {
         search,
       });
     },
-    [collectionId]
+    [collectionId],
   );
 
   if (error) {
     return (
-      <section className="panel">
-        <p className="error">Failed to load collection: {error}</p>
-      </section>
+      <>
+        <AppHeader>
+          <div>
+            <h2>Collections</h2>
+            <p>Collection detail.</p>
+          </div>
+        </AppHeader>
+        <main className="app-main">
+          <section className="panel">
+            <p className="error">Failed to load collection: {error}</p>
+          </section>
+        </main>
+      </>
     );
   }
 
   if (!collection) {
     return (
-      <section className="panel">
-        <p>Loading collection…</p>
-      </section>
+      <>
+        <AppHeader>
+          <div>
+            <h2>Collections</h2>
+            <p>Loading collection…</p>
+          </div>
+        </AppHeader>
+        <main className="app-main">
+          <section className="panel">
+            <p>Loading collection…</p>
+          </section>
+        </main>
+      </>
     );
   }
 
   return (
-    <section className="panel">
-      <header className="panel-header">
-        <div className="collection-meta">
-          <div className="field-group">
-            <label>
-              Name
-              <input
-                type="text"
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                placeholder="Collection name"
-              />
-            </label>
-            <label>
-              Description
-              <textarea
-                value={descDraft ?? ""}
-                onChange={(e) => setDescDraft(e.target.value)}
-                placeholder="Optional description"
-              />
-            </label>
-          </div>
-          <div className="panel-actions">
-            <button type="button" onClick={() => navigate("/collections")}>
-              Back to collections
-            </button>
-            <button type="button" onClick={() => void handleSaveMeta()} disabled={saving}>
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-          <p>
-            Collection #{collection.id} · {collection.asset_count ?? 0} assets · mode{" "}
-            {collection.refresh_mode ?? "on_demand"}
-          </p>
+    <>
+      <AppHeader>
+        <div className="collection-header-fields">
+          <input
+            className="collection-title-input"
+            type="text"
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            placeholder="Collection name"
+            aria-label="Collection name"
+          />
+          <textarea
+            className="collection-subtitle-input"
+            value={descDraft ?? ""}
+            onChange={(e) => setDescDraft(e.target.value)}
+            placeholder="Optional description"
+            rows={1}
+            aria-label="Collection description"
+          />
         </div>
-      </header>
-      <DataTable
-        title="Assets"
-        subtitle={collection.description || collection.name}
-        fetchPage={fetchPage}
-        searchPlaceholder="Search within collection…"
-      />
-    </section>
+        <div className="panel-actions">
+          <button type="button" onClick={() => navigate("/collections")}>
+            Back to collections
+          </button>
+          <button type="button" onClick={() => void handleSaveMeta()} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </AppHeader>
+      <main className="app-main app-main--locked">
+        <section className="panel collection-detail">
+          <div className="collection-assets">
+            <AssetTable
+              title="Assets"
+              fetchPage={fetchPage}
+              searchPlaceholder="Search within collection…"
+            />
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
 

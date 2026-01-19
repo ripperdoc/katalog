@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import AppHeader from "../components/AppHeader";
 import {
   fetchPlugins,
   fetchProviders,
@@ -69,7 +70,7 @@ function ProvidersRoute() {
 
   const filteredPlugins = useCallback(
     (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER") => plugins.filter((p) => p.type === ptype),
-    [plugins]
+    [plugins],
   );
 
   const grouped = {
@@ -79,114 +80,140 @@ function ProvidersRoute() {
   };
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>Providers</h2>
           <p>Configured source, processor, and analyzer providers.</p>
         </div>
-      </header>
-      {error && <p className="error">{error}</p>}
-      {(["sources", "processors", "analyzers"] as const).map((groupKey) => {
-        const typeLabel =
-          groupKey === "sources" ? "Sources" : groupKey === "processors" ? "Processors" : "Analyzers";
-        const typeConst =
-          groupKey === "sources" ? "SOURCE" : groupKey === "processors" ? "PROCESSOR" : "ANALYZER";
-        const list = grouped[groupKey];
-        const availablePlugins = filteredPlugins(typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER");
-        const runAllEnabled = groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
-        const hasProviders = list.length > 0;
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
+          {(["sources", "processors", "analyzers"] as const).map((groupKey) => {
+            const typeLabel =
+              groupKey === "sources"
+                ? "Sources"
+                : groupKey === "processors"
+                  ? "Processors"
+                  : "Analyzers";
+            const typeConst =
+              groupKey === "sources"
+                ? "SOURCE"
+                : groupKey === "processors"
+                  ? "PROCESSOR"
+                  : "ANALYZER";
+            const list = grouped[groupKey];
+            const availablePlugins = filteredPlugins(
+              typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER",
+            );
+            const runAllEnabled =
+              groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
+            const hasProviders = list.length > 0;
 
-        return (
-          <div key={groupKey} className="subsection">
-            <div className="panel-header">
-              <h3>{typeLabel}</h3>
-              <div className="panel-actions">
-                {runAllEnabled && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setError(null);
-                      try {
-                        if (groupKey === "sources") {
-                          await triggerScan(undefined);
-                        } else if (groupKey === "processors") {
-                          setScanningId(0);
-                          const snap = await runAllProcessors();
-                          navigate(`/snapshots/${snap.id}`);
-                        } else if (groupKey === "analyzers") {
-                          setScanningId(0);
-                          await runAllAnalyzers();
+            return (
+              <div key={groupKey} className="subsection">
+                <div className="panel-header">
+                  <h3>{typeLabel}</h3>
+                  <div className="panel-actions">
+                    {runAllEnabled && (
+                      <button
+                        type="button"
+                        className="app-btn"
+                        onClick={async () => {
+                          setError(null);
+                          try {
+                            if (groupKey === "sources") {
+                              await triggerScan(undefined);
+                            } else if (groupKey === "processors") {
+                              setScanningId(0);
+                              const snap = await runAllProcessors();
+                              navigate(`/snapshots/${snap.id}`);
+                            } else if (groupKey === "analyzers") {
+                              setScanningId(0);
+                              await runAllAnalyzers();
+                            }
+                          } catch (err) {
+                            const message = err instanceof Error ? err.message : String(err);
+                            setError(message);
+                          } finally {
+                            setScanningId(null);
+                          }
+                        }}
+                        disabled={scanningId !== null || loading || !hasProviders}
+                        title={
+                          hasProviders
+                            ? groupKey === "sources"
+                              ? "Scan all sources"
+                              : groupKey === "processors"
+                                ? "Run all processors on assets"
+                                : "Run all analyzers"
+                            : "Add a provider to enable this action"
                         }
-                      } catch (err) {
-                        const message = err instanceof Error ? err.message : String(err);
-                        setError(message);
-                      } finally {
-                        setScanningId(null);
-                      }
-                    }}
-                    disabled={scanningId !== null || loading || !hasProviders}
-                    title={
-                      hasProviders
-                        ? groupKey === "sources"
-                          ? "Scan all sources"
+                      >
+                        {groupKey === "sources"
+                          ? scanningId === null
+                            ? "Scan all sources"
+                            : "Starting..."
                           : groupKey === "processors"
-                            ? "Run all processors on assets"
-                            : "Run all analyzers"
-                        : "Add a provider to enable this action"
-                    }
-                  >
-                    {groupKey === "sources"
-                      ? scanningId === null
-                        ? "Scan all sources"
-                        : "Starting..."
-                      : groupKey === "processors"
-                        ? "Run all processors"
-                        : "Run all analyzers"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => navigate(`/providers/new?type=${groupKey}`)}
-                  disabled={availablePlugins.length === 0}
-                  title={availablePlugins.length === 0 ? "No plugins installed for this type" : undefined}
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-            <div className="record-list">
-              {list.map((provider) =>
-                <div key={provider.id} className="file-card">
-                  <div className="status-bar">
-                    <strong>#{provider.id} {provider.name}</strong>
-                    <span>{typeLabel}</span>
-                  </div>
-                  <p>Plugin: {provider.plugin_id ?? "n/a"}</p>
-                  <div className="meta-grid">
-                    <div>Created: {provider.created_at ?? "—"}</div>
-                    <div>Updated: {provider.updated_at ?? "—"}</div>
-                  </div>
-                  <div className="button-row">
-                    <Link to={`/providers/${provider.id}`} className="link-button">
-                      Details
-                    </Link>
+                            ? "Run all processors"
+                            : "Run all analyzers"}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => triggerScan(provider.id)}
-                      disabled={scanningId !== null}
+                      className="app-btn"
+                      onClick={() => navigate(`/providers/new?type=${groupKey}`)}
+                      disabled={availablePlugins.length === 0}
+                      title={
+                        availablePlugins.length === 0
+                          ? "No plugins installed for this type"
+                          : undefined
+                      }
                     >
-                      {scanningId === provider.id ? "Starting..." : "Scan"}
+                      Add
                     </button>
                   </div>
                 </div>
-              )}
-              {!loading && list.length === 0 && <div className="empty-state">No {typeLabel.toLowerCase()} found.</div>}
-            </div>
-          </div>
-        );
-      })}
-    </section>
+                <div className="record-list">
+                  {list.map((provider) => (
+                    <div key={provider.id} className="file-card">
+                      <div className="status-bar">
+                        <strong>
+                          #{provider.id} {provider.name}
+                        </strong>
+                        <span>{typeLabel}</span>
+                      </div>
+                      <p>Plugin: {provider.plugin_id ?? "n/a"}</p>
+                      <div className="meta-grid">
+                        <div>Created: {provider.created_at ?? "—"}</div>
+                        <div>Updated: {provider.updated_at ?? "—"}</div>
+                      </div>
+                      <div className="button-row">
+                        <Link to={`/providers/${provider.id}`} className="link-button">
+                          Details
+                        </Link>
+                        <button
+                          type="button"
+                          className="app-btn"
+                          onClick={() => triggerScan(provider.id)}
+                          disabled={scanningId !== null}
+                        >
+                          {scanningId === provider.id ? "Starting..." : "Scan"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {!loading && list.length === 0 && (
+                    <div className="empty-state">No {typeLabel.toLowerCase()} found.</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      </main>
+    </>
   );
 }
 

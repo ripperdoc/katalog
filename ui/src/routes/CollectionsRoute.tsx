@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCollections } from "../api/client";
 import ListTable, { ListColumn } from "../components/ListTable";
+import AppHeader from "../components/AppHeader";
 import type { AssetCollection } from "../types/api";
 
 function CollectionsRoute() {
@@ -37,26 +38,31 @@ function CollectionsRoute() {
   ];
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>Collections</h2>
           <p>All saved collections. Click one to open details.</p>
         </div>
-        <button type="button" onClick={() => void loadCollections()} disabled={loading}>
-          {loading ? "Loading..." : "Reload"}
-        </button>
-      </header>
-
-      {error && <p className="error">{error}</p>}
-      <ListTable
-        items={collections}
-        columns={columns}
-        loading={loading}
-        emptyMessage="No collections yet."
-        onRowClick={(col) => navigate(`/collections/${col.id}`)}
-      />
-    </section>
+        <div className="panel-actions">
+          <button type="button" onClick={() => void loadCollections()} disabled={loading}>
+            {loading ? "Loading..." : "Reload"}
+          </button>
+        </div>
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
+          <ListTable
+            items={collections}
+            columns={columns}
+            loading={loading}
+            emptyMessage="No collections yet."
+            onRowClick={(col) => navigate(`/collections/${col.id}`)}
+          />
+        </section>
+      </main>
+    </>
   );
 }
 

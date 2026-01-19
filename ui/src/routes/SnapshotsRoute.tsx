@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { fetchSnapshots } from "../api/client";
+import AppHeader from "../components/AppHeader";
 import type { Snapshot } from "../types/api";
 
 function SnapshotsRoute() {
@@ -29,40 +30,51 @@ function SnapshotsRoute() {
   }, [loadSnapshots]);
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>History</h2>
           <p>Changes made to the data.</p>
         </div>
-        <button type="button" onClick={() => loadSnapshots()} disabled={loading}>
-          {loading ? "Loading..." : "Refresh"}
-        </button>
-      </header>
-      {error && <p className="error">{error}</p>}
-      <div className="record-list">
-        {snapshots.map((snap) => (
-          <div
-            key={snap.id}
-            className="file-card"
-            onClick={() => navigate(`/snapshots/${snap.id}`)}
-            style={{ cursor: "pointer" }}
+        <div className="panel-actions">
+          <button
+            type="button"
+            className="app-btn"
+            onClick={() => loadSnapshots()}
+            disabled={loading}
           >
-            <div className="status-bar">
-              <span>Snapshot #{snap.id}</span>
-              <span>{snap.status}</span>
-            </div>
-            <p>Provider: {snap.provider_name ?? snap.provider_id ?? "n/a"}</p>
-            <small>
-              Started: {snap.started_at ?? "unknown"} | Completed: {snap.completed_at ?? "n/a"}
-            </small>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
+          <div className="record-list">
+            {snapshots.map((snap) => (
+              <div
+                key={snap.id}
+                className="file-card"
+                onClick={() => navigate(`/snapshots/${snap.id}`)}
+                style={{ cursor: "pointer" }}
+              >
+                <div className="status-bar">
+                  <span>Snapshot #{snap.id}</span>
+                  <span>{snap.status}</span>
+                </div>
+                <p>Provider: {snap.provider_name ?? snap.provider_id ?? "n/a"}</p>
+                <small>
+                  Started: {snap.started_at ?? "unknown"} | Completed: {snap.completed_at ?? "n/a"}
+                </small>
+              </div>
+            ))}
+            {!loading && snapshots.length === 0 && (
+              <div className="empty-state">No snapshots found.</div>
+            )}
           </div>
-        ))}
-        {!loading && snapshots.length === 0 && (
-          <div className="empty-state">No snapshots found.</div>
-        )}
-      </div>
-    </section>
+        </section>
+      </main>
+    </>
   );
 }
 

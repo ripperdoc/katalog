@@ -97,3 +97,8 @@ analyzer.
 Comment
 
 - Seems tricky to represent well with current architecture, is it some kind of clustering?
+
+## Make a query ignore "trash files"
+
+Comment: It's typical to find trash files like `._`, `.DS_Store`, etc. How can we ignore such files
+easily in most queries?

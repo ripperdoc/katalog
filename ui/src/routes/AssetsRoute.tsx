@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import DataTable from "../components/DataTable";
+import AssetTable from "../components/AssetTable";
+import AppHeader from "../components/AppHeader";
 import { createCollection, fetchViewAssets } from "../api/client";
 import type { ViewAssetsResponse } from "../types/api";
 
@@ -39,14 +40,14 @@ function AssetsRoute() {
         filters,
         search,
       }),
-    []
+    [],
   );
 
   const handleRowClick = useCallback(
     (assetId: number) => {
       navigate(`/assets/${assetId}`);
     },
-    [navigate]
+    [navigate],
   );
 
   const handleLoadComplete = useCallback(
@@ -54,7 +55,7 @@ function AssetsRoute() {
       setLastResponse(response);
       setLastParams(params);
     },
-    []
+    [],
   );
 
   const handleSaveCollection = useCallback(async () => {
@@ -78,7 +79,7 @@ function AssetsRoute() {
     if (
       assetIds.length > 1000 &&
       !window.confirm(
-        `Are you sure you want to save a new collection with ${assetIds.length} assets?`
+        `Are you sure you want to save a new collection with ${assetIds.length} assets?`,
       )
     ) {
       return;
@@ -113,19 +114,23 @@ function AssetsRoute() {
   }, [lastParams, lastResponse, navigate]);
 
   return (
-    <DataTable
-      title="Assets"
-      subtitle={`Displaying view “${DEFAULT_VIEW_ID}”`}
-      fetchPage={fetchPage}
-      onRowClick={handleRowClick}
-      onLoadComplete={handleLoadComplete}
-      searchPlaceholder="Search records…"
-      actions={
-        <button type="button" onClick={() => void handleSaveCollection()} disabled={saving}>
-          {saving ? "Saving…" : "Save as collection"}
-        </button>
-      }
-    />
+    <>
+      <AppHeader />
+      <main className="app-main app-main--locked">
+        <AssetTable
+          title="Assets"
+          fetchPage={fetchPage}
+          onRowClick={handleRowClick}
+          onLoadComplete={handleLoadComplete}
+          searchPlaceholder="Search all assets…"
+          actions={
+            <button type="button" onClick={() => void handleSaveCollection()} disabled={saving}>
+              {saving ? "Saving…" : "Save as collection"}
+            </button>
+          }
+        />
+      </main>
+    </>
   );
 }
 

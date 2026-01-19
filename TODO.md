@@ -11,6 +11,8 @@
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
+- [ ] (Niklas) Should limited metadata types, e.g. file types, map to some enum table instead of
+      saving the actual value over and over?
 
 # Backlog
 
@@ -52,6 +54,7 @@
 E.g. what do I need `katalog` to do now for White Wolf?
 
 - [ ] Search the WW Google Drive and find duplicates and "badly named files" for manual fixing
+- [ ] Search the WW Google Drive, find all PDF assets, and propose a new folder structure
 - [ ] Search the WW Google Drive and propose new folder organization (how?)
 - [ ] Search the WW Google and summarize stats for it
 - [ ] Ask AI to review a set of files, e.g. "check if they have the right size" or "always shown

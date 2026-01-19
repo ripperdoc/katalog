@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import AppHeader from "../components/AppHeader";
 import { fetchAssetDetail } from "../api/client";
 import type { AssetDetailResponse } from "../types/api";
 
@@ -35,8 +36,8 @@ function AssetDetailRoute() {
   }, [load]);
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>Asset #{assetId}</h2>
           <p>Raw JSON response from the backend.</p>
@@ -49,21 +50,24 @@ function AssetDetailRoute() {
             {loading ? "Loading..." : "Reload"}
           </button>
         </div>
-      </header>
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
 
-      {error && <p className="error">{error}</p>}
+          {payload && (
+            <div className="record-list">
+              <div className="file-card">
+                <h3>Asset JSON</h3>
+                <pre>{JSON.stringify(payload, null, 2)}</pre>
+              </div>
+            </div>
+          )}
 
-      {payload && (
-        <div className="record-list">
-          <div className="file-card">
-            <h3>Asset JSON</h3>
-            <pre>{JSON.stringify(payload, null, 2)}</pre>
-          </div>
-        </div>
-      )}
-
-      {!payload && !loading && !error && <div className="empty-state">Asset not found.</div>}
-    </section>
+          {!payload && !loading && !error && <div className="empty-state">Asset not found.</div>}
+        </section>
+      </main>
+    </>
   );
 }
 

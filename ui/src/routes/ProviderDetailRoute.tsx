@@ -2,12 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
-import {
-  fetchProvider,
-  startScan,
-  updateProvider,
-  fetchProviderConfigSchema,
-} from "../api/client";
+import AppHeader from "../components/AppHeader";
+import { fetchProvider, startScan, updateProvider, fetchProviderConfigSchema } from "../api/client";
 import type { Provider, Snapshot } from "../types/api";
 
 function ProviderDetailRoute() {
@@ -98,8 +94,8 @@ function ProviderDetailRoute() {
   };
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>Provider #{providerId}</h2>
           <p>Inspect provider details and snapshots.</p>
@@ -112,53 +108,59 @@ function ProviderDetailRoute() {
             {scanning ? "Starting..." : "Scan"}
           </button>
         </div>
-      </header>
-      {error && <p className="error">{error}</p>}
-      {provider && (
-        <div className="record-list">
-          <div className="file-card">
-            <h3>Provider</h3>
-            <label className="form-row">
-              <span>Name</span>
-              <input
-                type="text"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Provider name"
-              />
-            </label>
-            <label className="form-row">
-              <span>Config</span>
-              <Form
-                schema={configSchema as any}
-                formData={configData}
-                onChange={(evt) => setConfigData(evt.formData as Record<string, unknown>)}
-                liveValidate={false}
-                validator={validator}
-              >
-                <div />
-              </Form>
-            </label>
-            <div className="button-row">
-              <button type="button" onClick={handleSave} disabled={!canSave || saving}>
-                {saving ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-          <div className="file-card">
-            <h3>History</h3>
-            {snapshots.length === 0 && <div className="empty-state">No snapshots yet.</div>}
-            {snapshots.map((snap) => (
-              <div key={snap.id} className="status-bar">
-                <Link to={`/snapshots/${snap.id}`}>Snapshot #{snap.id}</Link>
-                <span>{snap.status}</span>
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
+          {provider && (
+            <div className="record-list">
+              <div className="file-card">
+                <h3>Provider</h3>
+                <label className="form-row">
+                  <span>Name</span>
+                  <input
+                    type="text"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="Provider name"
+                  />
+                </label>
+                <label className="form-row">
+                  <span>Config</span>
+                  <Form
+                    schema={configSchema as any}
+                    formData={configData}
+                    onChange={(evt) => setConfigData(evt.formData as Record<string, unknown>)}
+                    liveValidate={false}
+                    validator={validator}
+                  >
+                    <div />
+                  </Form>
+                </label>
+                <div className="button-row">
+                  <button type="button" onClick={handleSave} disabled={!canSave || saving}>
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {!provider && !loading && !error && <div className="empty-state">Provider not found.</div>}
-    </section>
+              <div className="file-card">
+                <h3>History</h3>
+                {snapshots.length === 0 && <div className="empty-state">No snapshots yet.</div>}
+                {snapshots.map((snap) => (
+                  <div key={snap.id} className="status-bar">
+                    <Link to={`/snapshots/${snap.id}`}>Snapshot #{snap.id}</Link>
+                    <span>{snap.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {!provider && !loading && !error && (
+            <div className="empty-state">Provider not found.</div>
+          )}
+        </section>
+      </main>
+    </>
   );
 }
 

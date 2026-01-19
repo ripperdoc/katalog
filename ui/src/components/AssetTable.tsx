@@ -8,12 +8,7 @@ import {
   ValueFormatterProps,
   ValueGetterProps,
 } from "simple-table-core";
-import {
-  Asset,
-  ColumnDefinition,
-  MetadataValueEntry,
-  ViewAssetsResponse,
-} from "../types/api";
+import { Asset, ColumnDefinition, MetadataValueEntry, ViewAssetsResponse } from "../types/api";
 import "simple-table-core/styles.css";
 
 const valueGetter = (props: ValueGetterProps) => {
@@ -67,7 +62,7 @@ const normalizeWidth = (width: number | null): string | number => {
 };
 
 const normalizeSort = (
-  sortArg: unknown
+  sortArg: unknown,
 ): { accessor: string; direction: "asc" | "desc" } | null => {
   if (!sortArg) {
     return null;
@@ -115,29 +110,27 @@ type FetchArgs = {
 
 type FetchPage = (args: FetchArgs) => Promise<ViewAssetsResponse>;
 
-interface DataTableProps {
+interface AssetTableProps {
   title: string;
   subtitle?: string;
   fetchPage: FetchPage;
   defaultLimit?: number;
-  rowIdAccessor?: string;
   onRowClick?: (assetId: number) => void;
   onLoadComplete?: (payload: { response: ViewAssetsResponse; params: FetchArgs }) => void;
   actions?: ReactNode;
   searchPlaceholder?: string;
 }
 
-const DataTable = ({
+const AssetTable = ({
   title,
   subtitle,
   fetchPage,
   defaultLimit = 200,
-  rowIdAccessor = "asset/id",
   onRowClick,
   onLoadComplete,
   actions,
   searchPlaceholder = "Search…",
-}: DataTableProps) => {
+}: AssetTableProps) => {
   const [records, setRecords] = useState<Asset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,9 +141,7 @@ const DataTable = ({
     page: 1,
   });
   const [total, setTotal] = useState<number | null>(null);
-  const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(
-    null
-  );
+  const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
   const [filters, setFilters] = useState<TableFilterState>({});
   const [durationMs, setDurationMs] = useState<number | null>(null);
 
@@ -160,7 +151,7 @@ const DataTable = ({
       limitOverride?: number,
       sortOverride?: { accessor: string; direction: "asc" | "desc" } | null,
       filtersOverride?: TableFilterState,
-      searchOverride?: string
+      searchOverride?: string,
     ) => {
       const limit = limitOverride ?? pagination.limit;
       const effectiveSort = sortOverride ?? sort;
@@ -212,7 +203,7 @@ const DataTable = ({
         setLoading(false);
       }
     },
-    [pagination.limit, sort, filters, searchQuery, fetchPage, onLoadComplete]
+    [pagination.limit, sort, filters, searchQuery, fetchPage, onLoadComplete],
   );
 
   useEffect(() => {
@@ -231,9 +222,6 @@ const DataTable = ({
       if (!onRowClick) {
         return;
       }
-      if (String(props.accessor) !== rowIdAccessor) {
-        return;
-      }
 
       const assetId =
         typeof props.value === "number" ? props.value : Number(String(props.value ?? ""));
@@ -243,7 +231,7 @@ const DataTable = ({
 
       onRowClick(assetId);
     },
-    [onRowClick, rowIdAccessor]
+    [onRowClick],
   );
 
   return (
@@ -252,11 +240,6 @@ const DataTable = ({
         <div>
           <h2>{title}</h2>
           {subtitle && <p>{subtitle}</p>}
-          {!loading && (
-            <p>
-              Total {total ?? records.length}, query time {durationMs || 0}ms.
-            </p>
-          )}
         </div>
         <div className="panel-actions">
           {actions}
@@ -279,50 +262,51 @@ const DataTable = ({
       {!error && !loading && records.length === 0 && (
         <div className="empty-state">No records available.</div>
       )}
-      <SimpleTable
-        defaultHeaders={headers}
-        rows={records}
-        height={"75vh"}
-        selectableCells={true}
-        rowIdAccessor={rowIdAccessor}
-        onCellClick={handleCellClick}
-        columnResizing={true}
-        shouldPaginate={true}
-        rowsPerPage={pagination.limit}
-        serverSidePagination={true}
-        totalRowCount={total ?? records.length}
-        onPageChange={(page) => {
-          if (page === pagination.page) {
-            return;
-          }
-          void loadPage(page);
-        }}
-        isLoading={loading}
-        externalSortHandling={true}
-        externalFilterHandling={true}
-        onSortChange={(sortArg) => {
-          const normalized = normalizeSort(sortArg);
-          if (!normalized) {
-            setSort(null);
-            void loadPage(1, undefined, null, filters);
-            return;
-          }
-          setSort(normalized);
-          void loadPage(1, undefined, normalized, filters);
-        }}
-        onFilterChange={(state) => {
-          const nextFilters = state || {};
-          const currentSig = JSON.stringify(filters || {});
-          const nextSig = JSON.stringify(nextFilters || {});
-          if (currentSig === nextSig) {
-            return;
-          }
-          setFilters(nextFilters);
-          void loadPage(1, undefined, sort, nextFilters);
-        }}
-      />
+      <div className="table-container">
+        <SimpleTable
+          defaultHeaders={headers}
+          rows={records}
+          height="100%"
+          selectableCells={true}
+          onCellClick={handleCellClick}
+          columnResizing={true}
+          shouldPaginate={true}
+          rowsPerPage={pagination.limit}
+          serverSidePagination={true}
+          totalRowCount={total ?? records.length}
+          onPageChange={(page) => {
+            if (page === pagination.page) {
+              return;
+            }
+            void loadPage(page);
+          }}
+          isLoading={loading}
+          // externalSortHandling={true}
+          // externalFilterHandling={true}
+          // onSortChange={(sortArg) => {
+          //   const normalized = normalizeSort(sortArg);
+          //   if (!normalized) {
+          //     setSort(null);
+          //     void loadPage(1, undefined, null, filters);
+          //     return;
+          //   }
+          //   setSort(normalized);
+          //   void loadPage(1, undefined, normalized, filters);
+          // }}
+          // onFilterChange={(state) => {
+          //   const nextFilters = state || {};
+          //   const currentSig = JSON.stringify(filters || {});
+          //   const nextSig = JSON.stringify(nextFilters || {});
+          //   if (currentSig === nextSig) {
+          //     return;
+          //   }
+          //   setFilters(nextFilters);
+          //   void loadPage(1, undefined, sort, nextFilters);
+          // }}
+        />
+      </div>
     </section>
   );
 };
 
-export default DataTable;
+export default AssetTable;
