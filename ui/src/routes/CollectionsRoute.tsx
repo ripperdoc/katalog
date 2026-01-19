@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCollections } from "../api/client";
+import ListTable, { ListColumn } from "../components/ListTable";
 import type { AssetCollection } from "../types/api";
 
 function CollectionsRoute() {
@@ -27,6 +28,14 @@ function CollectionsRoute() {
     void loadCollections();
   }, [loadCollections]);
 
+  const columns: ListColumn<AssetCollection>[] = [
+    { accessor: "name", label: "Name" },
+    { accessor: "asset_count", label: "Assets", width: 100 },
+    { accessor: "refresh_mode", label: "Mode", width: 120 },
+    { accessor: "created_at", label: "Created", width: 180 },
+    { accessor: "updated_at", label: "Updated", width: 180 },
+  ];
+
   return (
     <section className="panel">
       <header className="panel-header">
@@ -40,36 +49,13 @@ function CollectionsRoute() {
       </header>
 
       {error && <p className="error">{error}</p>}
-      {!error && collections.length === 0 && !loading && (
-        <div className="empty-state">No collections yet.</div>
-      )}
-
-      {collections.length > 0 && (
-        <div className="table-responsive">
-          <table className="collections-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Assets</th>
-                <th>Mode</th>
-                <th>Created</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {collections.map((col) => (
-                <tr key={col.id} onClick={() => navigate(`/collections/${col.id}`)}>
-                  <td>{col.name}</td>
-                  <td>{col.asset_count ?? 0}</td>
-                  <td>{col.refresh_mode ?? "on_demand"}</td>
-                  <td>{col.created_at ?? "n/a"}</td>
-                  <td>{col.updated_at ?? "n/a"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ListTable
+        items={collections}
+        columns={columns}
+        loading={loading}
+        emptyMessage="No collections yet."
+        onRowClick={(col) => navigate(`/collections/${col.id}`)}
+      />
     </section>
   );
 }

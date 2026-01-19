@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { fetchSnapshots } from "../api/client";
 import type { Snapshot } from "../types/api";
 
 function SnapshotsRoute() {
+  const navigate = useNavigate();
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +42,14 @@ function SnapshotsRoute() {
       {error && <p className="error">{error}</p>}
       <div className="record-list">
         {snapshots.map((snap) => (
-          <div key={snap.id} className="file-card">
+          <div
+            key={snap.id}
+            className="file-card"
+            onClick={() => navigate(`/snapshots/${snap.id}`)}
+            style={{ cursor: "pointer" }}
+          >
             <div className="status-bar">
-              <Link to={`/snapshots/${snap.id}`}>Snapshot #{snap.id}</Link>
+              <span>Snapshot #{snap.id}</span>
               <span>{snap.status}</span>
             </div>
             <p>Provider: {snap.provider_name ?? snap.provider_id ?? "n/a"}</p>
