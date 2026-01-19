@@ -184,6 +184,66 @@ asset_filter_fields = {
 }
 
 
+def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
+    """Decode a metadata row into a Python value based on value_type.
+
+    Shared by asset listings and snapshot change listings to keep value handling
+    consistent between endpoints.
+    """
+
+    value_type_raw = row.get("value_type")
+    value_type = (
+        value_type_raw
+        if isinstance(value_type_raw, MetadataType)
+        else MetadataType(int(value_type_raw))
+    )
+
+    if value_type == MetadataType.STRING:
+        return row.get("value_text")
+    if value_type == MetadataType.INT:
+        return row.get("value_int")
+    if value_type == MetadataType.FLOAT:
+        return row.get("value_real")
+    if value_type == MetadataType.DATETIME:
+        dt = row.get("value_datetime")
+        return dt.isoformat() if hasattr(dt, "isoformat") else dt
+    if value_type == MetadataType.JSON:
+        return row.get("value_json")
+    if value_type == MetadataType.RELATION:
+        return row.get("value_relation_id")
+    return None
+
+
+def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
+    """Decode a metadata row's value based on its value_type.
+
+    Shared between asset listings and snapshot change listings to keep value
+    handling consistent.
+    """
+
+    value_type_raw = row.get("value_type")
+    value_type = (
+        value_type_raw
+        if isinstance(value_type_raw, MetadataType)
+        else MetadataType(int(value_type_raw))
+    )
+
+    if value_type == MetadataType.STRING:
+        return row.get("value_text")
+    if value_type == MetadataType.INT:
+        return row.get("value_int")
+    if value_type == MetadataType.FLOAT:
+        return row.get("value_real")
+    if value_type == MetadataType.DATETIME:
+        dt = row.get("value_datetime")
+        return dt.isoformat() if hasattr(dt, "isoformat") else dt
+    if value_type == MetadataType.JSON:
+        return row.get("value_json")
+    if value_type == MetadataType.RELATION:
+        return row.get("value_relation_id")
+    return None
+
+
 def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]:
     """Build SQL predicate + params for a metadata-based filter."""
 
@@ -811,21 +871,7 @@ async def list_assets_for_view(
             if key_def is None:
                 continue
 
-            value_type = MetadataType(row["value_type"])
-            if value_type == MetadataType.STRING:
-                value = row["value_text"]
-            elif value_type == MetadataType.INT:
-                value = row["value_int"]
-            elif value_type == MetadataType.FLOAT:
-                value = row["value_real"]
-            elif value_type == MetadataType.DATETIME:
-                value = row["value_datetime"]
-            elif value_type == MetadataType.JSON:
-                value = row["value_json"]
-            elif value_type == MetadataType.RELATION:
-                value = row["value_relation_id"]
-            else:
-                continue
+            value = _decode_metadata_value(row)
 
             key_str = str(key_def.key)
             if key_str not in requested_columns:
@@ -852,6 +898,91 @@ async def list_assets_for_view(
             "duration_assets_ms": assets_query_ms,
             "duration_metadata_ms": metadata_query_ms,
             "duration_count_ms": count_query_ms,
+        },
+        "pagination": {"offset": offset, "limit": limit},
+    }
+
+
+async def list_snapshot_metadata_changes(
+    snapshot_id: int,
+    *,
+    offset: int = 0,
+    limit: int = 200,
+    include_total: bool = True,
+) -> dict[str, Any]:
+    """Return paginated metadata rows belonging to a snapshot."""
+
+    started_at = time.perf_counter()
+    metadata_table = Metadata._meta.db_table
+    conn = Tortoise.get_connection("default")
+
+    if limit < 0 or offset < 0:
+        raise ValueError("offset and limit must be non-negative")
+
+    sql = f"""
+    SELECT
+        id,
+        asset_id,
+        provider_id,
+        snapshot_id,
+        metadata_key_id,
+        value_type,
+        value_text,
+        value_int,
+        value_real,
+        value_datetime,
+        value_json,
+        value_relation_id,
+        removed
+    FROM {metadata_table}
+    WHERE snapshot_id = ?
+    ORDER BY id
+    LIMIT ? OFFSET ?
+    """
+    params = [snapshot_id, limit, offset]
+
+    rows_started = time.perf_counter()
+    rows = await conn.execute_query_dict(sql, params)
+    duration_rows_ms = int((time.perf_counter() - rows_started) * 1000)
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        registry = METADATA_REGISTRY_BY_ID.get(int(row["metadata_key_id"]))
+        key_str = str(registry.key) if registry else f"id:{row['metadata_key_id']}"
+        items.append(
+            {
+                "id": int(row["id"]),
+                "asset_id": int(row["asset_id"]),
+                "provider_id": int(row["provider_id"]),
+                "snapshot_id": int(row["snapshot_id"]),
+                "metadata_key": key_str,
+                "metadata_key_id": int(row["metadata_key_id"]),
+                "value_type": int(row["value_type"]),
+                "value": _decode_metadata_value(row),
+                "removed": bool(row["removed"]),
+            }
+        )
+
+    total_count = None
+    if include_total:
+        count_sql = f"SELECT COUNT(*) AS cnt FROM {metadata_table} WHERE snapshot_id = ?"
+        count_started = time.perf_counter()
+        count_rows = await conn.execute_query_dict(count_sql, [snapshot_id])
+        count_duration_ms = int((time.perf_counter() - count_started) * 1000)
+        total_count = int(count_rows[0]["cnt"]) if count_rows else 0
+    else:
+        count_duration_ms = None
+
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+
+    return {
+        "items": items,
+        "stats": {
+            "returned": len(items),
+            "total": total_count,
+            "duration_ms": duration_ms,
+            "duration_rows_ms": duration_rows_ms,
+            "duration_count_ms": count_duration_ms,
         },
         "pagination": {"offset": offset, "limit": limit},
     }

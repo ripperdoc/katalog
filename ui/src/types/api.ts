@@ -174,3 +174,30 @@ export interface AssetDetailResponse {
   asset: AssetDetailRecord;
   metadata: MetadataRecord[];
 }
+
+export interface SnapshotChangeRecord {
+  id: number;
+  asset_id: number;
+  provider_id: number;
+  snapshot_id: number;
+  metadata_key: string;
+  metadata_key_id: number;
+  value_type: number;
+  value: MetadataValue;
+  removed: boolean;
+}
+
+export interface SnapshotChangesResponse {
+  items: SnapshotChangeRecord[];
+  stats: {
+    returned: number;
+    total: number | null;
+    duration_ms?: number | null;
+    duration_rows_ms?: number | null;
+    duration_count_ms?: number | null;
+  };
+  pagination: {
+    offset: number;
+    limit: number;
+  };
+}

@@ -29,6 +29,7 @@ from katalog.queries import (
     list_grouped_assets,
     build_group_member_filter,
     sync_config,
+    list_snapshot_metadata_changes,
 )
 from katalog.plugins.registry import (
     PluginSpec,
@@ -556,6 +557,24 @@ async def get_snapshot(snapshot_id: int, stream: bool = Query(False)):
         "logs": event_manager.get_buffer(snapshot_id),
         "running": snapshot.status == OpStatus.IN_PROGRESS,
     }
+
+
+@app.get("/snapshots/{snapshot_id}/changes")
+async def list_snapshot_changes(
+    snapshot_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    snapshot = await Snapshot.get_or_none(id=snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    try:
+        return await list_snapshot_metadata_changes(
+            snapshot_id, offset=offset, limit=limit, include_total=True
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.patch("/snapshots/{snapshot_id}")

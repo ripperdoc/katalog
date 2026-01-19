@@ -10,6 +10,7 @@ import type {
   Snapshot,
   SnapshotListResponse,
   SnapshotResponse,
+  SnapshotChangesResponse,
   AssetDetailResponse,
   AssetCollection,
   CollectionListResponse,
@@ -167,6 +168,28 @@ export async function fetchSnapshot(id: number): Promise<SnapshotResponse> {
   const response = await fetch(`${API_BASE}/snapshots/${id}`, {
     headers: { Accept: "application/json" },
   });
+  return handleResponse(response);
+}
+
+export async function fetchSnapshotChanges(
+  snapshotId: number,
+  {
+    offset = 0,
+    limit = 200,
+  }: {
+    offset?: number;
+    limit?: number;
+  } = {}
+): Promise<SnapshotChangesResponse> {
+  const params = new URLSearchParams();
+  params.set("offset", String(offset));
+  params.set("limit", String(limit));
+  const response = await fetch(
+    `${API_BASE}/snapshots/${encodeURIComponent(snapshotId)}/changes?${params.toString()}`,
+    {
+      headers: { Accept: "application/json" },
+    }
+  );
   return handleResponse(response);
 }
 
