@@ -9,6 +9,7 @@ from tortoise.transactions import in_transaction
 from katalog.models import (
     Asset,
     MetadataChangeSet,
+    make_metadata,
     Provider,
     ProviderType,
     Snapshot,
@@ -16,17 +17,21 @@ from katalog.models import (
 from katalog.processors.runtime import enqueue_asset_processing, sort_processors
 
 from katalog.sources.base import AssetScanResult, SourcePlugin, make_source_instance
+from katalog.metadata import ASSET_LOST
 
 
 async def _persist_scan_only_item(
     *,
     item: AssetScanResult,
     snapshot: Snapshot,
+    seen_assets: set[int],
 ) -> None:
     # Ensure asset row exists and snapshot markers are updated.
     was_created = await item.asset.save_record(
         snapshot=snapshot, provider=snapshot.provider
     )
+    if item.asset.id is not None:
+        seen_assets.add(int(item.asset.id))
     if was_created:
         snapshot.stats.assets_added += 1
         # Newly created assets cannot have existing metadata.
@@ -34,6 +39,9 @@ async def _persist_scan_only_item(
         loaded_metadata = []
     else:
         loaded_metadata = await item.asset.load_metadata()
+
+    # Mark asset as seen in this snapshot for this provider.
+    item.metadata.append(make_metadata(ASSET_LOST, None, provider_id=item.provider.id))
 
     change_set = MetadataChangeSet(loaded=loaded_metadata, staged=item.metadata)
     changes = await change_set.persist(asset=item.asset, snapshot=snapshot)
@@ -45,12 +53,15 @@ async def _flush_scan_only_batch(
     *,
     batch: list[AssetScanResult],
     snapshot: Snapshot,
+    seen_assets: set[int],
 ) -> None:
     if not batch:
         return
     async with in_transaction():
         for item in batch:
-            await _persist_scan_only_item(item=item, snapshot=snapshot)
+            await _persist_scan_only_item(
+                item=item, snapshot=snapshot, seen_assets=seen_assets
+            )
     batch.clear()
 
 
@@ -103,6 +114,7 @@ async def run_sources(
         scan_result = await source_plugin.scan()
 
         persisted_assets = 0
+        seen_assets: set[int] = set()
 
         pending: list[AssetScanResult] = []
 
@@ -123,7 +135,9 @@ async def run_sources(
                 else:
                     loaded_metadata = await result.asset.load_metadata()
                 change_set = MetadataChangeSet(
-                    loaded=loaded_metadata, staged=result.metadata
+                    loaded=loaded_metadata,
+                    staged=result.metadata
+                    + [make_metadata(ASSET_LOST, None, provider_id=result.provider.id)],
                 )
                 # Enqueue asset for processing, which will also persist the metadata
                 await enqueue_asset_processing(
@@ -132,11 +146,15 @@ async def run_sources(
                     stages=processor_pipeline,
                     change_set=change_set,
                 )
+                if result.asset.id is not None:
+                    seen_assets.add(int(result.asset.id))
             else:
                 pending.append(result)
                 if len(pending) >= tx_chunk_size:
                     batch_size = len(pending)
-                    await _flush_scan_only_batch(batch=pending, snapshot=snapshot)
+                    await _flush_scan_only_batch(
+                        batch=pending, snapshot=snapshot, seen_assets=seen_assets
+                    )
                     persisted_assets += batch_size
 
                     if persisted_assets % log_every_assets == 0:
@@ -150,7 +168,9 @@ async def run_sources(
 
         if not has_processors:
             batch_size = len(pending)
-            await _flush_scan_only_batch(batch=pending, snapshot=snapshot)
+            await _flush_scan_only_batch(
+                batch=pending, snapshot=snapshot, seen_assets=seen_assets
+            )
             persisted_assets += batch_size
 
             # Final progress log for scan-only mode.
@@ -169,12 +189,12 @@ async def run_sources(
                     source=f"{source.id}:{source.name}",
                     tasks=len(snapshot.tasks),
                 )
-        deleted_count = await Asset.mark_unseen_as_deleted(
-            snapshot=snapshot, provider_ids=[source.id]
+        lost_count = await Asset.mark_unseen_as_lost(
+            snapshot=snapshot, provider_ids=[source.id], seen_asset_ids=seen_assets
         )
-        if deleted_count:
-            snapshot.stats.assets_deleted += deleted_count
-            snapshot.stats.assets_changed += deleted_count
+        if lost_count:
+            snapshot.stats.assets_lost += lost_count
+            snapshot.stats.assets_changed += lost_count
         ignored = scan_result.ignored
         if ignored:
             snapshot.stats.assets_seen += ignored

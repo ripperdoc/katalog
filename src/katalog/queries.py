@@ -21,8 +21,6 @@ from katalog.metadata import (
 from katalog.metadata import MetadataKey as MK
 from katalog.models import (
     Asset,
-    AssetState,
-    AssetStateStatus,
     Metadata,
     MetadataRegistry,
     MetadataType,
@@ -206,7 +204,7 @@ def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
         return row.get("value_real")
     if value_type == MetadataType.DATETIME:
         dt = row.get("value_datetime")
-        return dt.isoformat() if hasattr(dt, "isoformat") else dt
+        return dt.isoformat() if dt and hasattr(dt, "isoformat") else dt
     if value_type == MetadataType.JSON:
         return row.get("value_json")
     if value_type == MetadataType.RELATION:
@@ -271,7 +269,9 @@ def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]
     try:
         column_name, col_type = col_map[definition.value_type]
     except KeyError:  # pragma: no cover
-        raise ValueError(f"Unsupported metadata type for filtering: {definition.value_type}")
+        raise ValueError(
+            f"Unsupported metadata type for filtering: {definition.value_type}"
+        )
 
     def cast_value(val: Any) -> Any:
         if val is None:
@@ -451,7 +451,9 @@ def filter_conditions(filters):
                     filter_params.append(f"%{pattern}")
             elif operator in {"between", "notBetween"}:
                 if not values or len(values) != 2:
-                    raise ValueError("Filter values must contain two entries for between")
+                    raise ValueError(
+                        "Filter values must contain two entries for between"
+                    )
                 op = "BETWEEN" if operator == "between" else "NOT BETWEEN"
                 conditions.append(f"{column_name} {op} ? AND ?")
                 filter_params.append(cast_value(values[0]))
@@ -538,9 +540,8 @@ async def list_grouped_assets(
     if provider_id is not None:
         conditions.insert(
             0,
-            "EXISTS (SELECT 1 FROM assetstate aps WHERE aps.asset_id = a.id AND aps.provider_id = ? AND aps.state = ?)",
+            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.provider_id = ?)",
         )
-        filter_params.insert(0, AssetStateStatus.ACTIVE.value)
         filter_params.insert(0, provider_id)
     if search is not None and search.strip():
         fts_query = _fts5_query_from_user_text(search)
@@ -741,17 +742,15 @@ async def list_assets_for_view(
 
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
-    # NOTE: We deliberately avoid joining AssetState here to keep the query fast.
-
     # WHERE clause builder
     conditions, filter_params = filter_conditions(filters)
 
     if provider_id is not None:
-        # Scope to assets active for the provider; EXISTS keeps the query lightweight.
+        # Scope to assets that have metadata from the provider.
         conditions.append(
-            "EXISTS (SELECT 1 FROM assetstate aps WHERE aps.asset_id = a.id AND aps.provider_id = ? AND aps.state = ?)"
+            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.provider_id = ?)"
         )
-        filter_params.extend([provider_id, AssetStateStatus.ACTIVE.value])
+        filter_params.extend([provider_id])
 
     if extra_where:
         conditions.append(extra_where[0])
@@ -965,7 +964,9 @@ async def list_snapshot_metadata_changes(
 
     total_count = None
     if include_total:
-        count_sql = f"SELECT COUNT(*) AS cnt FROM {metadata_table} WHERE snapshot_id = ?"
+        count_sql = (
+            f"SELECT COUNT(*) AS cnt FROM {metadata_table} WHERE snapshot_id = ?"
+        )
         count_started = time.perf_counter()
         count_rows = await conn.execute_query_dict(count_sql, [snapshot_id])
         count_duration_ms = int((time.perf_counter() - count_started) * 1000)

@@ -5,8 +5,6 @@ import pytest
 from katalog.metadata import FILE_PATH
 from katalog.models import (
     Asset,
-    AssetState,
-    AssetStateStatus,
     Metadata,
     MetadataChangeSet,
     Snapshot,
@@ -19,9 +17,6 @@ from tests.utils.upsert_helpers import UpsertFixture, ctx, md  # noqa: F401
 async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     # Existing asset already created in fixture
     existing = ctx.asset
-    original_state_count = await AssetState.filter(
-        asset_id=existing.id, state=AssetStateStatus.ACTIVE
-    ).count()
 
     # New snapshot for this run
     snap = await Snapshot.create(provider=ctx.provider, status=OpStatus.COMPLETED)
@@ -44,11 +39,7 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     changes = await change_set.persist(asset=new_asset, snapshot=snap)
 
     assert new_asset.id == existing.id
-    # A new AssetState row should have been recorded for the latest snapshot.
-    active_states = await AssetState.filter(
-        asset_id=new_asset.id, state=AssetStateStatus.ACTIVE
-    ).count()
-    assert active_states == original_state_count + 1
+    # A new metadata row should have been recorded for the latest snapshot.
     assert FILE_PATH in changes
 
 

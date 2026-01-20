@@ -140,6 +140,14 @@ FILE_COMMENT = define_metadata(
     "file/comment", MetadataType.STRING, "Comment"
 )  # E.g. from Linux xattr user.comment
 
+ASSET_LOST = define_metadata(
+    "asset/lost",
+    MetadataType.INT,
+    "Lost flag",
+    "1 when asset missing from latest scan for provider, 0 when seen",
+    width=80,
+)
+
 
 ACCESS_OWNER = define_metadata("access/owner", MetadataType.STRING, "Owner")
 ACCESS_SHARED_WITH = define_metadata(

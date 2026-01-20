@@ -41,6 +41,7 @@ from katalog.metadata import (
     get_metadata_def_by_id,
     get_metadata_def_by_key,
     get_metadata_id,
+    ASSET_LOST,
 )
 from katalog.utils.utils import orm
 
@@ -73,11 +74,6 @@ class ProviderType(IntEnum):
     EXPORTER = 4
 
 
-class AssetStateStatus(IntEnum):
-    ACTIVE = 0
-    DELETED = 1
-
-
 class Provider(Model):
     id = IntField(pk=True)
     name = CharField(max_length=255, unique=True)
@@ -105,17 +101,14 @@ class Provider(Model):
 
 @dataclass(slots=True)
 class SnapshotStats:
-    """Seen"""
-
-    assets_seen: int = (
-        0  # Total assets encountered/accessed during scan (saved + ignored)
-    )
+    # Total assets encountered/accessed during scan (saved + ignored)
+    assets_seen: int = 0
     assets_saved: int = 0  # Assets yielded and saved/processed by the pipeline
     assets_ignored: int = 0  # Skipped during scan (e.g. filtered by provider settings)
 
     assets_changed: int = 0  # Assets that had metadata changes
     assets_added: int = 0  # New assets seen for the first time
-    assets_deleted: int = 0  # Assets marked as deleted (not seen in scan)
+    assets_lost: int = 0  # Assets marked as deleted (not seen in scan)
     assets_processed: int = 0  # Assets that had processors run on them
 
     metadata_values_changed: int = 0  # Total metadata values added or removed
@@ -392,14 +385,6 @@ class Asset(Model):
             else:
                 was_created = True
         await self.save()
-        # Record append-only state for undo/redo via snapshot deletion.
-        await AssetState.record_state(
-            asset=self,
-            snapshot=snapshot,
-            state=AssetStateStatus.ACTIVE,
-            provider=provider,
-            canonical_uri=self.canonical_uri,
-        )
         return was_created
 
     async def load_metadata(self) -> Sequence["Metadata"]:
@@ -411,108 +396,67 @@ class Asset(Model):
         return self._metadata_cache
 
     @classmethod
-    async def mark_unseen_as_deleted(
-        cls, *, snapshot: "Snapshot", provider_ids: Sequence[int]
+    async def mark_unseen_as_lost(
+        cls,
+        *,
+        snapshot: "Snapshot",
+        provider_ids: Sequence[int],
+        seen_asset_ids: Sequence[int] | None = None,
     ) -> int:
         """
-        Mark assets from the given providers as deleted if they were not touched by this snapshot.
-        Returns the number of affected rows.
+        Mark assets from the given providers as lost if they were not touched by this snapshot.
+        Returns the number of affected rows (metadata rows written).
         """
         if not provider_ids:
             return 0
-        total = 0
+
         conn = Tortoise.get_connection("default")
+        metadata_table = Metadata._meta.db_table
+        affected = 0
+        seen_set = {int(a) for a in (seen_asset_ids or [])}
+
         for pid in provider_ids:
+            seen_clause = ""
+            seen_params: list[int] = []
+            if seen_set:
+                placeholders = ", ".join("?" for _ in seen_set)
+                seen_clause = f"AND asset_id NOT IN ({placeholders})"
+                seen_params = list(seen_set)
+
             rows = await conn.execute_query_dict(
-                """
-                WITH latest AS (
-                    SELECT s.asset_id, s.state, s.snapshot_id
-                    FROM assetstate s
-                    WHERE s.provider_id = ?
-                      AND s.snapshot_id = (
-                        SELECT MAX(s2.snapshot_id)
-                        FROM assetstate s2
-                        WHERE s2.provider_id = s.provider_id
-                          AND s2.asset_id = s.asset_id
-                    )
-                )
-                SELECT asset_id
-                FROM latest
-                WHERE state = ? AND snapshot_id <> ?
+                f"""
+                SELECT DISTINCT asset_id
+                FROM {metadata_table}
+                WHERE provider_id = ?
+                  {seen_clause}
                 """,
-                [pid, AssetStateStatus.ACTIVE.value, snapshot.id],
+                [pid, *seen_params],
             )
             asset_ids = [int(r["asset_id"]) for r in rows]
             if not asset_ids:
                 continue
-            states = [
-                AssetState(
+
+            lost_key_id = get_metadata_id(ASSET_LOST)
+            now_rows = []
+            for aid in asset_ids:
+                md = Metadata(
                     asset_id=aid,
-                    snapshot_id=snapshot.id,
                     provider_id=pid,
-                    canonical_uri=None,
-                    state=AssetStateStatus.DELETED,
+                    snapshot_id=snapshot.id,
+                    metadata_key_id=lost_key_id,
+                    value_type=MetadataType.INT,
+                    value_int=1,
+                    removed=False,
                 )
-                for aid in asset_ids
-            ]
-            await AssetState.bulk_create(states)
-            total += len(states)
-        return total
+                now_rows.append(md)
+
+            await Metadata.bulk_create(now_rows)
+            affected += len(now_rows)
+
+        return affected
 
     class Meta(Model.Meta):
         indexes = ()
-
-
-class AssetState(Model):
-    id = IntField(pk=True)
-    asset = ForeignKeyField(orm(Asset), related_name="states", on_delete=CASCADE)
-    snapshot = ForeignKeyField(
-        orm(Snapshot), related_name="asset_states", on_delete=CASCADE
-    )
-    provider = ForeignKeyField(
-        orm(Provider), related_name="asset_states", on_delete=CASCADE
-    )
-    canonical_uri = CharField(max_length=1024, null=True)
-    state = IntEnumField(AssetStateStatus)
-    created_at = DatetimeField(auto_now_add=True)
-
-    class Meta(Model.Meta):
-        unique_together = ("asset", "provider", "snapshot", "state")
-        indexes = (
-            ("asset", "snapshot"),
-            ("asset", "state"),
-            ("provider", "asset"),
-            ("provider", "snapshot"),
-        )
-
-    @classmethod
-    async def record_state(
-        cls,
-        *,
-        asset: Asset,
-        snapshot: Snapshot,
-        state: AssetStateStatus,
-        provider: Provider,
-        canonical_uri: str | None = None,
-    ) -> "AssetState":
-        """Append an asset state entry if one doesn't exist for this snapshot/state."""
-
-        existing = await cls.get_or_none(
-            asset_id=asset.id,
-            snapshot_id=snapshot.id,
-            state=state,
-            provider_id=provider.id,
-        )
-        if existing:
-            return existing
-
-        return await cls.create(
-            asset_id=asset.id,
-            snapshot_id=snapshot.id,
-            provider_id=provider.id,
-            canonical_uri=canonical_uri or asset.canonical_uri,
-            state=state,
-        )
 
 
 class CollectionRefreshMode(str, Enum):
@@ -525,7 +469,9 @@ class AssetCollection(Model):
     name = CharField(max_length=255, unique=True)
     description = TextField(null=True)
     source = JSONField(null=True)  # opaque JSON describing query/view used to create
-    refresh_mode = CharEnumField(CollectionRefreshMode, default=CollectionRefreshMode.ON_DEMAND)
+    refresh_mode = CharEnumField(
+        CollectionRefreshMode, default=CollectionRefreshMode.ON_DEMAND
+    )
     created_at = DatetimeField(auto_now_add=True)
     updated_at = DatetimeField(auto_now=True)
 

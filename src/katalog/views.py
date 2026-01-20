@@ -101,8 +101,6 @@ def _asset_columns() -> Iterable[ColumnSpec]:
             MetadataType.DATETIME,
         )
         filterable = sortable
-        if key == ASSET_PROVIDER_ID:
-            filterable = False  # provider now resolved via AssetState; filtering handled separately
         yield ColumnSpec(
             id=str(definition.key),
             value_type=definition.value_type,
