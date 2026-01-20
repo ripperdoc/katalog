@@ -46,7 +46,12 @@ function AssetDetailRoute() {
           <Link to="/assets" className="link-button">
             Back
           </Link>
-          <button type="button" onClick={() => void load()} disabled={loading}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+          >
             {loading ? "Loading..." : "Reload"}
           </button>
         </div>

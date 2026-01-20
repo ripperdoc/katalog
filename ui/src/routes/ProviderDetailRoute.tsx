@@ -104,7 +104,12 @@ function ProviderDetailRoute() {
           <Link to="/providers" className="link-button">
             Back
           </Link>
-          <button type="button" onClick={triggerScan} disabled={scanning || loading}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={triggerScan}
+            disabled={scanning || loading}
+          >
             {scanning ? "Starting..." : "Scan"}
           </button>
         </div>
@@ -138,7 +143,12 @@ function ProviderDetailRoute() {
                   </Form>
                 </label>
                 <div className="button-row">
-                  <button type="button" onClick={handleSave} disabled={!canSave || saving}>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    onClick={handleSave}
+                    disabled={!canSave || saving}
+                  >
                     {saving ? "Saving..." : "Save"}
                   </button>
                 </div>

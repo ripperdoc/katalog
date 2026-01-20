@@ -45,7 +45,12 @@ function CollectionsRoute() {
           <p>All saved collections. Click one to open details.</p>
         </div>
         <div className="panel-actions">
-          <button type="button" onClick={() => void loadCollections()} disabled={loading}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => void loadCollections()}
+            disabled={loading}
+          >
             {loading ? "Loading..." : "Reload"}
           </button>
         </div>

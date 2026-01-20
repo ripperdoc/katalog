@@ -124,7 +124,12 @@ function AssetsRoute() {
           onLoadComplete={handleLoadComplete}
           searchPlaceholder="Search all assets…"
           actions={
-            <button type="button" onClick={() => void handleSaveCollection()} disabled={saving}>
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={() => void handleSaveCollection()}
+              disabled={saving}
+            >
               {saving ? "Saving…" : "Save as collection"}
             </button>
           }

@@ -119,7 +119,7 @@ function ProvidersRoute() {
                     {runAllEnabled && (
                       <button
                         type="button"
-                        className="app-btn"
+                        className="app-btn btn-primary"
                         onClick={async () => {
                           setError(null);
                           try {
@@ -162,7 +162,7 @@ function ProvidersRoute() {
                     )}
                     <button
                       type="button"
-                      className="app-btn"
+                      className="app-btn btn-primary"
                       onClick={() => navigate(`/providers/new?type=${groupKey}`)}
                       disabled={availablePlugins.length === 0}
                       title={
@@ -195,7 +195,7 @@ function ProvidersRoute() {
                         </Link>
                         <button
                           type="button"
-                          className="app-btn"
+                          className="app-btn btn-primary"
                           onClick={() => triggerScan(provider.id)}
                           disabled={scanningId !== null}
                         >

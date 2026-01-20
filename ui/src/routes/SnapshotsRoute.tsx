@@ -39,7 +39,7 @@ function SnapshotsRoute() {
         <div className="panel-actions">
           <button
             type="button"
-            className="app-btn"
+            className="app-btn btn-primary"
             onClick={() => loadSnapshots()}
             disabled={loading}
           >

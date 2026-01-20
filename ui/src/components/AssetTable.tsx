@@ -10,6 +10,7 @@ import {
 } from "simple-table-core";
 import { Asset, ColumnDefinition, MetadataValueEntry, ViewAssetsResponse } from "../types/api";
 import "simple-table-core/styles.css";
+import TableFooter from "./TableFooter";
 
 const valueGetter = (props: ValueGetterProps) => {
   const value = props.row[props.accessor];
@@ -243,7 +244,12 @@ const AssetTable = ({
         </div>
         <div className="panel-actions">
           {actions}
-          <button type="button" onClick={() => void loadPage(1)} disabled={loading}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => void loadPage(1)}
+            disabled={loading}
+          >
             {loading ? "Loading..." : "Reload"}
           </button>
         </div>
@@ -274,6 +280,7 @@ const AssetTable = ({
           rowsPerPage={pagination.limit}
           serverSidePagination={true}
           totalRowCount={total ?? records.length}
+          footerRenderer={(props) => <TableFooter {...props} queryTimeMs={durationMs ?? undefined} />}
           onPageChange={(page) => {
             if (page === pagination.page) {
               return;

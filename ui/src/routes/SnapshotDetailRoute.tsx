@@ -219,7 +219,12 @@ function SnapshotDetailRoute() {
             Back
           </Link>
           {isRunning && (
-            <button className="app-btn" type="button" onClick={requestCancel} disabled={cancelling}>
+            <button
+              className="app-btn btn-primary"
+              type="button"
+              onClick={requestCancel}
+              disabled={cancelling}
+            >
               {cancelling ? "Cancelling..." : "Cancel"}
             </button>
           )}
@@ -262,7 +267,7 @@ function SnapshotDetailRoute() {
                   <div className="panel-actions">
                     <button
                       type="button"
-                      className="app-btn"
+                      className="app-btn btn-primary"
                       onClick={() => void loadChanges(changesPage)}
                       disabled={changesLoading}
                     >

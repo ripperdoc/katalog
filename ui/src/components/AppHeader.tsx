@@ -10,7 +10,7 @@ const AppHeader = ({ children }: AppHeaderProps) => {
     <header className="app-header">
       <div className="toolbar">
         <h1>
-          Katalog <small>{__APP_VERSION__ ?? "dev"}</small>
+          Katalog <small>{__APP_VERSION__ ?? "dev"}</small> <span className="icon">view_list</span>
         </h1>
         <nav className="nav">
           <Link to="/providers">Providers</Link>

@@ -152,10 +152,15 @@ function CollectionDetailRoute() {
           />
         </div>
         <div className="panel-actions">
-          <button type="button" onClick={() => navigate("/collections")}>
+          <button className="btn-primary" type="button" onClick={() => navigate("/collections")}>
             Back to collections
           </button>
-          <button type="button" onClick={() => void handleSaveMeta()} disabled={saving}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => void handleSaveMeta()}
+            disabled={saving}
+          >
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
