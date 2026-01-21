@@ -145,6 +145,7 @@ export async function createActor(payload: {
   plugin_id: string;
   config?: Record<string, unknown> | null;
   config_toml?: string;
+  disabled?: boolean;
 }): Promise<ActorCreateResponse> {
   const response = await fetch(`${API_BASE}/actors`, {
     method: "POST",
@@ -163,6 +164,7 @@ export async function updateActor(
     name?: string;
     config?: Record<string, unknown> | null;
     config_toml?: string;
+    disabled?: boolean;
   },
 ): Promise<ActorUpdateResponse> {
   const response = await fetch(`${API_BASE}/actors/${id}`, {

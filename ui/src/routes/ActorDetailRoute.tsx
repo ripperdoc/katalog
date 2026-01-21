@@ -14,6 +14,7 @@ function ActorDetailRoute() {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [formName, setFormName] = useState<string>("");
   const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
@@ -93,6 +94,24 @@ function ActorDetailRoute() {
     }
   };
 
+  const handleToggleDisabled = async () => {
+    if (!actor || !actorIdNum || Number.isNaN(actorIdNum)) {
+      setError("Invalid actor id");
+      return;
+    }
+    setToggling(true);
+    setError(null);
+    try {
+      await updateActor(actorIdNum, { disabled: !actor.disabled });
+      await loadActor();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    } finally {
+      setToggling(false);
+    }
+  };
+
   return (
     <>
       <AppHeader>
@@ -104,12 +123,22 @@ function ActorDetailRoute() {
           <Link to="/actors" className="link-button">
             Back
           </Link>
+          {actor && (
+            <button
+              className="app-btn btn-primary"
+              type="button"
+              onClick={() => void handleToggleDisabled()}
+              disabled={toggling || loading}
+            >
+              {toggling ? "Updating..." : actor.disabled ? "Enable" : "Disable"}
+            </button>
+          )}
           {actor?.type !== "EDITOR" && (
             <button
               className="btn-primary"
               type="button"
               onClick={triggerScan}
-              disabled={scanning || loading}
+              disabled={scanning || loading || Boolean(actor?.disabled)}
             >
               {scanning ? "Starting..." : "Scan"}
             </button>

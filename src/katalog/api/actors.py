@@ -20,11 +20,13 @@ class ActorCreate(BaseModel):
     name: str = Field(min_length=1)
     plugin_id: str
     config: dict[str, Any] | None = None
+    disabled: bool | None = None
 
 
 class ActorUpdate(BaseModel):
     name: str | None = None
     config: dict[str, Any] | None = None
+    disabled: bool | None = None
 
 
 @router.post("/actors")
@@ -57,6 +59,7 @@ async def create_actor(request: Request):
         plugin_id=payload.plugin_id,
         type=spec.actor_type,
         config=normalized_config,
+        disabled=bool(payload.disabled) if payload.disabled is not None else False,
     )
     return {"actor": actor.to_dict()}
 
@@ -104,5 +107,7 @@ async def update_actor(actor_id: int, request: Request):
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=404, detail="Plugin not found") from exc
         actor.config = validate_and_normalize_config(plugin_cls, payload.config)
+    if payload.disabled is not None:
+        actor.disabled = bool(payload.disabled)
     await actor.save()
     return {"actor": actor.to_dict()}

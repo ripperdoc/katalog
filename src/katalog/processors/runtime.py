@@ -32,7 +32,7 @@ ProcessorStage = list[Processor]
 async def sort_processors() -> list[ProcessorStage]:
     """Return processors layered via Kahn topological sorting."""
 
-    actors = await Actor.filter(type=ActorType.PROCESSOR).order_by("id")
+    actors = await Actor.filter(type=ActorType.PROCESSOR, disabled=False).order_by("id")
     if not actors:
         logger.warning("No processor actors found")
         return []

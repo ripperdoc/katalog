@@ -22,8 +22,8 @@ class MimeTypeProcessor(Processor):
     plugin_id = "katalog.processors.mime_type.MimeTypeProcessor"
     title = "MIME type"
     description = "Detect MIME type from file bytes using libmagic."
-    dependencies = file_data_change_dependencies
-    outputs = frozenset({FILE_TYPE})
+    _dependencies = file_data_change_dependencies
+    _outputs = frozenset({FILE_TYPE})
 
     class ConfigModel(BaseModel):
         model_config = ConfigDict(extra="ignore")
@@ -39,6 +39,14 @@ class MimeTypeProcessor(Processor):
     def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
         super().__init__(actor, **config)
+
+    @property
+    def dependencies(self):
+        return self._dependencies
+
+    @property
+    def outputs(self):
+        return self._outputs
 
     def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
         # TODO, some services report application/octet-stream but there is probably a better mime type to find

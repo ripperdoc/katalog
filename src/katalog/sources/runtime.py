@@ -106,6 +106,13 @@ async def run_sources(
         if source.type != ActorType.SOURCE:
             logger.warning(f"Skipping actor {source.id} ({source.name}): not a source")
             continue
+        if source.disabled:
+            logger.info(
+                "Skipping actor {actor_id}:{actor_name} (disabled)",
+                actor_id=source.id,
+                actor_name=source.name,
+            )
+            continue
         if await _should_cancel():
             raise asyncio.CancelledError()
         source_plugin = make_source_instance(source)

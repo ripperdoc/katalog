@@ -19,8 +19,8 @@ class MD5HashProcessor(Processor):
     plugin_id = "katalog.processors.md5_hash.MD5HashProcessor"
     title = "MD5 hash"
     description = "Compute md5 checksum for assets."
-    dependencies = frozenset({DATA_KEY, FILE_SIZE, TIME_MODIFIED})
-    outputs = frozenset({HASH_MD5})
+    _dependencies = frozenset({DATA_KEY, FILE_SIZE, TIME_MODIFIED})
+    _outputs = frozenset({HASH_MD5})
 
     class ConfigModel(BaseModel):
         model_config = ConfigDict(extra="ignore")
@@ -36,6 +36,14 @@ class MD5HashProcessor(Processor):
     def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
         super().__init__(actor, **config)
+
+    @property
+    def dependencies(self):
+        return self._dependencies
+
+    @property
+    def outputs(self):
+        return self._outputs
 
     def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
         changes = change_set.changed_keys()

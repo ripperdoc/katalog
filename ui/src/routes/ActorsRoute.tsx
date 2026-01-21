@@ -7,6 +7,7 @@ import {
   startScan,
   runAllProcessors,
   runAllAnalyzers,
+  updateActor,
 } from "../api/client";
 import type { Actor, PluginSpec } from "../types/api";
 
@@ -79,6 +80,17 @@ function ActorsRoute() {
     processors: actors.filter((p) => p.type === "PROCESSOR"),
     analyzers: actors.filter((p) => p.type === "ANALYZER"),
     editors: actors.filter((p) => p.type === "EDITOR"),
+  };
+
+  const toggleDisabled = async (actor: Actor) => {
+    setError(null);
+    try {
+      await updateActor(actor.id, { disabled: !actor.disabled });
+      await loadActors();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    }
   };
 
   return (
@@ -196,7 +208,10 @@ function ActorsRoute() {
                         <strong>
                           #{actor.id} {actor.name}
                         </strong>
-                        <span>{typeLabel}</span>
+                        <span>
+                          {typeLabel}
+                          {actor.disabled ? " · Disabled" : ""}
+                        </span>
                       </div>
                       <p>Plugin: {actor.plugin_id ?? "n/a"}</p>
                       <div className="meta-grid">
@@ -204,6 +219,14 @@ function ActorsRoute() {
                         <div>Updated: {actor.updated_at ?? "—"}</div>
                       </div>
                       <div className="button-row">
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={!actor.disabled}
+                            onChange={() => void toggleDisabled(actor)}
+                          />
+                          <span>{actor.disabled ? "Disabled" : "Enabled"}</span>
+                        </label>
                         <Link to={`/actors/${actor.id}`} className="link-button">
                           Edit
                         </Link>
@@ -212,7 +235,7 @@ function ActorsRoute() {
                             type="button"
                             className="app-btn btn-primary"
                             onClick={() => triggerScan(actor.id)}
-                            disabled={scanningId !== null}
+                            disabled={scanningId !== null || actor.disabled}
                           >
                             {scanningId === actor.id ? "Starting..." : "Scan"}
                           </button>

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Data usage notes
 - The target profile for this system is to handle metadata for 1 million files. Actual file contents is not to be stored in the DB.
 - This implies
@@ -11,6 +9,7 @@ Metadata will mostly be shorter text and date values, but some fields may grow p
 On the other hand, users will be encouraged to purge changesets regularly.
 """
 
+from __future__ import annotations
 from asyncio import Task
 import asyncio
 from contextlib import asynccontextmanager
@@ -32,6 +31,7 @@ from tortoise.fields import (
     JSONField,
     IntField,
     TextField,
+    BooleanField,
 )
 from tortoise.models import Model
 
@@ -60,6 +60,7 @@ class Actor(Model):
     config = JSONField(null=True)
     config_toml = TextField(null=True)
     type = IntEnumField(ActorType)
+    disabled = BooleanField(default=False)
     created_at = DatetimeField(auto_now_add=True)
     updated_at = DatetimeField(auto_now=True)
 
@@ -71,6 +72,7 @@ class Actor(Model):
             "plugin_id": self.plugin_id,
             "config": self.config,
             "config_toml": getattr(self, "config_toml", None),
+            "disabled": bool(getattr(self, "disabled", False)),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

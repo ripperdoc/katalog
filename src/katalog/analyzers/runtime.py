@@ -12,9 +12,9 @@ async def run_analyzers(ids: list[int] | None = None) -> list[dict]:
     query = Actor.filter(type=ActorType.ANALYZER).order_by("id")
     if ids:
         query = query.filter(id__in=sorted(set(ids)))
-    actors = await query
+    actors = [actor for actor in await query if not getattr(actor, "disabled", False)]
     if not actors:
-        raise ValueError("No analyzer actors found")
+        return []
 
     results: list[dict] = []
     for actor in actors:

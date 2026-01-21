@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import ClassVar, FrozenSet, cast
+from typing import FrozenSet, cast
 
 from katalog.models import (
     Asset,
@@ -29,22 +29,17 @@ class Processor(PluginBase, ABC):
     Defines the interface for a metadata processor.
     """
 
-    # List of metadata keys that this processor consumes
-    dependencies: ClassVar[FrozenSet[MetadataKey]] = frozenset()
+    @property
+    @abstractmethod
+    def dependencies(self) -> FrozenSet[MetadataKey]:
+        """Return dependencies for this processor instance."""
+        raise NotImplementedError()
 
-    # List of metadata keys that this processor changes/produces
-    outputs: ClassVar[FrozenSet[MetadataKey]] = frozenset()
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        # Coerce to frozenset for consistency
-        deps = cls.dependencies
-        if not isinstance(deps, frozenset):
-            deps = frozenset(deps)
-        outs = cls.outputs
-        if not isinstance(outs, frozenset):
-            outs = frozenset(outs)
-        cls.dependencies, cls.outputs = deps, outs
+    @property
+    @abstractmethod
+    def outputs(self) -> FrozenSet[MetadataKey]:
+        """Return outputs for this processor instance."""
+        raise NotImplementedError()
 
     @abstractmethod
     def should_run(

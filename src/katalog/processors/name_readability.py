@@ -21,8 +21,8 @@ class NameReadabilityProcessor(Processor):
     plugin_id = "katalog.processors.name_readability.NameReadabilityProcessor"
     title = "Name readability"
     description = "Flag filenames that look auto-generated or hard to read."
-    dependencies = frozenset({FILE_NAME})
-    outputs = frozenset({WARNING_NAME_READABILITY})
+    _dependencies = frozenset({FILE_NAME})
+    _outputs = frozenset({WARNING_NAME_READABILITY})
 
     class ConfigModel(BaseModel):
         model_config = ConfigDict(extra="ignore")
@@ -38,6 +38,14 @@ class NameReadabilityProcessor(Processor):
     def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
         super().__init__(actor, **config)
+
+    @property
+    def dependencies(self):
+        return self._dependencies
+
+    @property
+    def outputs(self):
+        return self._outputs
 
     _HEXISH_ID = re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE)
     _GUID = re.compile(

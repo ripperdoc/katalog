@@ -31,9 +31,10 @@ async def do_run_sources(ids: list[int] | None = Query(None)):
 
     if not sources:
         raise HTTPException(status_code=404, detail="No sources configured")
+    enabled_sources = [s for s in sources if not getattr(s, "disabled", False)]
     actor_for_changeset = None
-    if len(sources) == 1:
-        actor_for_changeset = sources[0]
+    if len(enabled_sources) == 1:
+        actor_for_changeset = enabled_sources[0]
     changeset = await Changeset.begin(
         actor=actor_for_changeset, status=OpStatus.IN_PROGRESS
     )
