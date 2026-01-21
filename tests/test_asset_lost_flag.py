@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from tortoise import Tortoise
 
-from katalog.metadata import ASSET_LOST, METADATA_REGISTRY, get_metadata_id
+from katalog.constants.metadata import ASSET_LOST, METADATA_REGISTRY, get_metadata_id
 from katalog.models import (
     Asset,
     Metadata,

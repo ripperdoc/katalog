@@ -7,7 +7,7 @@ from loguru import logger
 from tortoise import Tortoise
 
 from katalog.config import DB_PATH
-from katalog.metadata import (
+from katalog.constants.metadata import (
     ASSET_EXTERNAL_ID,
     ASSET_CANONICAL_URI,
     ASSET_ID,
@@ -18,7 +18,7 @@ from katalog.metadata import (
     MetadataKey,
     get_metadata_id,
 )
-from katalog.metadata import MetadataKey as MK
+from katalog.constants.metadata import MetadataKey as MK
 from katalog.models import (
     Asset,
     Metadata,
@@ -98,7 +98,13 @@ async def setup_db(db_path: Path) -> Path:
     if needs_init:
         await Tortoise.init(
             db_url=db_url,
-            modules={"models": ["katalog.models"]},
+            modules={
+                "models": [
+                    "katalog.models.core",
+                    "katalog.models.assets",
+                    "katalog.models.metadata",
+                ]
+            },
             use_tz=False,  # Preserve whatever tzinfo we hand in; no UTC normalization.
         )
 

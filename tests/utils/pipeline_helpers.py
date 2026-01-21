@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest_asyncio
 from tortoise import Tortoise
 
-from katalog.metadata import MetadataKey
+from katalog.constants.metadata import MetadataKey
 from katalog.models import (
     Asset,
     Metadata,

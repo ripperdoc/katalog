@@ -34,7 +34,7 @@ from katalog.queries import (
     sync_config,
     list_changeset_metadata_changes,
 )
-from katalog.metadata import editable_metadata_schema, METADATA_REGISTRY_BY_ID
+from katalog.constants.metadata import editable_metadata_schema, METADATA_REGISTRY_BY_ID
 from katalog.plugins.registry import (
     PluginSpec,
     get_plugin_class,

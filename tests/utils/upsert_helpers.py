@@ -5,7 +5,7 @@ from typing import Any, AsyncGenerator, Sequence
 import pytest_asyncio
 from tortoise import Tortoise
 
-from katalog.metadata import MetadataKey, get_metadata_id
+from katalog.constants.metadata import MetadataKey, get_metadata_id
 from katalog.models import (
     Asset,
     Metadata,

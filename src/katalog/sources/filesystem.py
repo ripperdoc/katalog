@@ -17,7 +17,7 @@ from katalog.models import (
     Actor,
 )
 from katalog.models import OpStatus
-from katalog.metadata import (
+from katalog.constants.metadata import (
     FILE_PATH,
     FILE_SIZE,
     FLAG_HIDDEN,

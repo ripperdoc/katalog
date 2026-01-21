@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 from katalog.processors.base import Processor
-from katalog.metadata import FILE_TYPE
+from katalog.constants.metadata import FILE_TYPE
 
 
 class ArchiveProcess(Processor):

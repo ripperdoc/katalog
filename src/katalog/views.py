@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Iterable, Sequence
 
-from katalog.metadata import (
+from katalog.constants.metadata import (
     ASSET_EXTERNAL_ID,
     ASSET_CANONICAL_URI,
     ASSET_ID,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from katalog.metadata import FILE_PATH
+from katalog.constants.metadata import FILE_PATH
 from katalog.models import (
     Asset,
     Metadata,

@@ -6,7 +6,7 @@ from typing import Iterable
 import pytest
 from tortoise import Tortoise
 
-from katalog.metadata import TIME_MODIFIED
+from katalog.constants.metadata import TIME_MODIFIED
 from katalog.models import (
     Asset,
     Metadata,

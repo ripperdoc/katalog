@@ -5,7 +5,7 @@ from typing import Callable, Iterable, Sequence
 
 import pytest
 
-from katalog.metadata import FILE_NAME, FILE_SIZE, HASH_MD5
+from katalog.constants.metadata import FILE_NAME, FILE_SIZE, HASH_MD5
 from katalog.models import Asset, Metadata, MetadataChangeSet, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.processors.runtime import process_asset

@@ -15,7 +15,7 @@ from google.auth.transport.requests import Request as GoogleRequest
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from katalog.config import PORT, actor_path
-from katalog.metadata import (
+from katalog.constants.metadata import (
     ACCESS_LAST_MODIFYING_USER,
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,

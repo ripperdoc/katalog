@@ -4,7 +4,7 @@ from typing import Any, cast
 
 import pytest
 
-from katalog.metadata import FILE_TAGS
+from katalog.constants.metadata import FILE_TAGS
 from katalog.models import (
     Metadata,
     MetadataChangeSet,

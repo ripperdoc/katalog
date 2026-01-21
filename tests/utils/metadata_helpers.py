@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from katalog.metadata import (
+from katalog.constants.metadata import (
     FILE_PATH,
     MetadataDef,
     MetadataKey,

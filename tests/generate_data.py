@@ -9,7 +9,7 @@ import shutil
 from tortoise import run_async
 from katalog.models import MetadataType, OpStatus, ActorType
 from katalog.models import Asset, Metadata, MetadataRegistry, Actor, Changeset
-from katalog.metadata import (
+from katalog.constants.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
     DOC_LANG,

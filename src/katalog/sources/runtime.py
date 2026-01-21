@@ -17,7 +17,7 @@ from katalog.models import (
 from katalog.processors.runtime import enqueue_asset_processing, sort_processors
 
 from katalog.sources.base import AssetScanResult, SourcePlugin, make_source_instance
-from katalog.metadata import ASSET_LOST
+from katalog.constants.metadata import ASSET_LOST
 
 
 async def _persist_scan_only_item(

@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from katalog.metadata import FILE_NAME, WARNING_NAME_READABILITY
+from katalog.constants.metadata import FILE_NAME, WARNING_NAME_READABILITY
 from katalog.models import (
     Asset,
     OpStatus,

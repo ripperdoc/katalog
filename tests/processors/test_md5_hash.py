@@ -5,7 +5,7 @@ import hashlib
 
 import pytest
 
-from katalog.metadata import (
+from katalog.constants.metadata import (
     FILE_SIZE,
     HASH_MD5,
     TIME_MODIFIED,

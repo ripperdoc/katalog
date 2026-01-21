@@ -3,7 +3,7 @@ from __future__ import annotations
 import magic
 from pydantic import BaseModel, ConfigDict, Field
 
-from katalog.metadata import FILE_TYPE
+from katalog.constants.metadata import FILE_TYPE
 from katalog.processors.base import (
     Processor,
     ProcessorResult,

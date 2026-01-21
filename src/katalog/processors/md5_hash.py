@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 
-from katalog.metadata import (
+from katalog.constants.metadata import (
     DATA_KEY,
     FILE_SIZE,
     HASH_MD5,

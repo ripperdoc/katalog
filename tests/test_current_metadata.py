@@ -1,6 +1,6 @@
 """Tests for MetadataChangeSet current/changed logic."""
 
-from katalog.metadata import FILE_PATH
+from katalog.constants.metadata import FILE_PATH
 from katalog.models import MetadataChangeSet
 from tests.utils.metadata_helpers import mem_md, registry_stub
 

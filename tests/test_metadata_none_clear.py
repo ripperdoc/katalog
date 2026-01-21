@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from katalog.metadata import FILE_NAME, FILE_PATH
+from katalog.constants.metadata import FILE_NAME, FILE_PATH
 from katalog.models import (
     Metadata,
     MetadataChangeSet,

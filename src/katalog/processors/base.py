@@ -10,7 +10,7 @@ from katalog.models import (
     Actor,
     MetadataChangeSet,
 )
-from katalog.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
+from katalog.constants.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.plugins.base import PluginBase
 
 from katalog.plugins.registry import get_plugin_class

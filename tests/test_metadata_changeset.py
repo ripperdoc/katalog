@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from tortoise import Tortoise
 
-from katalog.metadata import FILE_NAME, TIME_MODIFIED
+from katalog.constants.metadata import FILE_NAME, TIME_MODIFIED
 from katalog.models import (
     Asset,
     Metadata,

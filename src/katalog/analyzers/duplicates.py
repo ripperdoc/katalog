@@ -13,7 +13,7 @@ from katalog.analyzers.base import (
     FileGroupFinding,
 )
 from katalog.models import Metadata, Actor, Changeset
-from katalog.metadata import HASH_MD5, get_metadata_id
+from katalog.constants.metadata import HASH_MD5, get_metadata_id
 
 
 class ExactDuplicateAnalyzer(Analyzer):
