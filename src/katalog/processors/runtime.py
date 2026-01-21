@@ -11,8 +11,8 @@ from katalog.models import (
     Metadata,
     MetadataKey,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
     MetadataChangeSet,
 )
@@ -32,9 +32,9 @@ ProcessorStage = list[Processor]
 async def sort_processors() -> list[ProcessorStage]:
     """Return processors layered via Kahn topological sorting."""
 
-    providers = await Provider.filter(type=ProviderType.PROCESSOR).order_by("id")
-    if not providers:
-        logger.warning("No processor providers found")
+    actors = await Actor.filter(type=ActorType.PROCESSOR).order_by("id")
+    if not actors:
+        logger.warning("No processor actors found")
         return []
 
     processors_by_name: dict[str, Processor] = {}
@@ -42,14 +42,14 @@ async def sort_processors() -> list[ProcessorStage]:
     dependencies_by_name: dict[str, frozenset[MetadataKey]] = {}
     outputs_by_name: dict[str, frozenset[MetadataKey]] = {}
 
-    for provider in providers:
-        processor = make_processor_instance(provider)
+    for actor in actors:
+        processor = make_processor_instance(actor)
         # Used when persisting produced metadata.
-        name = provider.name
+        name = actor.name
         processors_by_name[name] = processor
-        cfg = provider.config or {}
+        cfg = actor.config or {}
         order = int(cfg.get("order") or 0)
-        seq = int(cfg.get("_sequence") or provider.id)
+        seq = int(cfg.get("_sequence") or actor.id)
         order_by_name[name] = (order, seq)
         dependencies_by_name[name] = processor.dependencies
         outputs_by_name[name] = processor.outputs
@@ -184,7 +184,7 @@ async def enqueue_asset_processing(
 
 
 async def run_processors(*, changeset: Changeset, assets: list[Asset]):
-    """Run processors for a list of assets belonging to one provider."""
+    """Run processors for a list of assets belonging to one actor."""
     processor_pipeline = await sort_processors()
 
     for asset in assets:

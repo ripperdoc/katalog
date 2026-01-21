@@ -7,7 +7,7 @@
 - Be as space efficient as possible
 - Handle an extensible number of metadata keys, including plugins adding new keys without
   migrations.
-- Handle multiple opinions from multiple providers on every metadata, on every asset
+- Handle multiple opinions from multiple actors on every metadata, on every asset
 - Full version history on all metadata, enabling full undo, restore and editing of history
 - Support full sorting, filtering and grouping on all metadata fields
 - Support full text search and vector search (using necessary plugins and/or separate tables)
@@ -22,7 +22,7 @@
 - All keys converted to integers to reduce space in Metadata table, but this causes some extra
   complexity to lookup names from integers
 - AssetState table, tracking when and how assets have been seen
-- Metadata table, EAV style append-only that allows single or multiple values for each key, provider
+- Metadata table, EAV style append-only that allows single or multiple values for each key, actor
   and changeset. Tombstone logic to delete specific values.
 - EAV possibly creates a lot of repetition
 - The logic for what new EAV rows to store requires Python code in MetadataChangeSet, it's fairly
@@ -66,8 +66,8 @@ Here is a plan for how to move into the new design.
   - We should offer a method that combines the top-level columns and the JSON back into a dict so we
     can treat them as if the were all in the same dict
 - The change means that we can have multiple asset rows for the same `external_id`, either rows that
-  are from different providers or have been tombstoned
-- MetadataChangeSet needs to change. It's methods should still take a provider_id to determine which
+  are from different actors or have been tombstoned
+- MetadataChangeSet needs to change. It's methods should still take an actor_id to determine which
   "view" of metadata to return. When we save metadata, we still want to avoid writing new rows if
   the row is the same as before, this can maybe be handled in SQL rather than code.
 - See if we can speed up data ingestion through batching updates in sources/runtime.py

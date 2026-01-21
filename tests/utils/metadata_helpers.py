@@ -20,7 +20,7 @@ def mem_md(
     key: MetadataKey,
     value: Any,
     changeset_id: int,
-    provider_id: int = 1,
+    actor_id: int = 1,
     removed: bool = False,
     registry_id: int | None = None,
 ) -> Metadata:
@@ -29,12 +29,12 @@ def mem_md(
         metadata_key_id=registry_id,
         value_type=MetadataType.STRING,
         changeset_id=changeset_id,
-        provider_id=provider_id,
+        actor_id=actor_id,
         removed=removed,
     )
     entry.metadata_key_id = registry_id
     entry.changeset_id = changeset_id
-    entry.provider_id = provider_id
+    entry.actor_id = actor_id
     entry.value_text = str(value)
     return entry
 

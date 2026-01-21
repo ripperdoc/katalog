@@ -33,9 +33,9 @@ class MD5HashProcessor(Processor):
 
     config_model = ConfigModel
 
-    def __init__(self, provider, **config):
+    def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
-        super().__init__(provider, **config)
+        super().__init__(actor, **config)
 
     def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
         changes = change_set.changed_keys()
@@ -65,7 +65,7 @@ class MD5HashProcessor(Processor):
             digest = await _hash_stream_async(d, self.config.chunk_size)
 
         return ProcessorResult(
-            metadata=[make_metadata(HASH_MD5, digest, self.provider.id)]
+            metadata=[make_metadata(HASH_MD5, digest, self.actor.id)]
         )
 
 

@@ -11,8 +11,8 @@ from katalog.models import (
     Metadata,
     MetadataChangeSet,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
     make_metadata,
 )
@@ -34,14 +34,14 @@ async def _teardown_db() -> None:
     await Tortoise.close_connections()
 
 
-async def _seed() -> tuple[Provider, Changeset, Asset]:
-    provider = await Provider.create(
+async def _seed() -> tuple[Actor, Changeset, Asset]:
+    actor = await Actor.create(
         name="source",
         plugin_id="plugin.source",
-        type=ProviderType.SOURCE,
+        type=ActorType.SOURCE,
     )
     changeset = await Changeset.create(
-        provider=provider,
+        actor=actor,
         status=OpStatus.COMPLETED,
         started_at=datetime.now(UTC),
         completed_at=datetime.now(UTC),
@@ -50,21 +50,21 @@ async def _seed() -> tuple[Provider, Changeset, Asset]:
         external_id="asset-1",
         canonical_uri="file:///asset-1",
     )
-    await asset.save_record(changeset=changeset, provider=provider)
-    return provider, changeset, asset
+    await asset.save_record(changeset=changeset, actor=actor)
+    return actor, changeset, asset
 
 
 @pytest.mark.asyncio
 async def test_changeset_persist_handles_removals_and_noops() -> None:
     await _init_db()
     try:
-        provider, baseline_changeset, asset = await _seed()
+        actor, baseline_changeset, asset = await _seed()
 
         # Baseline metadata: name and modified time
         baseline_name = make_metadata(
             FILE_NAME,
             "doc.txt",
-            provider_id=provider.id,
+            actor_id=actor.id,
             asset=asset,
             changeset=baseline_changeset,
         )
@@ -72,7 +72,7 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
         baseline_modified = make_metadata(
             TIME_MODIFIED,
             modified_dt,
-            provider_id=provider.id,
+            actor_id=actor.id,
             asset=asset,
             changeset=baseline_changeset,
         )
@@ -85,27 +85,27 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
         # - modified time removed (marked removed=True)
         # - new name value (should add a new row)
         next_changeset = await Changeset.create(
-            provider=provider, status=OpStatus.IN_PROGRESS
+            actor=actor, status=OpStatus.IN_PROGRESS
         )
         staged = [
             make_metadata(
                 FILE_NAME,
                 "doc.txt",
-                provider_id=provider.id,
+                actor_id=actor.id,
                 asset=asset,
                 changeset=next_changeset,
             ),
             make_metadata(
                 FILE_NAME,
                 "doc_v2.txt",
-                provider_id=provider.id,
+                actor_id=actor.id,
                 asset=asset,
                 changeset=next_changeset,
             ),
             make_metadata(
                 TIME_MODIFIED,
                 modified_dt,
-                provider_id=provider.id,
+                actor_id=actor.id,
                 asset=asset,
                 changeset=next_changeset,
                 removed=True,

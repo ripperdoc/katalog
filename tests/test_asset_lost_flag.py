@@ -12,8 +12,8 @@ from katalog.models import (
     Metadata,
     MetadataChangeSet,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
 )
 from katalog.queries import setup_db, sync_metadata_registry
@@ -32,19 +32,17 @@ async def db(tmp_path):
 
 @pytest.mark.asyncio
 async def test_clear_lost_flag_when_previous_true(db: None):
-    provider = await Provider.create(
-        name="p1", plugin_id="plug", type=ProviderType.SOURCE
-    )
-    snap1 = await Changeset.create(provider=provider, status=OpStatus.COMPLETED)
-    snap2 = await Changeset.create(provider=provider, status=OpStatus.COMPLETED)
+    actor = await Actor.create(name="p1", plugin_id="plug", type=ActorType.SOURCE)
+    snap1 = await Changeset.create(actor=actor, status=OpStatus.COMPLETED)
+    snap2 = await Changeset.create(actor=actor, status=OpStatus.COMPLETED)
 
     asset = Asset(external_id="a1", canonical_uri="file:///a1")
-    await asset.save_record(changeset=snap1, provider=provider)
+    await asset.save_record(changeset=snap1, actor=actor)
 
     lost_key_id = get_metadata_id(ASSET_LOST)
     await Metadata.create(
         asset=asset,
-        provider=provider,
+        actor=actor,
         changeset=snap1,
         metadata_key_id=lost_key_id,
         value_type=METADATA_REGISTRY[ASSET_LOST].value_type,
@@ -60,7 +58,7 @@ async def test_clear_lost_flag_when_previous_true(db: None):
                 metadata_key_id=lost_key_id,
                 value_type=METADATA_REGISTRY[ASSET_LOST].value_type,
                 removed=False,
-                provider_id=provider.id,
+                actor_id=actor.id,
             )
         ],
     )
@@ -74,19 +72,17 @@ async def test_clear_lost_flag_when_previous_true(db: None):
     assert len(all_rows) == 2
     assert any(md.removed is True for md in all_rows)
     # Current state should have no lost flag
-    current = MetadataChangeSet._current_metadata(all_rows, provider.id)
+    current = MetadataChangeSet._current_metadata(all_rows, actor.id)
     assert ASSET_LOST not in current
     assert ASSET_LOST in changed
 
 
 @pytest.mark.asyncio
 async def test_clear_lost_noop_when_not_set(db: None):
-    provider = await Provider.create(
-        name="p2", plugin_id="plug", type=ProviderType.SOURCE
-    )
-    snap1 = await Changeset.create(provider=provider, status=OpStatus.COMPLETED)
+    actor = await Actor.create(name="p2", plugin_id="plug", type=ActorType.SOURCE)
+    snap1 = await Changeset.create(actor=actor, status=OpStatus.COMPLETED)
     asset = Asset(external_id="a2", canonical_uri="file:///a2")
-    await asset.save_record(changeset=snap1, provider=provider)
+    await asset.save_record(changeset=snap1, actor=actor)
 
     lost_key_id = get_metadata_id(ASSET_LOST)
     loaded = await asset.load_metadata()
@@ -97,7 +93,7 @@ async def test_clear_lost_noop_when_not_set(db: None):
                 metadata_key_id=lost_key_id,
                 value_type=METADATA_REGISTRY[ASSET_LOST].value_type,
                 removed=False,
-                provider_id=provider.id,
+                actor_id=actor.id,
             )
         ],
     )

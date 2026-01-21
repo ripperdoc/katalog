@@ -155,9 +155,7 @@ FILE_RECORD_KEY = define_metadata("asset", MetadataType.INT)
 
 # Pseudo-keys representing asset core fields so views can treat them uniformly
 ASSET_ID = define_metadata("asset/id", MetadataType.INT, "Asset ID")
-ASSET_PROVIDER_ID = define_metadata(
-    "asset/provider_id", MetadataType.INT, "Provider ID"
-)
+ASSET_ACTOR_ID = define_metadata("asset/actor_id", MetadataType.INT, "Actor ID")
 ASSET_EXTERNAL_ID = define_metadata(
     "asset/external_id", MetadataType.STRING, "External ID"
 )
@@ -202,7 +200,7 @@ ASSET_LOST = define_metadata(
     "asset/lost",
     MetadataType.INT,
     "Lost flag",
-    "1 when asset missing from latest scan for provider, 0 when seen",
+    "1 when asset missing from latest scan for actor, 0 when seen",
     width=80,
 )
 

@@ -14,7 +14,7 @@ from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request as GoogleRequest
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from katalog.config import PORT, provider_path
+from katalog.config import PORT, actor_path
 from katalog.metadata import (
     ACCESS_LAST_MODIFYING_USER,
     ACCESS_OWNER,
@@ -43,7 +43,7 @@ from katalog.metadata import (
 from katalog.models import (
     Asset,
     OpStatus,
-    Provider,
+    Actor,
 )
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.utils import (
@@ -100,12 +100,12 @@ FILE_WEB_VIEW_LINK = define_metadata(
 
 class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive. Features:
-    - Authenticates via OAuth2, by requesting a refresh token that is stored in <provider_path>/token.json
-    and using the static application credentials in <provider_path>/client_scret.json
+    - Authenticates via OAuth2, by requesting a refresh token that is stored in <actor_path>/token.json
+    and using the static application credentials in <actor_path>/client_scret.json
     - Reads efficiently from Google Drive API using asyncio fetchers that work concurrently on time-sliced windows, files ordered by modifiedTime desc
     and then regular pagination of 100 within each window (using nextPageToken from the API)
     - Resolves full path metadata per file by recursing parent folder IDs into names. To optimize this, we build a lookup dict that is
-    read from and persisted back to `<provider_path>/folder_cache.json`. If cache doesn't exist, we prepopulate it by reading
+    read from and persisted back to `<actor_path>/folder_cache.json`. If cache doesn't exist, we prepopulate it by reading
     all folders from Drive API. If we discover unknown parents during runtime, we try to look them up with a direct API call,
     and if they are named `Drive` we instead look the name up from the drives/ API endpoint.
     - Supports scanning user drives and shared drives (corpora as a setting per client)
@@ -197,9 +197,9 @@ class GoogleDriveClient(SourcePlugin):
 
     config_model = ConfigModel
 
-    def __init__(self, provider: Provider, **config: Any) -> None:
+    def __init__(self, actor: Actor, **config: Any) -> None:
         cfg = self.config_model.model_validate(config or {})
-        super().__init__(provider, **config)
+        super().__init__(actor, **config)
 
         self.max_files = cfg.max_files
         self.drive_id = cfg.drive_id
@@ -225,9 +225,9 @@ class GoogleDriveClient(SourcePlugin):
         self._folder_cache: Dict[str, Dict[str, Any]] = {}
         self._oauth_state = None
         self._credentials: Credentials | None = None
-        self.token_path = provider_path(self.provider.id) / "token.json"
-        self.client_secret_path = provider_path(self.provider.id) / "client_secret.json"
-        self.folder_cache_path = provider_path(self.provider.id) / "folder_cache.json"
+        self.token_path = actor_path(self.actor.id) / "token.json"
+        self.client_secret_path = actor_path(self.actor.id) / "client_secret.json"
+        self.folder_cache_path = actor_path(self.actor.id) / "folder_cache.json"
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -252,12 +252,12 @@ class GoogleDriveClient(SourcePlugin):
 
         asset = Asset(
             external_id=file_id,
-            provider_id=self.provider.id,
+            actor_id=self.actor.id,
             canonical_uri=canonical_uri,
         )
 
         asset.attach_accessor(self.get_accessor(asset))
-        result = AssetScanResult(asset=asset, provider=self.provider)
+        result = AssetScanResult(asset=asset, actor=self.actor)
 
         result.set_metadata_list(FILE_ID_PATH, id_paths)
         result.set_metadata_list(FILE_PATH, name_paths)
@@ -299,7 +299,7 @@ class GoogleDriveClient(SourcePlugin):
         # web_view_link = file.get("webViewLink")
         # if web_view_link:
         #     metadata.append(
-        #         make_metadata(self.provider.id, FILE_WEB_VIEW_LINK, web_view_link)
+        #         make_metadata(self.actor.id, FILE_WEB_VIEW_LINK, web_view_link)
         #     )
 
         result.set_metadata(FLAG_SHARED, int(bool(file.get("shared"))))
@@ -513,7 +513,7 @@ class GoogleDriveClient(SourcePlugin):
                 self.client_secret_path, SCOPES, state=self._oauth_state
             )
             authorization_response = str(kwargs["authorization_response"])
-            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
+            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.actor.id}"
             flow.fetch_token(authorization_response=authorization_response)
             creds = flow.credentials
             self.token_path.write_text(creds.to_json())
@@ -528,7 +528,7 @@ class GoogleDriveClient(SourcePlugin):
         else:
             # Start a new OAuth2 flow to redirect user to authorization URL
             flow = Flow.from_client_secrets_file(self.client_secret_path, SCOPES)
-            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.provider.id}"
+            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.actor.id}"
             # Read details here https://developers.google.com/identity/protocols/oauth2/web-server#obtainingaccesstokens
             authorization_url, state = flow.authorization_url(
                 access_type="offline",

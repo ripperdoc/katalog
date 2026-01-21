@@ -10,8 +10,8 @@ from katalog.models import (
     Asset,
     Metadata,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
     make_metadata,
 )
@@ -32,26 +32,24 @@ async def teardown_db() -> None:
 
 @dataclass
 class PipelineFixture:
-    provider: Provider
+    actor: Actor
     changeset: Changeset
     asset: Asset
 
     @classmethod
     async def create(cls) -> "PipelineFixture":
-        provider = await Provider.create(
-            name="source-provider",
+        actor = await Actor.create(
+            name="source-actor",
             plugin_id="plugin.source",
-            type=ProviderType.SOURCE,
+            type=ActorType.SOURCE,
         )
-        changeset = await Changeset.create(
-            provider=provider, status=OpStatus.IN_PROGRESS
-        )
+        changeset = await Changeset.create(actor=actor, status=OpStatus.IN_PROGRESS)
         asset = Asset(
             external_id="asset-1",
             canonical_uri="file:///asset-1",
         )
-        await asset.save_record(changeset=changeset, provider=provider)
-        return cls(provider=provider, changeset=changeset, asset=asset)
+        await asset.save_record(changeset=changeset, actor=actor)
+        return cls(actor=actor, changeset=changeset, asset=asset)
 
     def metadata(
         self,
@@ -63,7 +61,7 @@ class PipelineFixture:
         md = make_metadata(
             key,
             value,
-            provider_id=self.provider.id,
+            actor_id=self.actor.id,
             removed=removed,
             asset=self.asset,
             changeset=self.changeset,

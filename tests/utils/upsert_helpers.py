@@ -11,8 +11,8 @@ from katalog.models import (
     Metadata,
     MetadataChangeSet,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
     make_metadata,
 )
@@ -40,26 +40,26 @@ async def _teardown_db() -> None:
 class UpsertFixture:
     asset: Asset
     changeset: Changeset
-    provider: Provider
+    actor: Actor
 
     @staticmethod
-    async def _ensure_provider(provider_id: int) -> Provider:
-        provider, _ = await Provider.get_or_create(
-            id=provider_id,
+    async def _ensure_actor(actor_id: int) -> Actor:
+        actor, _ = await Actor.get_or_create(
+            id=actor_id,
             defaults={
-                "name": f"provider-{provider_id}",
-                "plugin_id": f"plugin-{provider_id}",
-                "type": ProviderType.SOURCE,
+                "name": f"actor-{actor_id}",
+                "plugin_id": f"plugin-{actor_id}",
+                "type": ActorType.SOURCE,
             },
         )
-        return provider
+        return actor
 
     @staticmethod
-    async def _ensure_changeset(*, provider: Provider, changeset_id: int) -> Changeset:
+    async def _ensure_changeset(*, actor: Actor, changeset_id: int) -> Changeset:
         changeset, _ = await Changeset.get_or_create(
             id=changeset_id,
             defaults={
-                "provider": provider,
+                "actor": actor,
                 "status": OpStatus.COMPLETED,
                 "started_at": datetime.now(UTC),
                 "completed_at": datetime.now(UTC),
@@ -69,31 +69,27 @@ class UpsertFixture:
 
     @classmethod
     async def create(
-        cls, *, provider_id: int = 0, changeset_id: int = 0
+        cls, *, actor_id: int = 0, changeset_id: int = 0
     ) -> "UpsertFixture":
-        provider = await cls._ensure_provider(provider_id)
-        changeset = await cls._ensure_changeset(
-            provider=provider, changeset_id=changeset_id
-        )
+        actor = await cls._ensure_actor(actor_id)
+        changeset = await cls._ensure_changeset(actor=actor, changeset_id=changeset_id)
         asset = Asset(
-            external_id=f"canonical-{provider_id}",
-            canonical_uri=f"uri://{provider_id}",
+            external_id=f"canonical-{actor_id}",
+            canonical_uri=f"uri://{actor_id}",
         )
-        await asset.save_record(changeset=changeset, provider=provider)
-        return cls(asset=asset, changeset=changeset, provider=provider)
+        await asset.save_record(changeset=changeset, actor=actor)
+        return cls(asset=asset, changeset=changeset, actor=actor)
 
     async def upsert(
-        self, *, provider_id: int, changeset_id: int, metas: Sequence[Metadata]
+        self, *, actor_id: int, changeset_id: int, metas: Sequence[Metadata]
     ) -> set[MetadataKey]:
-        provider = await self._ensure_provider(provider_id)
-        changeset = await self._ensure_changeset(
-            provider=provider, changeset_id=changeset_id
-        )
+        actor = await self._ensure_actor(actor_id)
+        changeset = await self._ensure_changeset(actor=actor, changeset_id=changeset_id)
         for m in metas:
-            m.provider = provider
+            m.actor = actor
             m.changeset = changeset
             m.asset = self.asset
-        await self.asset.save_record(changeset=changeset, provider=provider)
+        await self.asset.save_record(changeset=changeset, actor=actor)
         change_set = MetadataChangeSet(
             loaded=await self.asset.load_metadata(), staged=list(metas)
         )
@@ -109,15 +105,13 @@ class UpsertFixture:
         )
 
     async def add_initial(
-        self, provider_id: int, changeset_id: int, metas: Sequence[Metadata]
+        self, actor_id: int, changeset_id: int, metas: Sequence[Metadata]
     ) -> None:
         records: list[Metadata] = []
-        provider = await self._ensure_provider(provider_id)
-        changeset = await self._ensure_changeset(
-            provider=provider, changeset_id=changeset_id
-        )
+        actor = await self._ensure_actor(actor_id)
+        changeset = await self._ensure_changeset(actor=actor, changeset_id=changeset_id)
         for m in metas:
-            m.provider = provider
+            m.actor = actor
             m.changeset = changeset
             m.asset = self.asset
             records.append(m)

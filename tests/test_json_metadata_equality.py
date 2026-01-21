@@ -19,7 +19,7 @@ from tests.utils.pipeline_helpers import PipelineFixture
 async def test_json_metadata_rejects_non_serializable_values(pipeline_db):
     # sets are not JSON-serializable
     with pytest.raises(ValueError):
-        make_metadata(FILE_TAGS, cast(Any, {"a", "b"}), provider_id=1)
+        make_metadata(FILE_TAGS, cast(Any, {"a", "b"}), actor_id=1)
 
 
 @pytest.mark.asyncio
@@ -60,12 +60,10 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
     await existing.save()
 
     # New changeset to simulate a later run.
-    changeset2 = await Changeset.create(
-        provider=fx.provider, status=OpStatus.IN_PROGRESS
-    )
+    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
 
     loaded = await fx.asset.load_metadata()
-    staged = [make_metadata(FILE_TAGS, ["a", "b"], provider_id=fx.provider.id)]
+    staged = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=fx.actor.id)]
     change_set = MetadataChangeSet(loaded=loaded, staged=staged)
 
     changed = await change_set.persist(asset=fx.asset, changeset=changeset2)
@@ -75,7 +73,7 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
     key_id = existing.metadata_key_id
     count = await Metadata.filter(
         asset_id=fx.asset.id,
-        provider_id=fx.provider.id,
+        actor_id=fx.actor.id,
         metadata_key_id=key_id,
     ).count()
     assert count == 1

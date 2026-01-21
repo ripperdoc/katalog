@@ -2,16 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
-import {
-  createProvider,
-  fetchPlugins,
-  fetchPluginConfigSchema,
-  type PluginSpec,
-} from "../api/client";
+import { createActor, fetchPlugins, fetchPluginConfigSchema, type PluginSpec } from "../api/client";
 
 const USER_EDITOR_PLUGIN_ID = "katalog.sources.user_editor.UserEditorSource";
 
-function ProviderCreateRoute() {
+function ActorCreateRoute() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [plugins, setPlugins] = useState<PluginSpec[]>([]);
@@ -25,7 +20,13 @@ function ProviderCreateRoute() {
     const t = params.get("type");
     if (!t) return null;
     const upper = t.toUpperCase();
-    return upper === "SOURCES" ? "SOURCE" : upper === "PROCESSORS" ? "PROCESSOR" : upper === "ANALYZERS" ? "ANALYZER" : null;
+    return upper === "SOURCES"
+      ? "SOURCE"
+      : upper === "PROCESSORS"
+        ? "PROCESSOR"
+        : upper === "ANALYZERS"
+          ? "ANALYZER"
+          : null;
   }, [params]);
 
   const loadPlugins = useCallback(async () => {
@@ -35,7 +36,8 @@ function ProviderCreateRoute() {
       const list = res.plugins ?? [];
       const filtered = typeFilter ? list.filter((p) => p.type === typeFilter) : list;
       setPlugins(filtered);
-      const defaultPlugin = filtered.find((p) => p.plugin_id === USER_EDITOR_PLUGIN_ID) || filtered[0];
+      const defaultPlugin =
+        filtered.find((p) => p.plugin_id === USER_EDITOR_PLUGIN_ID) || filtered[0];
       if (defaultPlugin) {
         setPluginId(defaultPlugin.plugin_id);
       }
@@ -74,12 +76,12 @@ function ProviderCreateRoute() {
     setLoading(true);
     setError(null);
     try {
-      const res = await createProvider({
+      const res = await createActor({
         name: name || pluginId,
         plugin_id: pluginId,
         config: formData,
       });
-      navigate(`/providers/${res.provider.id}`);
+      navigate(`/actors/${res.actor.id}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -92,11 +94,11 @@ function ProviderCreateRoute() {
     <section className="panel">
       <header className="panel-header">
         <div>
-          <h2>Create provider</h2>
+          <h2>Create actor</h2>
           <p>Select a plugin and configure it.</p>
         </div>
         <div className="button-row">
-          <Link to="/providers" className="link-button">
+          <Link to="/actors" className="link-button">
             Back
           </Link>
         </div>
@@ -139,4 +141,4 @@ function ProviderCreateRoute() {
   );
 }
 
-export default ProviderCreateRoute;
+export default ActorCreateRoute;

@@ -7,7 +7,7 @@ from katalog.models import (
     MetadataKey,
     Metadata,
     OpStatus,
-    Provider,
+    Actor,
     MetadataChangeSet,
 )
 from katalog.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
@@ -73,14 +73,16 @@ def file_data_changed(
 ) -> bool:
     """Helper to determine if data or relevant fields have changed. If allow_weak_check is True, also assume data has changed if TIME_MODIFIED has changed."""
     changes = change_set.changed_keys()
-    return DATA_KEY in changes or HASH_MD5 in changes or (
-        allow_weak_check and TIME_MODIFIED in changes
+    return (
+        DATA_KEY in changes
+        or HASH_MD5 in changes
+        or (allow_weak_check and TIME_MODIFIED in changes)
     )
 
 
 file_data_change_dependencies = frozenset({DATA_KEY, HASH_MD5, TIME_MODIFIED})
 
 
-def make_processor_instance(processor_record: Provider) -> Processor:
+def make_processor_instance(processor_record: Actor) -> Processor:
     ProcessorClass = cast(type[Processor], get_plugin_class(processor_record.plugin_id))
-    return ProcessorClass(provider=processor_record, **(processor_record.config or {}))
+    return ProcessorClass(actor=processor_record, **(processor_record.config or {}))

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, FrozenSet, cast
 
-from katalog.models import Metadata, MetadataKey, Provider, Changeset
+from katalog.models import Metadata, MetadataKey, Actor, Changeset
 from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_plugin_class
 
@@ -36,7 +36,7 @@ class RelationshipRecord:
     from_id: str
     to_id: str
     relationship_type: str
-    provider_id: str | None = None
+    actor_id: str | None = None
     confidence: float | None = None
     description: str | None = None
     removed: bool = False
@@ -81,6 +81,6 @@ class Analyzer(PluginBase, ABC):
         """Execute the analyzer and return the metadata mutations to persist."""
 
 
-def make_analyzer_instance(analyzer_record: Provider) -> Analyzer:
+def make_analyzer_instance(analyzer_record: Actor) -> Analyzer:
     AnalyzerClass = cast(type[Analyzer], get_plugin_class(analyzer_record.plugin_id))
-    return AnalyzerClass(provider=analyzer_record, **(analyzer_record.config or {}))
+    return AnalyzerClass(actor=analyzer_record, **(analyzer_record.config or {}))

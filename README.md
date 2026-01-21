@@ -3,8 +3,8 @@ _Current status: WIP, get in touch if you want to collaborate_
 # KATALOG
 
 Katalog is a tool for tracking digital assets, files, posts, web pages and more. Files tend gather
-like dust, across file systems, old drives, cloud providers, websites. Finding something is hard,
-you see duplication, versionitis, poor folder structures and naming schemes.
+like dust, across file systems, old drives, cloud actors, websites. Finding something is hard, you
+see duplication, versionitis, poor folder structures and naming schemes.
 
 There is an endless stream of tools that try to attack specific parts of this problem: file
 searching, syncing, file sorters, AI analyzers, digital asset management, and more. My observation
@@ -22,9 +22,9 @@ open-source tools and SDKs.
 
 ## Example use cases
 
-- Catalogue (scan) all digital assets you've created across both local and remote storage providers
+- Catalogue (scan) all digital assets you've created across both local and remote storage actors
 - Find files using filters, text search or semantic search (vector search)
-- Browse and list files faster and with more detail, even if the cloud provider is slow, broken or
+- Browse and list files faster and with more detail, even if the cloud actor is slow, broken or
   offline
 - Merge metadata for the same files from multiple sources, like the posts from a webpage with the
   images in a Dropbox and the PDFs in a local drive
@@ -35,8 +35,8 @@ open-source tools and SDKs.
   convert them to new formats, de-duplicate, build version histories
 - Visualize files in different dimensions - as tables, folders, events over time, image galleries
 - Provide useful statistics, such as typical and total file size, type, projects, folders
-- Connect to backup and sync providers, to gather metadata over time, tracking how files have
-  changed over the years
+- Connect to backup and sync actors, to gather metadata over time, tracking how files have changed
+  over the years
 - Ultimately, to also provide the ability to see where content has been published and make it easy
   to manage assets across all systems
 
@@ -111,7 +111,7 @@ _Supported processors of digital assets._
 - ⏳ (planned) Custom grouped views, ability to define and save groups of files
 - ⏳ (planned) Stats for assets
 - ⏳ (planned) Export tools for tables and file data
-- ⏳ (planned) Tools to write changes back to providers (e.g. rename in source)
+- ⏳ (planned) Tools to write changes back to actors (e.g. rename in source)
 - ⏳ (planned) Customized processing pipelines
 
 See `TODO.md` for more details.
@@ -148,8 +148,8 @@ The Vite dev proxy forwards `/api/*` calls to the FastAPI server, so no extra CO
 VITE_API_BASE_URL="http://localhost:8000" npm run build
 ```
 
-The UI currently lets you enter a source id, query `/files/{provider_id}` with the `flat` or
-`complete` view, and render each file record with its metadata payload.
+The UI currently lets you enter a source id, query `/files/{actor_id}` with the `flat` or `complete`
+view, and render each file record with its metadata payload.
 
 # AI policy
 

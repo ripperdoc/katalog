@@ -9,7 +9,7 @@ from tests.utils.upsert_helpers import UpsertFixture, ctx, md  # noqa: F401
 @pytest.mark.asyncio
 async def test_upsert_adds_first_metadata_value(ctx: UpsertFixture):
     changes = await ctx.upsert(
-        provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
+        actor_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
     )
 
     assert {FILE_PATH} == changes
@@ -23,11 +23,11 @@ async def test_upsert_adds_first_metadata_value(ctx: UpsertFixture):
 @pytest.mark.asyncio
 async def test_upsert_doesnt_add_duplicate(ctx: UpsertFixture):
     await ctx.add_initial(
-        provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
+        actor_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
     )
 
     changes = await ctx.upsert(
-        provider_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file1")]
+        actor_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file1")]
     )
 
     assert not changes
@@ -41,11 +41,11 @@ async def test_upsert_doesnt_add_duplicate(ctx: UpsertFixture):
 @pytest.mark.asyncio
 async def test_upsert_different_value_adds_second_value(ctx: UpsertFixture):
     await ctx.add_initial(
-        provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
+        actor_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
     )
 
     changes = await ctx.upsert(
-        provider_id=1, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file2")]
+        actor_id=1, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file2")]
     )
 
     assert {FILE_PATH} == changes
@@ -62,14 +62,14 @@ async def test_upsert_different_value_adds_second_value(ctx: UpsertFixture):
 @pytest.mark.asyncio
 async def test_upsert_multiple_values_adds_only_new(ctx: UpsertFixture):
     await ctx.add_initial(
-        provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
+        actor_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
     )
     await ctx.add_initial(
-        provider_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file2")]
+        actor_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file2")]
     )
 
     changes = await ctx.upsert(
-        provider_id=0,
+        actor_id=0,
         changeset_id=3,
         metas=[md(FILE_PATH, "/tmp/file2"), md(FILE_PATH, "/tmp/file3")],
     )
@@ -91,14 +91,14 @@ async def test_upsert_multiple_values_adds_only_new(ctx: UpsertFixture):
 @pytest.mark.asyncio
 async def test_upsert_to_remove_one_value(ctx: UpsertFixture):
     await ctx.add_initial(
-        provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
+        actor_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/file1")]
     )
     await ctx.add_initial(
-        provider_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file2")]
+        actor_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/file2")]
     )
 
     changes = await ctx.upsert(
-        provider_id=1,
+        actor_id=1,
         changeset_id=3,
         metas=[md(FILE_PATH, "/tmp/file1", removed=True), md(FILE_PATH, "/tmp/file2")],
     )

@@ -13,7 +13,7 @@ const AppHeader = ({ children }: AppHeaderProps) => {
           Katalog <small>{__APP_VERSION__ ?? "dev"}</small> <span className="icon">view_list</span>
         </h1>
         <nav className="nav">
-          <Link to="/providers">Providers</Link>
+          <Link to="/actors">Actors</Link>
           <Link to="/assets">Assets</Link>
           <Link to="/collections">Collections</Link>
           <Link to="/changesets">History</Link>

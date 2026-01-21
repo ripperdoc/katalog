@@ -94,7 +94,7 @@ be able to track:
   archive, a file bundle or image files attached inside a document file.
 - **Duplicate**: A special case of version is when two or more file records have identical contents
   to eachother.
-- **Link**: A file that is a link to another file (depends on SourceProvider if this is seen as just
+- **Link**: A file that is a link to another file (depends on SourceActor if this is seen as just
   one record or multiple records)
 - **Asset**: Back to our original definition, essentially we could cluster all files that are
   variants, versions and duplicates of eachother and consider them the same asset. But probably we
@@ -106,14 +106,14 @@ We might want to click on one file record and see all associated files and their
 might want to browse all "groups" and see the files considered part of them, like a file browser or
 a version tree.
 
-### Providers and Plugins
+### Actors and Plugins
 
-A provider in our system is the instance of some piece of code that provides data into the system,
-so that all data can be given "provenance". In basically all cases, a provider instance is
-implemented with a plugin, even if that plugin just conveys data from a user into the system. The
-reason providers are separate is because there may be multiple instances of a provider using the
-same plugin (e.g. multiple Google Drives), and there might also in the future exist providers that
-aren't linked to a plugin.
+An actor in our system is the instance of some piece of code that provides data into the system, so
+that all data can be given "provenance". In basically all cases, an actor instance is implemented
+with a plugin, even if that plugin just conveys data from a user into the system. The reason actors
+are separate is because there may be multiple instances of an actor using the same plugin (e.g.
+multiple Google Drives), and there might also in the future exist actors that aren't linked to a
+plugin.
 
 #### Sources
 
@@ -124,7 +124,8 @@ structure. The settings on a source will control how files are accessed and cata
 it. The whole user journey of `katalog` starts with the user adding a first Adapter, e.g. their
 "Document" folder.
 
-Whenever we scan a source, we create a changeset which adds new assets and/or metadata to the system.
+Whenever we scan a source, we create a changeset which adds new assets and/or metadata to the
+system.
 
 ## Processors
 
@@ -174,7 +175,7 @@ database model:
   without causing large delays
 - Be as space efficient as possible
 - Handle an extensible number of metadata keys, atleast 30-50
-- Handle multiple opinions from multiple providers on every metadata, on every asset
+- Handle multiple opinions from multiple actors on every metadata, on every asset
 - Full version history on all metadata, enabling full undo, restore and editing of history
 - Support full sorting, filtering and grouping on all metadata fields
 - Support full text search and vector search (using necessary plugins)
@@ -188,7 +189,7 @@ database model:
 human wants to define a tracked asset. That asset id is referred to by one or more file records to
 link them together.
 
-`provider_id` is a workspace unique readable string ID for the instance of a source along with it's
+`actor_id` is a workspace unique readable string ID for the instance of a source along with it's
 settings. It's not the same as the `plugin_id`, e.g. one workspace can have multiple Google Drive's
 setup.
 
@@ -211,32 +212,31 @@ However there are a few important notes about how this works:
 #### Metadata changesets
 
 Take a metadata value like `access/owner`. It might seem at first a scalar, singular value. But in
-fact it can have multiple values. On one hand, we may have multiple sources (`provider_id`s) that
-give different values for `access/owner`. On top of that, some APIs might return multiple
-`access/owner` for the same asset. As our metadata structure should allow for maximum modularity, we
-can never assume a value is singular.
+fact it can have multiple values. On one hand, we may have multiple sources (`actor_id`s) that give
+different values for `access/owner`. On top of that, some APIs might return multiple `access/owner`
+for the same asset. As our metadata structure should allow for maximum modularity, we can never
+assume a value is singular.
 
 So over time, `access/owner` might both change a singular value to a different one, or we might add
 an aditional value in addition to the previous, and we might remove a value but keeping the other.
-And if we step back in time, we should always represent the value as it was from the provider at
-that time.
+And if we step back in time, we should always represent the value as it was from the actor at that
+time.
 
-If we have new a value but there was nothing before from that `provider_id`, we simple add a new
-row.
+If we have new a value but there was nothing before from that `actor_id`, we simple add a new row.
 
-If we have a new value but it's different than the previous one for that `provider_id`, we add a new
+If we have a new value but it's different than the previous one for that `actor_id`, we add a new
 row and the default queries will only show the most recent (maximum) changeset e.g. row for this
 value.
 
-If have a new value, from a different `provider_id`, we add it as a new row and a query might show
-both values (but from different providers).
+If have a new value, from a different `actor_id`, we add it as a new row and a query might show both
+values (but from different actors).
 
-If we remove a value that was previously there, from same `provider_id`, we add a row with same
-value as before but `removed=1`.
+If we remove a value that was previously there, from same `actor_id`, we add a row with same value
+as before but `removed=1`.
 
-If the provider at some time later suddenly provides multiple values (e.g. an array) we compare the
-values with the most recent changeset for same provider, and any values added are given a new row,
-any values the same are ignored and any values removed are added as a row with `removed=1`.
+If the actor at some time later suddenly provides multiple values (e.g. an array) we compare the
+values with the most recent changeset for same actor, and any values added are given a new row, any
+values the same are ignored and any values removed are added as a row with `removed=1`.
 
 Note, this approach does not allow us to store duplicate values, which would in theory be possible
 in a list. E.g it's more correct that say that we store "sets" of metadata values. This would be a
@@ -364,7 +364,7 @@ avoid overlapping concepts, we use a single persisted type:
 
 ### Main server
 
-The main module is implemented as a FastAPI server. It initializes the system, manages providers and
+The main module is implemented as a FastAPI server. It initializes the system, manages actors and
 provides an HTTP API for actions such as scanning all or specific sources. The server tracks
 asynchronous scan jobs using a simple job system and offers endpoints to retrieve job status and
 results. As a scan progresses, it collects file information and can trigger processors on each
@@ -387,7 +387,7 @@ FROM metadata me
 JOIN assets fr ON fr.id = me.asset_id
 WHERE me.metadata_key = 'core/checksum/md5'
 GROUP BY me.value_text
-HAVING COUNT(DISTINCT fr.provider_id) > 1;
+HAVING COUNT(DISTINCT fr.actor_id) > 1;
 ```
 
 This produces every MD5 value seen in multiple sources together with the affected file records,
@@ -399,7 +399,7 @@ Yes. Both `assets.asset_id` and `metadata.asset_id` are nullable, so scanners ca
 discoveries immediately, even when we have not yet created or linked a canonical asset. The workflow
 is typically:
 
-1. Source plugin inserts a `assets` row with `asset_id = NULL` plus whatever metadata the provider
+1. Source plugin inserts a `assets` row with `asset_id = NULL` plus whatever metadata the actor
    offers (URIs, hashes, timestamps).
 2. Processors emit metadata rows that still point at the `asset_id` (and leave `asset_id = NULL`).
 3. When a deduper decides that the file should join (or create) an asset, it issues an `UPDATE` to
@@ -420,10 +420,10 @@ reappears in a future scan.
 
 ### Can we leverage sources that provide incremental change feeds?
 
-Yes. The schema keeps `first_seen_at`/`last_seen_at` plus provider identifiers (`provider_file_id`,
+Yes. The schema keeps `first_seen_at`/`last_seen_at` plus actor identifiers (`actor_file_id`,
 `canonical_uri`). When a connector supports “changes since T”, we store the checkpoint timestamp in
-the `providers` table (inside `config` or a dedicated column) and ask the source only for files
-whose modification time is newer than that value. The scanner then:
+the `actors` table (inside `config` or a dedicated column) and ask the source only for files whose
+modification time is newer than that value. The scanner then:
 
 1. Upserts rows for returned files, bumping `last_seen_at` and updating any metadata that changed.
 2. Leaves untouched rows whose `last_seen_at` already exceeds the incremental window, so they are
@@ -443,7 +443,7 @@ This section summarizes how to build and ship a plugin so that `katalog` can dis
 - Implement a subclass of `SourcePlugin`, `Processor`, or `Analyzer` from `katalog.plugins.*` and
   add `plugin_id` (package path), `title`, `description`, and optional `version` as properties on
   the class.
-- Keep the constructor signature `__init__(provider, **config)`; `provider.config` is passed as the
+- Keep the constructor signature `__init__(actor, **config)`; `actor.config` is passed as the
   `config` dict when the plugin is instantiated.
 - Publish the class through a Python entry point in your `pyproject.toml`. The groups the runtime
   scans are:
@@ -456,12 +456,11 @@ This section summarizes how to build and ship a plugin so that `katalog` can dis
 
 ## Plugin configuration
 
-Each plugin should accept their Provider object from database to their `__init__` method. From that
-provider object, it can read the config dict. The recommendation is to have a Pydantic model which
+Each plugin should accept their Actor object from database to their `__init__` method. From that
+actor object, it can read the config dict. The recommendation is to have a Pydantic model which
 represents accepted configuration, and add it as class property e.g. `<PluginClass>.ConfigModel`.
 
-Then in `__init__`, just validate the provider config and save the instantiated ConfigModel to
-`self`.
+Then in `__init__`, just validate the actor config and save the instantiated ConfigModel to `self`.
 
 Keep keys snake_case, keep types descriptive (not necessarily Python types), and make `description`
 succinct. The runtime can later render this metadata in UIs or validate configs without changing
@@ -471,8 +470,8 @@ plugin code.
 
 - Try to make plugins focused on one thing and use limited dependencies
 - We encourage to re-use dependencies from core `katalog` or our `utils` package.
-- If your plugin need to persist files, call `provider_path` from `config.py` to ensure a subfolder
-  that won't conflict with other providers.
+- If your plugin need to persist files, call `actor_path` from `config.py` to ensure a subfolder
+  that won't conflict with other actors.
 
 ## Sources
 
@@ -481,7 +480,7 @@ plugin code.
 - Must return correct scan results based on if the scan was cancelled, completed, etc
 - Sources are not currently meant to know anything about the Asset and it's metadat from earlier
   scans. We also assume any metadata set from a scan are intended to replace any previous value from
-  the same provider id.
+  the same actor id.
 
 ## Processors
 

@@ -45,7 +45,7 @@ Comments:
 1. Go to an asset details page (or possibly from the table)
 2. Make an edit using built-in UI
    1. This visibly and under the hood starts an ongoing changeset. The changeset is tagged to a
-      special provider representing the current user, or a built-in plugin?
+      special actor representing the current user, or a built-in plugin?
    2. Every edit is saved to the DB as it happens, using the ongoing changeset
    3. User can move on to another asset and edit it too
 3. User needs click a button in the top bar to complete the changeset (but technically nothing

@@ -15,8 +15,8 @@ from katalog.metadata import (
 )
 from katalog.models import (
     Asset,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     MetadataChangeSet,
     make_metadata,
 )
@@ -52,21 +52,21 @@ def register_metadata_ids():
     METADATA_REGISTRY_BY_ID.update(original_by_id)
 
 
-def make_provider() -> Provider:
-    return Provider(id=1, name="p", plugin_id="p", type=ProviderType.SOURCE)
+def make_actor() -> Actor:
+    return Actor(id=1, name="p", plugin_id="p", type=ActorType.SOURCE)
 
 
 def make_record() -> Asset:
     asset = Asset()
     asset.id = 1
-    asset.provider_id = 1
+    asset.actor_id = 1
     asset.external_id = "cid"
     asset.canonical_uri = "uri://file"
     return asset
 
 
 def with_hash_cache(asset: Asset) -> Asset:
-    md = make_metadata(HASH_MD5, "existing", provider_id=asset.provider_id)
+    md = make_metadata(HASH_MD5, "existing", actor_id=asset.actor_id)
     md.metadata_key_id = METADATA_REGISTRY[HASH_MD5].registry_id
     md.changeset_id = 1
     asset._metadata_cache = [md]
@@ -74,14 +74,14 @@ def with_hash_cache(asset: Asset) -> Asset:
 
 
 def test_should_run_skips_when_hash_already_present_and_no_change():
-    processor = MD5HashProcessor(provider=make_provider())
+    processor = MD5HashProcessor(actor=make_actor())
     record = with_hash_cache(make_record())
     cs = MetadataChangeSet(record._metadata_cache or [])
     assert processor.should_run(record, cs) is False
 
 
 def test_should_run_when_hash_missing():
-    processor = MD5HashProcessor(provider=make_provider())
+    processor = MD5HashProcessor(actor=make_actor())
     record = make_record()
     cs = MetadataChangeSet([])
     should_run = processor.should_run(record, cs)
@@ -89,10 +89,10 @@ def test_should_run_when_hash_missing():
 
 
 def test_runs_when_fingerprint_changed_even_with_existing_hash():
-    processor = MD5HashProcessor(provider=make_provider())
+    processor = MD5HashProcessor(actor=make_actor())
     record = with_hash_cache(make_record())
     cs = MetadataChangeSet(record._metadata_cache or [], staged=[])
-    md = make_metadata(FILE_SIZE, 1, provider_id=record.provider_id)
+    md = make_metadata(FILE_SIZE, 1, actor_id=record.actor_id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_SIZE].registry_id
     md.changeset_id = 2
     cs.add([md])
@@ -101,7 +101,7 @@ def test_runs_when_fingerprint_changed_even_with_existing_hash():
     md = make_metadata(
         TIME_MODIFIED,
         datetime(2001, 1, 1, tzinfo=UTC),
-        provider_id=record.provider_id,
+        actor_id=record.actor_id,
     )
     md.metadata_key_id = METADATA_REGISTRY[TIME_MODIFIED].registry_id
     md.changeset_id = 2
@@ -111,7 +111,7 @@ def test_runs_when_fingerprint_changed_even_with_existing_hash():
 
 @pytest.mark.asyncio
 async def test_run_computes_expected_hash():
-    processor = MD5HashProcessor(provider=make_provider())
+    processor = MD5HashProcessor(actor=make_actor())
     record = make_record()
     payload = b"hello world"
     record.attach_accessor(MemoryAccessor(payload))

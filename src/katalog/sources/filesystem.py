@@ -14,7 +14,7 @@ from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.models import (
     FileAccessor,
     Asset,
-    Provider,
+    Actor,
 )
 from katalog.models import OpStatus
 from katalog.metadata import (
@@ -67,9 +67,9 @@ class FilesystemClient(SourcePlugin):
 
     config_model = ConfigModel
 
-    def __init__(self, provider: Provider, **config: Any) -> None:
+    def __init__(self, actor: Actor, **config: Any) -> None:
         cfg = self.config_model.model_validate(config or {})
-        super().__init__(provider, **config)
+        super().__init__(actor, **config)
         # Store normalized values for runtime use.
         self.root_path = str(cfg.root_path)
         self.max_files = cfg.max_files
@@ -128,12 +128,12 @@ class FilesystemClient(SourcePlugin):
                         asset = Asset(
                             external_id=external_id,
                             canonical_uri=abs_path.as_uri(),
-                            provider_id=self.provider.id,
+                            actor_id=self.actor.id,
                         )
 
                         asset.attach_accessor(self.get_accessor(asset))
 
-                        result = AssetScanResult(asset=asset, provider=self.provider)
+                        result = AssetScanResult(asset=asset, actor=self.actor)
                         result.set_metadata(FILE_PATH, str(abs_path))
                         result.set_metadata(TIME_MODIFIED, modified)
                         result.set_metadata(TIME_CREATED, created)
@@ -144,7 +144,7 @@ class FilesystemClient(SourcePlugin):
                     except Exception as e:
                         ignored += 1
                         logger.warning(
-                            f"Failed to stat {full_path} for source {self.provider.id}: {e}"
+                            f"Failed to stat {full_path} for source {self.actor.id}: {e}"
                         )
                         continue
                     yield result

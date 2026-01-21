@@ -35,9 +35,9 @@ class NameReadabilityProcessor(Processor):
 
     config_model = ConfigModel
 
-    def __init__(self, provider, **config):
+    def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
-        super().__init__(provider, **config)
+        super().__init__(actor, **config)
 
     _HEXISH_ID = re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE)
     _GUID = re.compile(
@@ -73,7 +73,7 @@ class NameReadabilityProcessor(Processor):
         metadata = make_metadata(
             WARNING_NAME_READABILITY,
             analysis,
-            self.provider.id,
+            self.actor.id,
             confidence=confidence,
         )
         return ProcessorResult(metadata=[metadata])
@@ -82,7 +82,7 @@ class NameReadabilityProcessor(Processor):
         if self.database:
             entries = self.database.get_metadata_for_file(
                 asset.id,
-                provider_id=self.provider.id,
+                actor_id=self.actor.id,
                 metadata_key=FILE_NAME,
             )
             if entries:

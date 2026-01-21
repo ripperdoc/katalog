@@ -11,8 +11,8 @@ from katalog.models import (
     Asset,
     Metadata,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
     make_metadata,
 )
@@ -33,30 +33,30 @@ async def _teardown_db() -> None:
     await Tortoise.close_connections()
 
 
-async def _seed_records() -> tuple[Provider, Changeset, Asset]:
-    provider = await Provider.create(
-        name="tz-provider",
+async def _seed_records() -> tuple[Actor, Changeset, Asset]:
+    actor = await Actor.create(
+        name="tz-actor",
         plugin_id="plugin.tz",
-        type=ProviderType.SOURCE,
+        type=ActorType.SOURCE,
     )
-    changeset = await Changeset.create(provider=provider, status=OpStatus.IN_PROGRESS)
+    changeset = await Changeset.create(actor=actor, status=OpStatus.IN_PROGRESS)
     asset = Asset(
         external_id="asset-tz",
         canonical_uri="file:///asset-tz",
     )
-    await asset.save_record(changeset=changeset, provider=provider)
-    return provider, changeset, asset
+    await asset.save_record(changeset=changeset, actor=actor)
+    return actor, changeset, asset
 
 
 async def _roundtrip(datetimes: Iterable[datetime]) -> list[tuple[datetime, datetime]]:
-    provider, changeset, asset = await _seed_records()
+    actor, changeset, asset = await _seed_records()
     pairs: list[tuple[datetime, datetime]] = []
 
     for idx, original in enumerate(datetimes):
         md = make_metadata(
             TIME_MODIFIED,
             original,
-            provider_id=provider.id,
+            actor_id=actor.id,
             asset=asset,
             changeset=changeset,
         )
@@ -97,13 +97,13 @@ async def test_datetime_roundtrip_preserves_tzinfo() -> None:
 async def test_naive_datetime_is_rejected() -> None:
     await _init_db()
     try:
-        provider, changeset, asset = await _seed_records()
+        actor, changeset, asset = await _seed_records()
         naive = datetime(2024, 1, 1, 12, 0, 0)
         with pytest.raises(ValueError):
             md = make_metadata(
                 TIME_MODIFIED,
                 naive,
-                provider_id=provider.id,
+                actor_id=actor.id,
                 asset=asset,
                 changeset=changeset,
             )

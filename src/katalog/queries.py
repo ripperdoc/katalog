@@ -11,7 +11,7 @@ from katalog.metadata import (
     ASSET_EXTERNAL_ID,
     ASSET_CANONICAL_URI,
     ASSET_ID,
-    ASSET_PROVIDER_ID,
+    ASSET_ACTOR_ID,
     METADATA_REGISTRY,
     METADATA_REGISTRY_BY_ID,
     MetadataDef,
@@ -473,8 +473,8 @@ def filter_conditions(filters):
 
 asset_sort_fields = {
     str(ASSET_ID): "a.id",
-    # Provider sort temporarily disabled to avoid expensive lookups; see list_assets_for_view.
-    # str(ASSET_PROVIDER_ID): "asset_provider_id",
+    # Actor sort temporarily disabled to avoid expensive lookups; see list_assets_for_view.
+    # str(ASSET_ACTOR_ID): "asset_actor_id",
     str(ASSET_EXTERNAL_ID): "a.external_id",
     str(ASSET_CANONICAL_URI): "a.canonical_uri",
 }
@@ -495,8 +495,8 @@ def sort_conditions(sort: tuple[str, str] | None, view: ViewSpec):
     if not sort_spec.sortable:
         raise ValueError(f"Sorting not supported for column: {sort_col}")
 
-    if sort_col == str(ASSET_PROVIDER_ID):
-        raise ValueError("Sorting by provider is temporarily disabled")
+    if sort_col == str(ASSET_ACTOR_ID):
+        raise ValueError("Sorting by actor is temporarily disabled")
     if sort_col not in asset_sort_fields:
         raise ValueError(f"Sorting not implemented for column: {sort_col}")
     return f"{asset_sort_fields[sort_col]} {sort_dir.upper()}, a.id ASC"
@@ -519,7 +519,7 @@ async def list_grouped_assets(
     view: ViewSpec,
     *,
     group_by: str,
-    provider_id: int | None = None,
+    actor_id: int | None = None,
     offset: int = 0,
     limit: int = 50,
     filters: list[str] | None = None,
@@ -537,12 +537,12 @@ async def list_grouped_assets(
     started_at = time.perf_counter()
 
     conditions, filter_params = filter_conditions(filters)
-    if provider_id is not None:
+    if actor_id is not None:
         conditions.insert(
             0,
-            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.provider_id = ?)",
+            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.actor_id = ?)",
         )
-        filter_params.insert(0, provider_id)
+        filter_params.insert(0, actor_id)
     if search is not None and search.strip():
         fts_query = _fts5_query_from_user_text(search)
         if not fts_query:
@@ -658,7 +658,7 @@ async def list_grouped_assets(
                 "sample_asset_ids": asset_ids[:5],
                 # mimic asset columns so the table can render a unified schema
                 str(ASSET_ID): f"group:{row.get('group_value')}",
-                str(ASSET_PROVIDER_ID): None,
+                str(ASSET_ACTOR_ID): None,
                 str(ASSET_EXTERNAL_ID): None,
                 str(ASSET_CANONICAL_URI): None,
             }
@@ -712,7 +712,7 @@ def build_group_member_filter(group_by: str, group_value: str) -> tuple[str, lis
 async def list_assets_for_view(
     view: ViewSpec,
     *,
-    provider_id: int | None = None,
+    actor_id: int | None = None,
     offset: int = 0,
     limit: int = 100,
     sort: tuple[str, str] | None = None,
@@ -745,12 +745,12 @@ async def list_assets_for_view(
     # WHERE clause builder
     conditions, filter_params = filter_conditions(filters)
 
-    if provider_id is not None:
-        # Scope to assets that have metadata from the provider.
+    if actor_id is not None:
+        # Scope to assets that have metadata from the actor.
         conditions.append(
-            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.provider_id = ?)"
+            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.actor_id = ?)"
         )
-        filter_params.extend([provider_id])
+        filter_params.extend([actor_id])
 
     if extra_where:
         conditions.append(extra_where[0])
@@ -779,7 +779,7 @@ async def list_assets_for_view(
     assets_sql = f"""
     SELECT
         a.id AS asset_id,
-        NULL AS asset_provider_id,
+        NULL AS asset_actor_id,
         a.external_id,
         a.canonical_uri
     FROM {asset_table} a
@@ -805,7 +805,7 @@ async def list_assets_for_view(
         page_asset_ids.append(asset_id)
         asset_entry: dict[str, Any] = {
             str(ASSET_ID): asset_id,
-            str(ASSET_PROVIDER_ID): row["asset_provider_id"],
+            str(ASSET_ACTOR_ID): row["asset_actor_id"],
             str(ASSET_EXTERNAL_ID): row["external_id"],
             str(ASSET_CANONICAL_URI): row["canonical_uri"],
         }
@@ -922,7 +922,7 @@ async def list_changeset_metadata_changes(
     SELECT
         id,
         asset_id,
-        provider_id,
+        actor_id,
         changeset_id,
         metadata_key_id,
         value_type,
@@ -952,7 +952,7 @@ async def list_changeset_metadata_changes(
             {
                 "id": int(row["id"]),
                 "asset_id": int(row["asset_id"]),
-                "provider_id": int(row["provider_id"]),
+                "actor_id": int(row["actor_id"]),
                 "changeset_id": int(row["changeset_id"]),
                 "metadata_key": key_str,
                 "metadata_key_id": int(row["metadata_key_id"]),

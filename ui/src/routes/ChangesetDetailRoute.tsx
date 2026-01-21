@@ -179,7 +179,7 @@ function ChangesetDetailRoute() {
   const changeHeaders: HeaderObject[] = [
     { accessor: "id", label: "ID", width: 80, type: "number" },
     { accessor: "asset_id", label: "Asset", width: 120, type: "number" },
-    { accessor: "provider_id", label: "Provider", width: 120, type: "number" },
+    { accessor: "actor_id", label: "Actor", width: 120, type: "number" },
     { accessor: "metadata_key", label: "Metadata Key", width: "2fr", type: "string" },
     {
       accessor: "value",

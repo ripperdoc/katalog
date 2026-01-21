@@ -21,8 +21,8 @@ from katalog.models import (
     MetadataChangeSet,
     Metadata,
     OpStatus,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
 )
 from katalog.processors.runtime import run_processors, sort_processors
@@ -105,21 +105,21 @@ RUNNING_CHANGESETS: dict[int, ChangesetRunState] = {}
 
 
 @app.get("/assets")
-async def list_assets(provider_id: Optional[int] = None):
+async def list_assets(actor_id: Optional[int] = None):
     view = get_view("default")
-    return await list_assets_for_view(view, provider_id=provider_id)
+    return await list_assets_for_view(view, actor_id=actor_id)
 
 
 @app.get("/assets/grouped")
 async def list_grouped_assets_endpoint(
     group_by: str = Query(
-        ..., description="Grouping key, e.g. 'hash/md5' or 'a.provider_id'"
+        ..., description="Grouping key, e.g. 'hash/md5' or 'a.actor_id'"
     ),
     group_value: Optional[str] = Query(
         None,
         description="When set, returns members of this group value instead of the group list.",
     ),
-    provider_id: Optional[int] = None,
+    actor_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     filters: list[str] | None = Query(None),
@@ -137,7 +137,7 @@ async def list_grouped_assets_endpoint(
         return await list_grouped_assets(
             view,
             group_by=group_by,
-            provider_id=provider_id,
+            actor_id=actor_id,
             offset=offset,
             limit=limit,
             filters=filters,
@@ -148,7 +148,7 @@ async def list_grouped_assets_endpoint(
     extra_where = build_group_member_filter(group_by, group_value)
     members = await list_assets_for_view(
         view,
-        provider_id=provider_id,
+        actor_id=actor_id,
         offset=offset,
         limit=limit,
         sort=None,
@@ -204,14 +204,14 @@ async def manual_edit_asset(asset_id: int, request: Request):
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    provider = await _ensure_manual_provider()
+    actor = await _ensure_manual_actor()
 
     # Build metadata from payload (dict of key -> value)
     metadata_entries: list[Metadata] = []
     for key, value in payload.get("metadata", {}).items():
         try:
             mk = MetadataKey(key)
-            md = make_metadata(mk, value, provider_id=provider.id)
+            md = make_metadata(mk, value, actor_id=actor.id)
         except Exception as exc:
             raise HTTPException(
                 status_code=400, detail=f"Invalid metadata {key}: {exc}"
@@ -259,7 +259,7 @@ async def get_view_endpoint(view_id: str):
 @app.get("/views/{view_id}/assets")
 async def list_assets_for_view_endpoint(
     view_id: str,
-    provider_id: Optional[int] = None,
+    actor_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     sort: Optional[str] = Query(None),
@@ -283,7 +283,7 @@ async def list_assets_for_view_endpoint(
     try:
         return await list_assets_for_view(
             view,
-            provider_id=provider_id,
+            actor_id=actor_id,
             offset=offset,
             limit=limit,
             sort=sort_tuple,
@@ -468,7 +468,7 @@ async def list_collection_assets(
 
 # endregion
 
-# region PROVIDER OPERATIONS
+# region ACTOR OPERATIONS
 
 
 @app.post("/sources/run")
@@ -477,21 +477,21 @@ async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
     target_ids = set(ids or [])
 
     if target_ids:
-        sources = await Provider.filter(
-            type=ProviderType.SOURCE, id__in=sorted(target_ids)
+        sources = await Actor.filter(
+            type=ActorType.SOURCE, id__in=sorted(target_ids)
         ).order_by("id")
         if len(sources) != len(target_ids):
             raise HTTPException(status_code=404, detail="One or more sources not found")
     else:
-        sources = await Provider.filter(type=ProviderType.SOURCE).order_by("id")
+        sources = await Actor.filter(type=ActorType.SOURCE).order_by("id")
 
     if not sources:
         raise HTTPException(status_code=404, detail="No sources configured")
-    provider_for_changeset = None
+    actor_for_changeset = None
     if len(sources) == 1:
-        provider_for_changeset = sources[0]
+        actor_for_changeset = sources[0]
     changeset = await Changeset.begin(
-        provider=provider_for_changeset, status=OpStatus.IN_PROGRESS
+        actor=actor_for_changeset, status=OpStatus.IN_PROGRESS
     )
 
     cancel_event = asyncio.Event()
@@ -548,7 +548,7 @@ async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
 async def do_run_processor(ids: list[int] | None = Query(None)):
     processor_pipeline = await sort_processors()
     if not processor_pipeline:
-        raise HTTPException(status_code=400, detail="No processor providers configured")
+        raise HTTPException(status_code=400, detail="No processor actors configured")
 
     target_ids = set(ids or [])
 
@@ -570,7 +570,7 @@ async def do_run_processor(ids: list[int] | None = Query(None)):
 
 @app.post("/analyzers/{analyzer_id}/run")
 async def do_run_analyzers(analyzer_id: str):
-    """Run all analyzers or a specific analyzer provider id."""
+    """Run all analyzers or a specific analyzer actor id."""
 
     target_ids: list[int] | None
     if analyzer_id.lower() == "all":
@@ -581,7 +581,7 @@ async def do_run_analyzers(analyzer_id: str):
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail="analyzer_id must be an integer provider id or 'all'",
+                detail="analyzer_id must be an integer actor id or 'all'",
             )
 
     try:
@@ -607,11 +607,9 @@ async def create_changeset(request: Request):
 
 @app.post("/changesets/manual/start")
 async def start_manual_changeset():
-    provider = await _ensure_manual_provider()
+    actor = await _ensure_manual_actor()
     try:
-        changeset = await Changeset.begin(
-            provider=provider, status=OpStatus.IN_PROGRESS
-        )
+        changeset = await Changeset.begin(actor=actor, status=OpStatus.IN_PROGRESS)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return changeset.to_dict()
@@ -630,9 +628,7 @@ async def finish_changeset(changeset_id: int):
 
 @app.get("/changesets")
 async def list_changesets():
-    changesets = (
-        await Changeset.all().order_by("-started_at").prefetch_related("provider")
-    )
+    changesets = await Changeset.all().order_by("-started_at").prefetch_related("actor")
     return {"changesets": [s.to_dict() for s in changesets]}
 
 
@@ -641,7 +637,7 @@ async def get_changeset(changeset_id: int, stream: bool = Query(False)):
     changeset = await Changeset.get_or_none(id=changeset_id)
     if changeset is None:
         raise HTTPException(status_code=404, detail="Changeset not found")
-    await changeset.fetch_related("provider")
+    await changeset.fetch_related("actor")
 
     if stream:
         return await stream_changeset_events(changeset_id)
@@ -692,7 +688,7 @@ async def stream_changeset_events(changeset_id: int):
     if changeset is None:
         raise HTTPException(status_code=404, detail="Changeset not found")
 
-    await changeset.fetch_related("provider")
+    await changeset.fetch_related("actor")
     history, queue = event_manager.subscribe(changeset_id)
     run_state = RUNNING_CHANGESETS.get(changeset_id)
     done_event = run_state.done_event if run_state else asyncio.Event()
@@ -718,7 +714,7 @@ async def stream_changeset_events(changeset_id: int):
                     log_waiter.cancel()
                 if done_waiter in done:
                     latest = await Changeset.get(id=changeset_id)
-                    await latest.fetch_related("provider")
+                    await latest.fetch_related("actor")
                     yield sse_event("changeset", json.dumps(latest.to_dict()))
                     break
         finally:
@@ -737,7 +733,7 @@ async def cancel_changeset(changeset_id: int):
         # Nothing running: finalize as CANCELED
         await changeset.finalize(status=OpStatus.CANCELED)
         latest = await Changeset.get(id=changeset_id)
-        await latest.fetch_related("provider")
+        await latest.fetch_related("actor")
         return {"status": "cancelled", "changeset": latest.to_dict()}
 
     run_state.cancel_event.set()
@@ -750,16 +746,16 @@ async def cancel_changeset(changeset_id: int):
 
 # endregion
 
-# region PROVIDERS
+# region ACTORS
 
 
-class ProviderCreate(BaseModel):
+class ActorCreate(BaseModel):
     name: str = Field(min_length=1)
     plugin_id: str
     config: dict[str, Any] | None = None
 
 
-class ProviderUpdate(BaseModel):
+class ActorUpdate(BaseModel):
     name: str | None = None
     config: dict[str, Any] | None = None
 
@@ -767,7 +763,7 @@ class ProviderUpdate(BaseModel):
 def _validate_and_normalize_config(
     plugin_cls, config: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """Validate provider config against plugin config_model (if declared) and return normalized dict."""
+    """Validate actor config against plugin config_model (if declared) and return normalized dict."""
     config_model = getattr(plugin_cls, "config_model", None)
     if config_model is None:
         return config or {}
@@ -783,15 +779,15 @@ def _validate_and_normalize_config(
     return config_json
 
 
-async def _ensure_manual_provider() -> Provider:
-    """Return the first Provider configured with the UserEditorSource plugin."""
-    provider = await Provider.get_or_none(plugin_id=UserEditorSource.plugin_id)
-    if provider is None:
+async def _ensure_manual_actor() -> Actor:
+    """Return the first Actor configured with the UserEditorSource plugin."""
+    actor = await Actor.get_or_none(plugin_id=UserEditorSource.plugin_id)
+    if actor is None:
         raise HTTPException(
             status_code=400,
-            detail="No manual edit provider configured. Create a provider using the UserEditorSource plugin.",
+            detail="No manual edit actor configured. Create an actor using the UserEditorSource plugin.",
         )
-    return provider
+    return actor
 
 
 @app.get("/plugins")
@@ -825,9 +821,9 @@ async def get_plugin_config_schema(plugin_id: str):
     return _config_schema_for_plugin(plugin_id)
 
 
-@app.post("/providers")
-async def create_provider(request: Request):
-    payload = ProviderCreate.model_validate(await request.json())
+@app.post("/actors")
+async def create_actor(request: Request):
+    payload = ActorCreate.model_validate(await request.json())
     spec: PluginSpec | None = get_plugin_spec(payload.plugin_id)
     if spec is None:
         spec = refresh_plugins().get(payload.plugin_id)
@@ -842,68 +838,68 @@ async def create_provider(request: Request):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=404, detail="Plugin not found") from exc
 
-    existing = await Provider.get_or_none(name=payload.name)
+    existing = await Actor.get_or_none(name=payload.name)
     if existing:
-        raise HTTPException(status_code=400, detail="Provider name already exists")
+        raise HTTPException(status_code=400, detail="Actor name already exists")
 
     raw_config: dict[str, Any] | None = payload.config
 
     normalized_config = _validate_and_normalize_config(plugin_cls, raw_config)
 
-    provider = await Provider.create(
+    actor = await Actor.create(
         name=payload.name,
         plugin_id=payload.plugin_id,
-        type=spec.provider_type,
+        type=spec.actor_type,
         config=normalized_config,
     )
-    return {"provider": provider.to_dict()}
+    return {"actor": actor.to_dict()}
 
 
-@app.get("/providers")
-async def list_providers():
-    providers = await Provider.all().order_by("id")
-    return {"providers": [p.to_dict() for p in providers]}
+@app.get("/actors")
+async def list_actors():
+    actors = await Actor.all().order_by("id")
+    return {"actors": [p.to_dict() for p in actors]}
 
 
-@app.get("/providers/{provider_id}")
-async def get_provider(provider_id: int):
-    provider = await Provider.get_or_none(id=provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail="Provider not found")
-    changesets = await Changeset.filter(provider=provider).order_by("-started_at")
+@app.get("/actors/{actor_id}")
+async def get_actor(actor_id: int):
+    actor = await Actor.get_or_none(id=actor_id)
+    if actor is None:
+        raise HTTPException(status_code=404, detail="Actor not found")
+    changesets = await Changeset.filter(actor=actor).order_by("-started_at")
     for changeset in changesets:
-        await changeset.fetch_related("provider")
+        await changeset.fetch_related("actor")
     return {
-        "provider": provider.to_dict(),
+        "actor": actor.to_dict(),
         "changesets": [s.to_dict() for s in changesets],
     }
 
 
-@app.get("/providers/{provider_id}/config/schema")
-async def get_provider_config_schema(provider_id: int):
-    provider = await Provider.get_or_none(id=provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail="Provider not found")
-    schema_payload = _config_schema_for_plugin(provider.plugin_id)
-    return {**schema_payload, "value": provider.config or {}}
+@app.get("/actors/{actor_id}/config/schema")
+async def get_actor_config_schema(actor_id: int):
+    actor = await Actor.get_or_none(id=actor_id)
+    if actor is None:
+        raise HTTPException(status_code=404, detail="Actor not found")
+    schema_payload = _config_schema_for_plugin(actor.plugin_id)
+    return {**schema_payload, "value": actor.config or {}}
 
 
-@app.patch("/providers/{provider_id}")
-async def update_provider(provider_id: int, request: Request):
-    provider = await Provider.get_or_none(id=provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail="Provider not found")
-    payload = ProviderUpdate.model_validate(await request.json())
+@app.patch("/actors/{actor_id}")
+async def update_actor(actor_id: int, request: Request):
+    actor = await Actor.get_or_none(id=actor_id)
+    if actor is None:
+        raise HTTPException(status_code=404, detail="Actor not found")
+    payload = ActorUpdate.model_validate(await request.json())
     if payload.name:
-        provider.name = payload.name
+        actor.name = payload.name
     if payload.config is not None:
         try:
-            plugin_cls = get_plugin_class(provider.plugin_id)
+            plugin_cls = get_plugin_class(actor.plugin_id)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=404, detail="Plugin not found") from exc
-        provider.config = _validate_and_normalize_config(plugin_cls, payload.config)
-    await provider.save()
-    return {"provider": provider.to_dict()}
+        actor.config = _validate_and_normalize_config(plugin_cls, payload.config)
+    await actor.save()
+    return {"actor": actor.to_dict()}
 
 
 # endregion
@@ -911,9 +907,9 @@ async def update_provider(provider_id: int, request: Request):
 # region OTHER
 
 
-@app.post("/auth/{provider}")
-async def auth_callback(provider: int, request: Request):
-    get_source_plugin(provider).authorize(authorization_response=request.url)
+@app.post("/auth/{actor}")
+async def auth_callback(actor: int, request: Request):
+    get_source_plugin(actor).authorize(authorization_response=request.url)
     return RedirectResponse(url="/", status_code=303)
 
 

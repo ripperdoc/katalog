@@ -12,7 +12,7 @@ from katalog.analyzers.base import (
     AnalyzerResult,
     FileGroupFinding,
 )
-from katalog.models import Metadata, Provider, Changeset
+from katalog.models import Metadata, Actor, Changeset
 from katalog.metadata import HASH_MD5, get_metadata_id
 
 
@@ -36,9 +36,9 @@ class ExactDuplicateAnalyzer(Analyzer):
 
     config_model = ConfigModel
 
-    def __init__(self, provider: Provider, **config: Any) -> None:
+    def __init__(self, actor: Actor, **config: Any) -> None:
         self.config = self.config_model.model_validate(config or {})
-        super().__init__(provider, **config)
+        super().__init__(actor, **config)
 
     def should_run(self, *, changeset: Changeset) -> bool:  # noqa: D401
         """Currently always runs; future versions may add change detection."""
@@ -52,15 +52,15 @@ class ExactDuplicateAnalyzer(Analyzer):
         max_groups = int(self.config.max_groups)
         conn = Tortoise.get_connection("default")
 
-        # Step 1: detect assets with conflicting current MD5 values (different providers disagree).
+        # Step 1: detect assets with conflicting current MD5 values (different actors disagree).
         conflict_sql = """
         WITH latest_md5 AS (
             SELECT
                 m.asset_id,
-                m.provider_id,
+                m.actor_id,
                 lower(trim(m.value_text)) AS md5,
                 ROW_NUMBER() OVER (
-                    PARTITION BY m.asset_id, m.provider_id
+                    PARTITION BY m.asset_id, m.actor_id
                     ORDER BY m.changeset_id DESC
                 ) AS rn
             FROM metadata AS m
@@ -69,7 +69,7 @@ class ExactDuplicateAnalyzer(Analyzer):
               AND m.value_text IS NOT NULL
         ),
         current_md5 AS (
-            SELECT asset_id, provider_id, md5
+            SELECT asset_id, actor_id, md5
             FROM latest_md5
             WHERE rn = 1 AND md5 != ''
         )
@@ -103,10 +103,10 @@ class ExactDuplicateAnalyzer(Analyzer):
         WITH latest_md5 AS (
             SELECT
                 m.asset_id,
-                m.provider_id,
+                m.actor_id,
                 lower(trim(m.value_text)) AS md5,
                 ROW_NUMBER() OVER (
-                    PARTITION BY m.asset_id, m.provider_id
+                    PARTITION BY m.asset_id, m.actor_id
                     ORDER BY m.changeset_id DESC
                 ) AS rn
             FROM metadata AS m
@@ -115,12 +115,12 @@ class ExactDuplicateAnalyzer(Analyzer):
               AND m.value_text IS NOT NULL
         ),
         current_md5 AS (
-            SELECT asset_id, provider_id, md5
+            SELECT asset_id, actor_id, md5
             FROM latest_md5
             WHERE rn = 1 AND md5 != ''
         ),
         deduped AS (
-            SELECT asset_id, provider_id, md5
+            SELECT asset_id, actor_id, md5
             FROM current_md5
             WHERE asset_id NOT IN (
                 SELECT asset_id FROM (
@@ -135,7 +135,7 @@ class ExactDuplicateAnalyzer(Analyzer):
             md5,
             COUNT(*) AS file_count,
             GROUP_CONCAT(DISTINCT asset_id) AS asset_ids,
-            GROUP_CONCAT(DISTINCT provider_id) AS provider_ids
+            GROUP_CONCAT(DISTINCT actor_id) AS actor_ids
         FROM deduped
         GROUP BY md5
         HAVING COUNT(*) > 1
@@ -150,8 +150,8 @@ class ExactDuplicateAnalyzer(Analyzer):
             asset_ids = sorted(
                 int(a) for a in (row.get("asset_ids") or "").split(",") if a
             )
-            provider_ids = sorted(
-                {int(p) for p in (row.get("provider_ids") or "").split(",") if p}
+            actor_ids = sorted(
+                {int(p) for p in (row.get("actor_ids") or "").split(",") if p}
             )
             md5_value = row.get("md5") or ""
             groups.append(
@@ -163,7 +163,7 @@ class ExactDuplicateAnalyzer(Analyzer):
                         "hash": md5_value,
                         "file_count": int(row.get("file_count") or 0),
                         "asset_ids": asset_ids,
-                        "provider_ids": provider_ids,
+                        "actor_ids": actor_ids,
                     },
                 )
             )

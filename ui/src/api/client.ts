@@ -2,11 +2,11 @@ import type {
   ViewAssetsResponse,
   ViewListResponse,
   ViewResponse,
-  ProviderListResponse,
+  ActorListResponse,
   PluginListResponse,
-  ProviderResponse,
-  ProviderCreateResponse,
-  ProviderUpdateResponse,
+  ActorResponse,
+  ActorCreateResponse,
+  ActorUpdateResponse,
   MetadataRegistryResponse,
   Changeset,
   ChangesetListResponse,
@@ -34,14 +34,14 @@ async function handleResponse(response: Response) {
 export async function fetchViewAssets(
   viewId: string,
   {
-    providerId,
+    actorId,
     offset = 0,
     limit = 100,
     sort,
     filters,
     search,
   }: {
-    providerId?: number;
+    actorId?: number;
     offset?: number;
     limit?: number;
     sort?: string | undefined;
@@ -52,8 +52,8 @@ export async function fetchViewAssets(
   const params = new URLSearchParams();
   params.set("offset", String(offset));
   params.set("limit", String(limit));
-  if (providerId !== undefined) {
-    params.set("provider_id", String(providerId));
+  if (actorId !== undefined) {
+    params.set("actor_id", String(actorId));
   }
   if (sort) {
     params.set("sort", sort);
@@ -84,8 +84,8 @@ export async function fetchView(viewId: string): Promise<ViewResponse> {
   return handleResponse(response);
 }
 
-export async function fetchProviders(): Promise<ProviderListResponse> {
-  const response = await fetch(`${API_BASE}/providers`, {
+export async function fetchActors(): Promise<ActorListResponse> {
+  const response = await fetch(`${API_BASE}/actors`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
@@ -105,17 +105,17 @@ export async function fetchMetadataRegistry(): Promise<MetadataRegistryResponse>
   return handleResponse(response);
 }
 
-export async function fetchProvider(id: number): Promise<ProviderResponse> {
-  const response = await fetch(`${API_BASE}/providers/${id}`, {
+export async function fetchActor(id: number): Promise<ActorResponse> {
+  const response = await fetch(`${API_BASE}/actors/${id}`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
 }
 
-export async function fetchProviderConfigSchema(
+export async function fetchActorConfigSchema(
   id: number,
 ): Promise<{ schema: Record<string, unknown>; value: Record<string, unknown> }> {
-  const response = await fetch(`${API_BASE}/providers/${id}/config/schema`, {
+  const response = await fetch(`${API_BASE}/actors/${id}/config/schema`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
@@ -140,13 +140,13 @@ export async function fetchChangesets(): Promise<ChangesetListResponse> {
   return handleResponse(response);
 }
 
-export async function createProvider(payload: {
+export async function createActor(payload: {
   name: string;
   plugin_id: string;
   config?: Record<string, unknown> | null;
   config_toml?: string;
-}): Promise<ProviderCreateResponse> {
-  const response = await fetch(`${API_BASE}/providers`, {
+}): Promise<ActorCreateResponse> {
+  const response = await fetch(`${API_BASE}/actors`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -157,15 +157,15 @@ export async function createProvider(payload: {
   return handleResponse(response);
 }
 
-export async function updateProvider(
+export async function updateActor(
   id: number,
   payload: {
     name?: string;
     config?: Record<string, unknown> | null;
     config_toml?: string;
   },
-): Promise<ProviderUpdateResponse> {
-  const response = await fetch(`${API_BASE}/providers/${id}`, {
+): Promise<ActorUpdateResponse> {
+  const response = await fetch(`${API_BASE}/actors/${id}`, {
     method: "PATCH",
     headers: {
       Accept: "application/json",
@@ -303,8 +303,8 @@ export async function fetchCollectionAssets(
   return handleResponse(response);
 }
 
-export async function startScan(providerId?: number): Promise<Changeset> {
-  const search = providerId !== undefined ? `?ids=${encodeURIComponent(providerId)}` : "";
+export async function startScan(actorId?: number): Promise<Changeset> {
+  const search = actorId !== undefined ? `?ids=${encodeURIComponent(actorId)}` : "";
   const response = await fetch(`${API_BASE}/sources/run${search}`, {
     method: "POST",
     headers: { Accept: "application/json" },

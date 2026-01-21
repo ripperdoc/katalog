@@ -3,31 +3,31 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from katalog.analyzers.base import AnalyzerResult, make_analyzer_instance
-from katalog.models import Provider, ProviderType, Changeset
+from katalog.models import Actor, ActorType, Changeset
 
 
 async def run_analyzers(ids: list[int] | None = None) -> list[dict]:
     """Run selected or all analyzers and return serialized results."""
 
-    query = Provider.filter(type=ProviderType.ANALYZER).order_by("id")
+    query = Actor.filter(type=ActorType.ANALYZER).order_by("id")
     if ids:
         query = query.filter(id__in=sorted(set(ids)))
-    providers = await query
-    if not providers:
-        raise ValueError("No analyzer providers found")
+    actors = await query
+    if not actors:
+        raise ValueError("No analyzer actors found")
 
     results: list[dict] = []
-    for provider in providers:
-        analyzer = make_analyzer_instance(provider)
-        async with Changeset.context(provider=provider) as changeset:
+    for actor in actors:
+        analyzer = make_analyzer_instance(actor)
+        async with Changeset.context(actor=actor) as changeset:
             if not analyzer.should_run(changeset=changeset):
                 continue
             result = await analyzer.run(changeset=changeset)
         results.append(
             {
-                "provider_id": provider.id,
-                "name": provider.name,
-                "plugin_id": provider.plugin_id,
+                "actor_id": actor.id,
+                "name": actor.name,
+                "plugin_id": actor.plugin_id,
                 "result": serialize_result(result),
             }
         )

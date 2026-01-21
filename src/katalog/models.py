@@ -51,7 +51,7 @@ from katalog.utils.utils import orm
 - ~1 million Asset records
 - ~30 million Metadata records (assuming an average of 30 metadata entries per asset). 
 Metadata will mostly be shorter text and date values, but some fields may grow pretty large, such as text contents, summaries, etc.
-- 10 to 100 Providers
+- 10 to 100 Actors
 - As data changes over time, changesets will be created, increasing the number of Metadata rows per asset. 
 On the other hand, users will be encouraged to purge changesets regularly.
 """
@@ -66,7 +66,7 @@ class OpStatus(Enum):
     ERROR = "error"
 
 
-class ProviderType(IntEnum):
+class ActorType(IntEnum):
     SOURCE = 0
     PROCESSOR = 1
     ANALYZER = 2
@@ -74,13 +74,13 @@ class ProviderType(IntEnum):
     EXPORTER = 4
 
 
-class Provider(Model):
+class Actor(Model):
     id = IntField(pk=True)
     name = CharField(max_length=255, unique=True)
     plugin_id = CharField(max_length=1024, null=True)
     config = JSONField(null=True)
     config_toml = TextField(null=True)
-    type = IntEnumField(ProviderType)
+    type = IntEnumField(ActorType)
     created_at = DatetimeField(auto_now_add=True)
     updated_at = DatetimeField(auto_now=True)
 
@@ -88,9 +88,7 @@ class Provider(Model):
         return {
             "id": self.id,
             "name": self.name,
-            "type": self.type.name
-            if isinstance(self.type, ProviderType)
-            else self.type,
+            "type": self.type.name if isinstance(self.type, ActorType) else self.type,
             "plugin_id": self.plugin_id,
             "config": self.config,
             "config_toml": getattr(self, "config_toml", None),
@@ -104,7 +102,7 @@ class ChangesetStats:
     # Total assets encountered/accessed during scan (saved + ignored)
     assets_seen: int = 0
     assets_saved: int = 0  # Assets yielded and saved/processed by the pipeline
-    assets_ignored: int = 0  # Skipped during scan (e.g. filtered by provider settings)
+    assets_ignored: int = 0  # Skipped during scan (e.g. filtered by actor settings)
 
     assets_changed: int = 0  # Assets that had metadata changes
     assets_added: int = 0  # New assets seen for the first time
@@ -137,8 +135,8 @@ DEFAULT_TASK_CONCURRENCY = 10
 
 class Changeset(Model):
     id = IntField(pk=True)
-    provider = ForeignKeyField(
-        orm(Provider), related_name="changesets", on_delete=CASCADE, null=True
+    actor = ForeignKeyField(
+        orm(Actor), related_name="changesets", on_delete=CASCADE, null=True
     )
     note = CharField(max_length=512, null=True)
     started_at = DatetimeField(default=lambda: datetime.now(UTC))
@@ -152,7 +150,7 @@ class Changeset(Model):
     # Control concurrency of changeset (processor) tasks
     semaphore: asyncio.Semaphore
     # Just for type checking
-    provider_id: int
+    actor_id: int
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -167,12 +165,12 @@ class Changeset(Model):
         )
 
     def to_dict(self) -> dict:
-        # Note needs to have been fetched related 'provider' beforehand
-        provider = getattr(self, "provider", None)
+        # Note needs to have been fetched related 'actor' beforehand
+        actor = getattr(self, "actor", None)
         return {
             "id": self.id,
-            "provider_id": self.provider_id,
-            "provider_name": provider.name if provider else None,
+            "actor_id": self.actor_id,
+            "actor_name": actor.name if actor else None,
             "note": self.note,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat()
@@ -185,16 +183,14 @@ class Changeset(Model):
         }
 
     @classmethod
-    async def find_partial_resume_point(
-        cls, *, provider: Provider
-    ) -> "Changeset | None":
+    async def find_partial_resume_point(cls, *, actor: Actor) -> "Changeset | None":
         """
         Return the most recent PARTIAL changeset that occurred after the latest
-        COMPLETED changeset for this provider. If no COMPLETED changeset exists,
+        COMPLETED changeset for this actor. If no COMPLETED changeset exists,
         return None (treat as full scan).
         """
         changesets = list(
-            await cls.filter(provider=provider).order_by("-completed_at", "-started_at")
+            await cls.filter(actor=actor).order_by("-completed_at", "-started_at")
         )
         last_full = None
         last_partial = None
@@ -219,7 +215,7 @@ class Changeset(Model):
         *,
         status: OpStatus = OpStatus.IN_PROGRESS,
         metadata: Mapping[str, Any] | None = None,
-        provider: Provider | None = None,
+        actor: Actor | None = None,
         changeset_id: int | None = None,
         note: str | None = None,
     ) -> "Changeset":
@@ -234,7 +230,7 @@ class Changeset(Model):
             raise ValueError(f"Changeset with id {changeset_id} already exists")
         return await cls.create(
             id=changeset_id,
-            provider=provider,
+            actor=actor,
             status=status,
             note=note,
             metadata=dict(metadata) if metadata else None,
@@ -285,7 +281,7 @@ class Changeset(Model):
         *,
         status: OpStatus = OpStatus.IN_PROGRESS,
         metadata: Mapping[str, Any] | None = None,
-        provider: Provider | None = None,
+        actor: Actor | None = None,
         changeset_id: int | None = None,
         note: str | None = None,
         success_status: OpStatus = OpStatus.COMPLETED,
@@ -295,7 +291,7 @@ class Changeset(Model):
         Async context manager for Changeset lifecycle.
 
         Usage:
-            async with Changeset.context(provider=..., metadata=...) as snap:
+            async with Changeset.context(actor=..., metadata=...) as snap:
                 # do work, snap is a Changeset instance
         On normal exit -> finalize with success_status.
         On CancelledError -> finalize with CANCELED and re-raise.
@@ -304,7 +300,7 @@ class Changeset(Model):
         changeset = await cls.begin(
             status=status,
             metadata=metadata,
-            provider=provider,
+            actor=actor,
             changeset_id=changeset_id,
             note=note,
         )
@@ -340,7 +336,7 @@ class Changeset(Model):
                 raise
 
     class Meta(Model.Meta):
-        indexes = (("provider", "started_at"),)
+        indexes = (("actor", "started_at"),)
 
 
 class FileAccessor(ABC):
@@ -375,7 +371,7 @@ class Asset(Model):
     async def save_record(
         self,
         changeset: "Changeset",
-        provider: Provider | None = None,
+        actor: Actor | None = None,
     ) -> bool:
         """Persist the asset row, reusing an existing canonical asset when present.
 
@@ -383,9 +379,9 @@ class Asset(Model):
             True if the asset was newly created in the DB, otherwise False.
         """
 
-        provider = provider or getattr(changeset, "provider", None)
-        if provider is None:
-            raise ValueError("provider must be supplied to save_record")
+        actor = actor or getattr(changeset, "actor", None)
+        if actor is None:
+            raise ValueError("actor must be supplied to save_record")
 
         was_created = False
         if self.id is None:
@@ -413,14 +409,14 @@ class Asset(Model):
         cls,
         *,
         changeset: "Changeset",
-        provider_ids: Sequence[int],
+        actor_ids: Sequence[int],
         seen_asset_ids: Sequence[int] | None = None,
     ) -> int:
         """
-        Mark assets from the given providers as lost if they were not touched by this changeset.
+        Mark assets from the given actors as lost if they were not touched by this changeset.
         Returns the number of affected rows (metadata rows written).
         """
-        if not provider_ids:
+        if not actor_ids:
             return 0
 
         conn = Tortoise.get_connection("default")
@@ -428,7 +424,7 @@ class Asset(Model):
         affected = 0
         seen_set = {int(a) for a in (seen_asset_ids or [])}
 
-        for pid in provider_ids:
+        for pid in actor_ids:
             seen_clause = ""
             seen_params: list[int] = []
             if seen_set:
@@ -440,7 +436,7 @@ class Asset(Model):
                 f"""
                 SELECT DISTINCT asset_id
                 FROM {metadata_table}
-                WHERE provider_id = ?
+                WHERE actor_id = ?
                   {seen_clause}
                 """,
                 [pid, *seen_params],
@@ -454,7 +450,7 @@ class Asset(Model):
             for aid in asset_ids:
                 md = Metadata(
                     asset_id=aid,
-                    provider_id=pid,
+                    actor_id=pid,
                     changeset_id=changeset.id,
                     metadata_key_id=lost_key_id,
                     value_type=MetadataType.INT,
@@ -532,8 +528,8 @@ class MetadataRegistry(Model):
 class Metadata(Model):
     id = IntField(pk=True)
     asset = ForeignKeyField(orm(Asset), related_name="metadata", on_delete=CASCADE)
-    provider: ForeignKeyRelation[Provider] = ForeignKeyField(
-        orm(Provider), related_name="metadata_entries", on_delete=CASCADE
+    actor: ForeignKeyRelation[Actor] = ForeignKeyField(
+        orm(Actor), related_name="metadata_entries", on_delete=CASCADE
     )
     changeset = ForeignKeyField(
         orm(Changeset), related_name="metadata_entries", on_delete=CASCADE
@@ -543,7 +539,7 @@ class Metadata(Model):
     )
     # Just for fixing type errors, these are populated via ForeignKeyField
     asset_id: int
-    provider_id: int
+    actor_id: int
     changeset_id: int
     metadata_key_id: int
 
@@ -563,7 +559,7 @@ class Metadata(Model):
             "metadata_key",
             "value_type",
         ]
-        # unique_together = ("asset", "provider", "changeset", "metadata_key")
+        # unique_together = ("asset", "actor", "changeset", "metadata_key")
 
     @property
     def key(self) -> "MetadataKey":
@@ -617,7 +613,7 @@ class Metadata(Model):
         return {
             "id": int(self.id),
             "asset_id": int(self.asset_id),
-            "provider_id": int(self.provider_id),
+            "actor_id": int(self.actor_id),
             "changeset_id": int(self.changeset_id),
             "metadata_key_id": int(self.metadata_key_id),
             "key": str(self.key),
@@ -674,7 +670,7 @@ class Metadata(Model):
             )
 
     def __str__(self) -> str:
-        return f"Metadata('{self.key}'='{self.value}', id={self.id}, provider={self.provider_id}, removed={self.removed})"
+        return f"Metadata('{self.key}'='{self.value}', id={self.id}, actor={self.actor_id}, removed={self.removed})"
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -747,7 +743,7 @@ class Metadata(Model):
 def make_metadata(
     key: MetadataKey,
     value: MetadataScalar | None = None,
-    provider_id: int | None = None,
+    actor_id: int | None = None,
     removed: bool = False,
     confidence: float | None = None,
     *,
@@ -767,8 +763,8 @@ def make_metadata(
         confidence=confidence,
     )
     md.set_value(value)
-    if provider_id is not None:
-        md.provider_id = provider_id
+    if actor_id is not None:
+        md.actor_id = actor_id
     if asset is not None:
         md.asset = asset
     elif asset_id is not None:
@@ -807,7 +803,7 @@ class MetadataChangeSet:
     @staticmethod
     def _current_metadata(
         metadata: Sequence[Metadata] | None = None,
-        provider_id: int | None = None,
+        actor_id: int | None = None,
     ) -> dict[MetadataKey, list[Metadata]]:
         """Get current metadata entries by key from a list of Metadata."""
         if not metadata:
@@ -824,7 +820,7 @@ class MetadataChangeSet:
         result: dict[MetadataKey, list[Metadata]] = {}
         seen_values: dict[MetadataKey, set[Any]] = {}
         for entry in ordered:
-            if provider_id is not None and int(entry.provider_id) != int(provider_id):
+            if actor_id is not None and int(entry.actor_id) != int(actor_id):
                 continue
             key = entry.key
             seen_for_key = seen_values.setdefault(key, set())
@@ -848,34 +844,32 @@ class MetadataChangeSet:
         self._cache_current.clear()
         self._cache_changed.clear()
 
-    def current(
-        self, provider_id: int | None = None
-    ) -> dict[MetadataKey, list[Metadata]]:
+    def current(self, actor_id: int | None = None) -> dict[MetadataKey, list[Metadata]]:
         """Return current metadata by key, combining loaded and staged."""
-        if provider_id in self._cache_current:
-            return self._cache_current[provider_id]
+        if actor_id in self._cache_current:
+            return self._cache_current[actor_id]
         combined = list(self._loaded) + list(self._staged)
-        current = self._current_metadata(combined, provider_id)
-        self._cache_current[provider_id] = current
+        current = self._current_metadata(combined, actor_id)
+        self._cache_current[actor_id] = current
         return current
 
-    def changed_keys(self, provider_id: int | None = None) -> set[MetadataKey]:
+    def changed_keys(self, actor_id: int | None = None) -> set[MetadataKey]:
         """Return keys whose current values differ from the loaded baseline."""
-        if provider_id in self._cache_changed:
-            return self._cache_changed[provider_id]
-        baseline = self._current_metadata(self._loaded, provider_id)
-        current = self.current(provider_id)
+        if actor_id in self._cache_changed:
+            return self._cache_changed[actor_id]
+        baseline = self._current_metadata(self._loaded, actor_id)
+        current = self.current(actor_id)
         changed: set[MetadataKey] = set()
         for key in set(baseline.keys()) | set(current.keys()):
             base_values = {md.fingerprint() for md in baseline.get(key, [])}
             curr_values = {md.fingerprint() for md in current.get(key, [])}
             if base_values != curr_values:
                 changed.add(key)
-        self._cache_changed[provider_id] = changed
+        self._cache_changed[actor_id] = changed
         return changed
 
-    def has(self, key: MetadataKey, provider_id: int | None = None) -> bool:
-        return key in self.current(provider_id)
+    def has(self, key: MetadataKey, actor_id: int | None = None) -> bool:
+        return key in self.current(actor_id)
 
     def pending_entries(self) -> list[Metadata]:
         """Metadata added during processing that should be persisted."""
@@ -886,13 +880,13 @@ class MetadataChangeSet:
         return list(self._loaded) + list(self._staged)
 
     # NOTE (future refactor idea):
-    # - A staged value=None means "clear_key" for that (provider_id, metadata_key) and should NOT
+    # - A staged value=None means "clear_key" for that (actor_id, metadata_key) and should NOT
     #   be persisted as a NULL-value metadata row.
     # - Clear must remain append-only/undoable: we express it by writing removed=True rows for each
     #   currently-active value (per-value tombstones), not by destructive deletes.
     # - Missing keys are unchanged; only explicitly staged None triggers clear.
     # - Reads like current() intentionally hide removed rows; persistence needs latest *state* per
-    #   (metadata_key_id, provider_id, value) (incl removed bit) to dedupe correctly and support
+    #   (metadata_key_id, actor_id, value) (incl removed bit) to dedupe correctly and support
     #   add -> remove -> add over time. Ordering must be newest-first (changeset_id/id).
     # - A cleaner rewrite could factor a shared latest() helper and derive current() from it;
     #   schema-level "clear all" tombstones would reduce writes but complicate queries.
@@ -924,7 +918,7 @@ class MetadataChangeSet:
                 continue
             state_key = (
                 int(entry.metadata_key_id),
-                int(entry.provider_id),
+                int(entry.actor_id),
                 value_key,
             )
             if state_key in latest_states:
@@ -935,30 +929,26 @@ class MetadataChangeSet:
         changed_keys: set[MetadataKey] = set()
 
         # A staged entry with value=None (and removed=False) is an explicit instruction to clear
-        # all current values for (metadata_key_id, provider_id).
+        # all current values for (metadata_key_id, actor_id).
         clear_groups: set[tuple[int, int]] = set()
         for md in staged:
-            if md.provider_id is None:
-                raise ValueError("Metadata provider_id is not set for persistence")
-            group_key = (int(md.metadata_key_id), int(md.provider_id))
+            if md.actor_id is None:
+                raise ValueError("Metadata actor_id is not set for persistence")
+            group_key = (int(md.metadata_key_id), int(md.actor_id))
             if md.fingerprint() is None and not md.removed:
                 clear_groups.add(group_key)
 
         # Apply clears first.
         if clear_groups:
-            existing_current_by_provider: dict[
-                int, dict[MetadataKey, list[Metadata]]
-            ] = {}
-            for metadata_key_id, provider_id in clear_groups:
-                if provider_id not in existing_current_by_provider:
-                    existing_current_by_provider[provider_id] = self._current_metadata(
-                        existing_metadata, provider_id
+            existing_current_by_actor: dict[int, dict[MetadataKey, list[Metadata]]] = {}
+            for metadata_key_id, actor_id in clear_groups:
+                if actor_id not in existing_current_by_actor:
+                    existing_current_by_actor[actor_id] = self._current_metadata(
+                        existing_metadata, actor_id
                     )
 
                 key = get_metadata_def_by_id(int(metadata_key_id)).key
-                existing_current = existing_current_by_provider[provider_id].get(
-                    key, []
-                )
+                existing_current = existing_current_by_actor[actor_id].get(key, [])
 
                 for existing_entry in existing_current:
                     if existing_entry.value_type == MetadataType.RELATION:
@@ -974,7 +964,7 @@ class MetadataChangeSet:
                     removal = make_metadata(
                         key,
                         existing_value,
-                        provider_id=provider_id,
+                        actor_id=actor_id,
                         removed=True,
                     )
                     removal.asset = asset
@@ -986,7 +976,7 @@ class MetadataChangeSet:
                     if value_key is None:
                         continue
 
-                    state_key = (int(metadata_key_id), int(provider_id), value_key)
+                    state_key = (int(metadata_key_id), int(actor_id), value_key)
                     if latest_states.get(state_key) is True:
                         continue
 
@@ -1000,8 +990,8 @@ class MetadataChangeSet:
             md.asset_id = asset.id
             md.changeset = changeset
             md.changeset_id = changeset.id
-            if md.provider is None and md.provider_id is None:
-                raise ValueError("Metadata provider_id is not set for persistence")
+            if md.actor is None and md.actor_id is None:
+                raise ValueError("Metadata actor_id is not set for persistence")
 
             value_key = md.fingerprint()
 
@@ -1013,7 +1003,7 @@ class MetadataChangeSet:
                     )
                 continue
 
-            state_key = (int(md.metadata_key_id), int(md.provider_id), value_key)
+            state_key = (int(md.metadata_key_id), int(md.actor_id), value_key)
             if latest_states.get(state_key) == bool(md.removed):
                 continue
 

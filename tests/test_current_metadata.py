@@ -7,8 +7,8 @@ from tests.utils.metadata_helpers import mem_md, registry_stub
 
 def test_current_metadata_dedup_latest_wins(registry_stub):
     entries = [
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=1, provider_id=1),
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=2, provider_id=2),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=1, actor_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=2, actor_id=2),
     ]
 
     cs = MetadataChangeSet(entries)
@@ -18,17 +18,17 @@ def test_current_metadata_dedup_latest_wins(registry_stub):
     vals = result[FILE_PATH]
     assert len(vals) == 1
     assert vals[0].changeset_id == 2
-    assert vals[0].provider_id == 2
+    assert vals[0].actor_id == 2
 
 
 def test_current_metadata_removed_suppresses_prior(registry_stub):
     entries = [
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=1, provider_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=1, actor_id=1),
         mem_md(
             key=FILE_PATH,
             value="/tmp/a",
             changeset_id=2,
-            provider_id=1,
+            actor_id=1,
             removed=True,
         ),
     ]
@@ -41,13 +41,13 @@ def test_current_metadata_removed_suppresses_prior(registry_stub):
 
 def test_current_metadata_removed_only_target_value(registry_stub):
     entries = [
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=1, provider_id=1),
-        mem_md(key=FILE_PATH, value="/tmp/b", changeset_id=1, provider_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=1, actor_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/b", changeset_id=1, actor_id=1),
         mem_md(
             key=FILE_PATH,
             value="/tmp/a",
             changeset_id=2,
-            provider_id=1,
+            actor_id=1,
             removed=True,
         ),
     ]
@@ -63,8 +63,8 @@ def test_current_metadata_removed_only_target_value(registry_stub):
 
 def test_current_metadata_keeps_distinct_values_ordered_by_changeset(registry_stub):
     entries = [
-        mem_md(key=FILE_PATH, value="/tmp/b", changeset_id=1, provider_id=1),
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=3, provider_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/b", changeset_id=1, actor_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=3, actor_id=1),
     ]
 
     cs = MetadataChangeSet(entries)
@@ -74,10 +74,10 @@ def test_current_metadata_keeps_distinct_values_ordered_by_changeset(registry_st
     assert [v.value_text for v in vals] == ["/tmp/a", "/tmp/b"]
 
 
-def test_current_metadata_merge_providers_same_value_latest_changeset(registry_stub):
+def test_current_metadata_merge_actors_same_value_latest_changeset(registry_stub):
     entries = [
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=5, provider_id=1),
-        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=6, provider_id=2),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=5, actor_id=1),
+        mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=6, actor_id=2),
     ]
 
     cs = MetadataChangeSet(entries)
@@ -85,5 +85,5 @@ def test_current_metadata_merge_providers_same_value_latest_changeset(registry_s
 
     vals = result[FILE_PATH]
     assert len(vals) == 1
-    assert vals[0].provider_id == 2
+    assert vals[0].actor_id == 2
     assert vals[0].changeset_id == 6

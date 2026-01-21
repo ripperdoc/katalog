@@ -2,7 +2,7 @@
 
 # Next up
 
-- [ ] As changesets can contain multiple providers, how do we map ScanResult.status to the changeset
+- [ ] As changesets can contain multiple actors, how do we map ScanResult.status to the changeset
       status? Also, currently the cutoff logic assumes there is always one scan per changeset.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
@@ -34,7 +34,7 @@
       efficient, decoupled database p usage
 - [ ] Show detailed progress stats during scan/process, e.g. events and progress per file, but
       streamed to UI?
-- [ ] Show in errors which provider, asset and/or metadata that was being processed
+- [ ] Show in errors which actor, asset and/or metadata that was being processed
 - [ ] If folders or shared drives are renamed the Google Drive cache will still use old names. We
       could detect name changes using our metadata system, and update the cache, but at that time we
       might still have some incorrect paths stored in metadata.

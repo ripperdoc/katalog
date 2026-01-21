@@ -11,8 +11,8 @@ import {
   fetchChangesetChanges,
   startManualChangeset,
   finishChangeset as finishChangesetApi,
-  createProvider,
-  fetchProviders,
+  createActor,
+  fetchActors,
 } from "../api/client";
 import MetadataTable from "../components/MetadataTable";
 import type { AssetDetailResponse, EditableMetadataSchemaResponse, Changeset } from "../types/api";
@@ -40,7 +40,7 @@ function AssetDetailRoute() {
     try {
       const response = await fetchAssetDetail(assetIdNum);
       setAsset(response);
-      // Prefill form with current manual-provider values if present
+      // Prefill form with current manual-actor values if present
       const latest: Record<string, unknown> = {};
       response.metadata.forEach((m) => {
         latest[m.key] = m.value;
@@ -73,12 +73,12 @@ function AssetDetailRoute() {
   const startManual = useCallback(async () => {
     setError(null);
     try {
-      const providers = await fetchProviders();
-      const hasManual = providers.providers.find(
+      const actors = await fetchActors();
+      const hasManual = actors.actors.find(
         (p) => p.plugin_id === "katalog.sources.user_editor.UserEditorSource",
       );
       if (!hasManual) {
-        await createProvider({
+        await createActor({
           name: "Manual edits",
           plugin_id: "katalog.sources.user_editor.UserEditorSource",
           config: {},

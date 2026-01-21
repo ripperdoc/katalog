@@ -7,21 +7,21 @@ from typing import Iterable
 
 from loguru import logger
 
-from katalog.models import ProviderType
+from katalog.models import ActorType
 from katalog.utils.utils import import_plugin_class
 
 
-ENTRYPOINT_GROUP_BY_TYPE: dict[ProviderType, str] = {
-    ProviderType.SOURCE: "katalog.source",
-    ProviderType.PROCESSOR: "katalog.processor",
-    ProviderType.ANALYZER: "katalog.analyzer",
+ENTRYPOINT_GROUP_BY_TYPE: dict[ActorType, str] = {
+    ActorType.SOURCE: "katalog.source",
+    ActorType.PROCESSOR: "katalog.processor",
+    ActorType.ANALYZER: "katalog.analyzer",
 }
 
 
 @dataclass(slots=True)
 class PluginSpec:
     plugin_id: str
-    provider_type: ProviderType
+    actor_type: ActorType
     cls: type
     title: str
     description: str | None
@@ -31,7 +31,7 @@ class PluginSpec:
     def to_dict(self) -> dict[str, str | None]:
         return {
             "plugin_id": self.plugin_id,
-            "type": self.provider_type.name,
+            "type": self.actor_type.name,
             "title": self.title,
             "description": self.description,
             "origin": self.origin,
@@ -50,7 +50,7 @@ def _iter_entrypoints(group: str) -> Iterable[EntryPoint]:
 
 
 def _spec_from_entrypoint(
-    *, ep: EntryPoint, provider_type: ProviderType
+    *, ep: EntryPoint, actor_type: ActorType
 ) -> PluginSpec | None:
     try:
         cls = ep.load()
@@ -65,7 +65,7 @@ def _spec_from_entrypoint(
 
     return PluginSpec(
         plugin_id=plugin_id,
-        provider_type=provider_type,
+        actor_type=actor_type,
         cls=cls,
         title=str(title),
         description=str(description).strip() if description else None,
@@ -81,7 +81,7 @@ def list_plugins() -> dict[str, PluginSpec]:
     discovered: dict[str, PluginSpec] = {}
     for ptype, group in ENTRYPOINT_GROUP_BY_TYPE.items():
         for ep in _iter_entrypoints(group):
-            spec = _spec_from_entrypoint(ep=ep, provider_type=ptype)
+            spec = _spec_from_entrypoint(ep=ep, actor_type=ptype)
             if spec is None:
                 continue
             if spec.plugin_id in discovered:
@@ -115,5 +115,5 @@ def get_plugin_class(plugin_id: str) -> type:
     return import_plugin_class(plugin_id)
 
 
-def plugins_for_type(provider_type: ProviderType) -> list[PluginSpec]:
-    return [spec for spec in list_plugins().values() if spec.provider_type == provider_type]
+def plugins_for_type(actor_type: ActorType) -> list[PluginSpec]:
+    return [spec for spec in list_plugins().values() if spec.actor_type == actor_type]

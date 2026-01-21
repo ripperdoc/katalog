@@ -19,7 +19,7 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     existing = ctx.asset
 
     # New changeset for this run
-    snap = await Changeset.create(provider=ctx.provider, status=OpStatus.COMPLETED)
+    snap = await Changeset.create(actor=ctx.actor, status=OpStatus.COMPLETED)
 
     # New Asset instance with the same external_id should reuse the row
     new_asset = Asset(
@@ -28,11 +28,11 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     )
 
     meta = md(FILE_PATH, "/tmp/new")
-    meta.provider = ctx.provider
+    meta.actor = ctx.actor
     meta.changeset = snap
     meta.asset = new_asset
 
-    await new_asset.save_record(changeset=snap, provider=ctx.provider)
+    await new_asset.save_record(changeset=snap, actor=ctx.actor)
     change_set = MetadataChangeSet(
         loaded=await new_asset.load_metadata(), staged=[meta]
     )
@@ -57,9 +57,9 @@ async def test_upsert_uses_metadata_cache(ctx: UpsertFixture):
     ctx.asset.fetch_related = wrapped  # type: ignore
 
     # First upsert populates cache
-    await ctx.upsert(provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/one")])
+    await ctx.upsert(actor_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/one")])
     # Second save should use cache and skip fetch_related
-    await ctx.upsert(provider_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/two")])
+    await ctx.upsert(actor_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/two")])
 
     assert calls == 1
     rows = await ctx.fetch_rows(FILE_PATH)

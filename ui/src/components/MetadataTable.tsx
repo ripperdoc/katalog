@@ -2,23 +2,23 @@ import { useMemo, useState } from "react";
 import { SimpleTable, HeaderObject } from "simple-table-core";
 import type { MetadataRecord } from "../types/api";
 import { groupByNested } from "../utils/metadataGrouping";
-import ProviderCell from "./ProviderCell";
+import ActorCell from "./ActorCell";
 import ChangesetCell from "./ChangesetCell";
 
 type MetadataTableProps = {
   metadata: MetadataRecord[];
-  initialView?: "flat" | "providerGrouped";
+  initialView?: "flat" | "actorGrouped";
 };
 
 const flatHeaders: HeaderObject[] = [
   // { accessor: "id", label: "ID", width: 80, type: "number" },
   // { accessor: "asset_id", label: "Asset", width: 80, type: "number" },
   {
-    accessor: "provider_id",
-    label: "Provider",
+    accessor: "actor_id",
+    label: "Actor",
     width: "1fr",
     type: "number",
-    cellRenderer: ProviderCell,
+    cellRenderer: ActorCell,
   },
   {
     accessor: "changeset_id",
@@ -34,16 +34,16 @@ const flatHeaders: HeaderObject[] = [
   // { accessor: "confidence", label: "Conf", width: 100, type: "number" },
 ];
 
-const providerGroupedHeaders: HeaderObject[] = [
+const actorGroupedHeaders: HeaderObject[] = [
   // { accessor: "id", label: "ID", width: 80, type: "number" },
   // { accessor: "asset_id", label: "Asset", width: 80, type: "number" },
   {
-    accessor: "provider_id",
-    label: "Provider",
+    accessor: "actor_id",
+    label: "Actor",
     width: "1fr",
     type: "number",
     expandable: true,
-    cellRenderer: ProviderCell,
+    cellRenderer: ActorCell,
   },
   {
     accessor: "changeset_id",
@@ -64,9 +64,9 @@ const viewConfigs = {
     headers: flatHeaders,
     rowGrouping: undefined,
   },
-  providerGrouped: {
-    headers: providerGroupedHeaders,
-    rowGrouping: ["provider_id_children"],
+  actorGrouped: {
+    headers: actorGroupedHeaders,
+    rowGrouping: ["actor_id_children"],
   },
 } satisfies Record<
   NonNullable<MetadataTableProps["initialView"]>,
@@ -74,7 +74,7 @@ const viewConfigs = {
 >;
 
 function MetadataTable({ metadata, initialView = "flat" }: MetadataTableProps) {
-  const [view, setView] = useState<"flat" | "providerGrouped">(initialView);
+  const [view, setView] = useState<"flat" | "actorGrouped">(initialView);
   const rows = useMemo(() => {
     const normalized = metadata.map((m) => ({
       ...m,
@@ -86,8 +86,8 @@ function MetadataTable({ metadata, initialView = "flat" }: MetadataTableProps) {
       return normalized;
     }
 
-    if (view === "providerGrouped") {
-      return groupByNested(normalized, ["provider_id"]);
+    if (view === "actorGrouped") {
+      return groupByNested(normalized, ["actor_id"]);
     }
 
     return [];
@@ -108,11 +108,11 @@ function MetadataTable({ metadata, initialView = "flat" }: MetadataTableProps) {
         </button>
         <button
           type="button"
-          className={`button-toggle ${view === "providerGrouped" ? "is-active" : ""}`}
-          aria-pressed={view === "providerGrouped"}
-          onClick={() => setView("providerGrouped")}
+          className={`button-toggle ${view === "actorGrouped" ? "is-active" : ""}`}
+          aria-pressed={view === "actorGrouped"}
+          onClick={() => setView("actorGrouped")}
         >
-          Group by provider
+          Group by actor
         </button>
       </div>
       <SimpleTable

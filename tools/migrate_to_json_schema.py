@@ -1,10 +1,10 @@
 """
 One-time migration helper: copy the current EAV-style katalog database into the
-prototype JSON-per-provider schema (tools/json_schema_prototype.py).
+prototype JSON-per-actor schema (tools/json_schema_prototype.py).
 
 Assumptions:
-- The source DB uses the existing katalog schema (assets, metadata, providers, etc.).
-- Treat all data as belonging to a single changeset/version per (asset, provider); we
+- The source DB uses the existing katalog schema (assets, metadata, actors, etc.).
+- Treat all data as belonging to a single changeset/version per (asset, actor); we
   pick the latest changeset_id we find for each pair.
 - Only non-removed metadata rows are migrated.
 
@@ -61,8 +61,8 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
     conn = sqlite3.connect(source_db)
     conn.row_factory = sqlite3.Row
 
-    providers = {
-        row["id"]: row["name"] for row in conn.execute("SELECT id, name FROM provider")
+    actors = {
+        row["id"]: row["name"] for row in conn.execute("SELECT id, name FROM actor")
     }
     key_registry = {
         row["id"]: row["key"]
@@ -77,7 +77,7 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
         for row in conn.execute("SELECT id, external_id, canonical_uri FROM asset")
     }
 
-    # Group metadata per (asset_id, provider_id)
+    # Group metadata per (asset_id, actor_id)
     grouped: Dict[Tuple[int, int], List[sqlite3.Row]] = defaultdict(list)
     for row in conn.execute(
         """
@@ -86,18 +86,18 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
         WHERE removed = 0
         """
     ):
-        grouped[(row["asset_id"], row["provider_id"])].append(row)
+        grouped[(row["asset_id"], row["actor_id"])].append(row)
 
-    # Track max changeset per (asset, provider) to preserve ordering
+    # Track max changeset per (asset, actor) to preserve ordering
     latest_changeset: Dict[Tuple[int, int], int] = {}
-    for (asset_id, provider_id), rows in grouped.items():
-        latest_changeset[(asset_id, provider_id)] = max(
+    for (asset_id, actor_id), rows in grouped.items():
+        latest_changeset[(asset_id, actor_id)] = max(
             r["changeset_id"] or 0 for r in rows
         )
 
     await init_db(db_url=f"sqlite:///{dest_db}")
 
-    for (asset_id, provider_id), rows in grouped.items():
+    for (asset_id, actor_id), rows in grouped.items():
         metadata_json: Dict[str, Any] = {}
         for r in rows:
             key = key_registry.get(
@@ -107,7 +107,7 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
             if val is None:
                 continue
             slot = metadata_json.setdefault(
-                key, {"v": [], "source": providers.get(provider_id)}
+                key, {"v": [], "source": actors.get(actor_id)}
             )
             if val not in slot["v"]:
                 slot["v"].append(val)
@@ -122,10 +122,10 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
                 "asset/canonical_uri", {"v": [asset_info["canonical_uri"]]}
             )
 
-        changeset_id = latest_changeset.get((asset_id, provider_id), 0) or 0
+        changeset_id = latest_changeset.get((asset_id, actor_id), 0) or 0
         await append_version(
             asset_id=str(asset_id),
-            provider_id=str(provider_id),
+            actor_id=str(actor_id),
             changeset_id=changeset_id,
             metadata_json=metadata_json,
             tombstone=False,

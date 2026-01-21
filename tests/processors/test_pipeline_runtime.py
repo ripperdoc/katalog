@@ -16,7 +16,7 @@ from tests.utils.pipeline_helpers import PipelineFixture
 def make_processor(
     *,
     name: str,
-    provider,
+    actor,
     dependencies: Iterable = (),
     outputs: Iterable = (),
     should_run_predicate: Callable[[set[str]], bool] | None = None,
@@ -32,7 +32,7 @@ def make_processor(
         outputs = outs
 
         def __init__(self):
-            super().__init__(provider=provider)
+            super().__init__(actor=actor)
             self.runs = 0
 
         def should_run(self, asset, change_set):
@@ -63,7 +63,7 @@ async def test_stage_dependency_triggers_following_stage(pipeline_db):
     stage1 = [
         make_processor(
             name="stage1",
-            provider=ctx.provider,
+            actor=ctx.actor,
             outputs=[FILE_NAME],
             metadata_factory=stage1_meta,
         )
@@ -71,7 +71,7 @@ async def test_stage_dependency_triggers_following_stage(pipeline_db):
     stage2 = [
         make_processor(
             name="stage2",
-            provider=ctx.provider,
+            actor=ctx.actor,
             dependencies=[FILE_NAME],
             outputs=[],
             should_run_predicate=lambda changes: FILE_NAME in changes,
@@ -100,7 +100,7 @@ async def test_processor_skipped_when_dependency_not_changed(pipeline_db):
 
     proc = make_processor(
         name="size-dep",
-        provider=ctx.provider,
+        actor=ctx.actor,
         dependencies=[FILE_SIZE],
         should_run_predicate=lambda changes: FILE_SIZE in changes,
     )
@@ -136,12 +136,12 @@ async def test_stage_processors_run_concurrently(pipeline_db):
 
     proc_a = make_processor(
         name="a",
-        provider=ctx.provider,
+        actor=ctx.actor,
         metadata_factory=None,
     )
     proc_b = make_processor(
         name="b",
-        provider=ctx.provider,
+        actor=ctx.actor,
         metadata_factory=None,
     )
 
@@ -166,13 +166,13 @@ async def test_stage_processors_run_concurrently(pipeline_db):
 @pytest.mark.asyncio
 async def test_md5_skips_when_hash_already_present(pipeline_db):
     ctx = await PipelineFixture.create()
-    md5_processor = MD5HashProcessor(provider=ctx.provider)
+    md5_processor = MD5HashProcessor(actor=ctx.actor)
 
     # Seed an existing hash in DB and cache
-    existing_md5 = make_metadata(HASH_MD5, "abc", provider_id=ctx.provider.id)
+    existing_md5 = make_metadata(HASH_MD5, "abc", actor_id=ctx.actor.id)
     existing_md5.asset = ctx.asset
     existing_md5.changeset = ctx.changeset
-    await ctx.asset.save_record(changeset=ctx.changeset, provider=ctx.provider)
+    await ctx.asset.save_record(changeset=ctx.changeset, actor=ctx.actor)
     change_set = MetadataChangeSet(
         loaded=await ctx.asset.load_metadata(), staged=[existing_md5]
     )

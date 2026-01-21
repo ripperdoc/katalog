@@ -36,9 +36,9 @@ class MimeTypeProcessor(Processor):
 
     config_model = ConfigModel
 
-    def __init__(self, provider, **config):
+    def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
-        super().__init__(provider, **config)
+        super().__init__(actor, **config)
 
     def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
         # TODO, some services report application/octet-stream but there is probably a better mime type to find
@@ -55,6 +55,4 @@ class MimeTypeProcessor(Processor):
         m = magic.Magic(mime=True)
         buf = await asset.data.read(0, self.config.probe_length, no_cache=True)
         mt = m.from_buffer(buf)
-        return ProcessorResult(
-            metadata=[make_metadata(FILE_TYPE, mt, self.provider.id)]
-        )
+        return ProcessorResult(metadata=[make_metadata(FILE_TYPE, mt, self.actor.id)])

@@ -7,7 +7,7 @@ from katalog.models import (
     MetadataKey,
     MetadataScalar,
     OpStatus,
-    Provider,
+    Actor,
     Changeset,
     make_metadata,
 )
@@ -18,21 +18,21 @@ from katalog.plugins.registry import get_plugin_class
 @dataclass(slots=True)
 class AssetScanResult:
     asset: Asset
-    provider: Provider
+    actor: Actor
     metadata: list[Metadata] = field(default_factory=list)
 
     def set_metadata(self, metadata_key: MetadataKey, value: MetadataScalar) -> None:
-        """Sets e.g. replaces the metadata value on this provider for the given key with a scalar value."""
-        self.metadata.append(make_metadata(metadata_key, value, self.provider.id))
+        """Sets e.g. replaces the metadata value on this actor for the given key with a scalar value."""
+        self.metadata.append(make_metadata(metadata_key, value, self.actor.id))
 
     def set_metadata_list(
         self,
         metadata_key: MetadataKey,
         value: Collection[MetadataScalar],
     ) -> None:
-        """Sets e.g. replaces the metadata value on this provider for the given key with a collection value."""
+        """Sets e.g. replaces the metadata value on this actor for the given key with a collection value."""
         for v in value:
-            self.metadata.append(make_metadata(metadata_key, v, self.provider.id))
+            self.metadata.append(make_metadata(metadata_key, v, self.actor.id))
 
 
 @dataclass(slots=True)
@@ -47,8 +47,8 @@ class SourcePlugin(PluginBase):
     Source plugin for accessing and listing assets in some asset or file repository.
     """
 
-    def __init__(self, provider: Provider, **kwargs: Any) -> None:
-        super().__init__(provider, **kwargs)
+    def __init__(self, actor: Actor, **kwargs: Any) -> None:
+        super().__init__(actor, **kwargs)
 
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the plugin."""
@@ -81,6 +81,6 @@ class SourcePlugin(PluginBase):
         raise NotImplementedError()
 
 
-def make_source_instance(source_record: Provider) -> SourcePlugin:
+def make_source_instance(source_record: Actor) -> SourcePlugin:
     SourceClass = cast(type[SourcePlugin], get_plugin_class(source_record.plugin_id))
-    return SourceClass(provider=source_record, **(source_record.config or {}))
+    return SourceClass(actor=source_record, **(source_record.config or {}))

@@ -58,7 +58,7 @@ export interface ViewAssetsResponse {
   };
 }
 
-export interface Provider {
+export interface Actor {
   id: number;
   name: string;
   type: string;
@@ -91,8 +91,8 @@ export type ChangesetStatus =
 
 export interface Changeset {
   id: number;
-  provider_id: number | null;
-  provider_name: string | null;
+  actor_id: number | null;
+  actor_name: string | null;
   note: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -100,21 +100,21 @@ export interface Changeset {
   metadata: Record<string, unknown> | null;
 }
 
-export interface ProviderListResponse {
-  providers: Provider[];
+export interface ActorListResponse {
+  actors: Actor[];
 }
 
-export interface ProviderResponse {
-  provider: Provider;
+export interface ActorResponse {
+  actor: Actor;
   changesets: Changeset[];
 }
 
-export interface ProviderCreateResponse {
-  provider: Provider;
+export interface ActorCreateResponse {
+  actor: Actor;
 }
 
-export interface ProviderUpdateResponse {
-  provider: Provider;
+export interface ActorUpdateResponse {
+  actor: Actor;
 }
 
 export interface ChangesetListResponse {
@@ -157,7 +157,7 @@ export interface CollectionUpdateResponse {
 
 export interface AssetDetailRecord {
   id: number;
-  provider_id: number;
+  actor_id: number;
   external_id: string;
   canonical_uri: string;
 }
@@ -165,7 +165,7 @@ export interface AssetDetailRecord {
 export interface MetadataRecord {
   id: number;
   asset_id: number;
-  provider_id: number;
+  actor_id: number;
   changeset_id: number;
   metadata_key_id: number;
   key: string;
@@ -202,7 +202,7 @@ export interface EditableMetadataSchemaResponse {
 export interface ChangesetChangeRecord {
   id: number;
   asset_id: number;
-  provider_id: number;
+  actor_id: number;
   changeset_id: number;
   metadata_key: string;
   metadata_key_id: number;

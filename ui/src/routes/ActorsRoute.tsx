@@ -3,15 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import {
   fetchPlugins,
-  fetchProviders,
+  fetchActors,
   startScan,
   runAllProcessors,
   runAllAnalyzers,
 } from "../api/client";
-import type { Provider, PluginSpec } from "../types/api";
+import type { Actor, PluginSpec } from "../types/api";
 
-function ProvidersRoute() {
-  const [providers, setProviders] = useState<Provider[]>([]);
+function ActorsRoute() {
+  const [actors, setActors] = useState<Actor[]>([]);
   const [plugins, setPlugins] = useState<PluginSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,16 +19,16 @@ function ProvidersRoute() {
   const navigate = useNavigate();
   const didInit = useRef(false);
 
-  const loadProviders = useCallback(async () => {
+  const loadActors = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchProviders();
-      setProviders(response.providers ?? []);
+      const response = await fetchActors();
+      setActors(response.actors ?? []);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
-      setProviders([]);
+      setActors([]);
     } finally {
       setLoading(false);
     }
@@ -50,15 +50,15 @@ function ProvidersRoute() {
       return;
     }
     didInit.current = true;
-    void loadProviders();
+    void loadActors();
     void loadPlugins();
-  }, [loadProviders, loadPlugins]);
+  }, [loadActors, loadPlugins]);
 
-  const triggerScan = async (providerId?: number) => {
-    setScanningId(providerId ?? 0);
+  const triggerScan = async (actorId?: number) => {
+    setScanningId(actorId ?? 0);
     setError(null);
     try {
-      const changeset = await startScan(providerId);
+      const changeset = await startScan(actorId);
       navigate(`/changesets/${changeset.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -74,17 +74,17 @@ function ProvidersRoute() {
   );
 
   const grouped = {
-    sources: providers.filter((p) => p.type === "SOURCE"),
-    processors: providers.filter((p) => p.type === "PROCESSOR"),
-    analyzers: providers.filter((p) => p.type === "ANALYZER"),
+    sources: actors.filter((p) => p.type === "SOURCE"),
+    processors: actors.filter((p) => p.type === "PROCESSOR"),
+    analyzers: actors.filter((p) => p.type === "ANALYZER"),
   };
 
   return (
     <>
       <AppHeader>
         <div>
-          <h2>Providers</h2>
-          <p>Configured source, processor, and analyzer providers.</p>
+          <h2>Actors</h2>
+          <p>Configured source, processor, and analyzer actors.</p>
         </div>
       </AppHeader>
       <main className="app-main">
@@ -109,7 +109,7 @@ function ProvidersRoute() {
             );
             const runAllEnabled =
               groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
-            const hasProviders = list.length > 0;
+            const hasActors = list.length > 0;
 
             return (
               <div key={groupKey} className="subsection">
@@ -140,15 +140,15 @@ function ProvidersRoute() {
                             setScanningId(null);
                           }
                         }}
-                        disabled={scanningId !== null || loading || !hasProviders}
+                        disabled={scanningId !== null || loading || !hasActors}
                         title={
-                          hasProviders
+                          hasActors
                             ? groupKey === "sources"
                               ? "Scan all sources"
                               : groupKey === "processors"
                                 ? "Run all processors on assets"
                                 : "Run all analyzers"
-                            : "Add a provider to enable this action"
+                            : "Add an actor to enable this action"
                         }
                       >
                         {groupKey === "sources"
@@ -165,7 +165,7 @@ function ProvidersRoute() {
                       className="app-btn btn-primary"
                       onClick={() =>
                         navigate(
-                          `/providers/new?type=${
+                          `/actors/new?type=${
                             groupKey === "sources"
                               ? "sources"
                               : groupKey === "processors"
@@ -186,30 +186,30 @@ function ProvidersRoute() {
                   </div>
                 </div>
                 <div className="record-list">
-                  {list.map((provider) => (
-                    <div key={provider.id} className="file-card">
+                  {list.map((actor) => (
+                    <div key={actor.id} className="file-card">
                       <div className="status-bar">
                         <strong>
-                          #{provider.id} {provider.name}
+                          #{actor.id} {actor.name}
                         </strong>
                         <span>{typeLabel}</span>
                       </div>
-                      <p>Plugin: {provider.plugin_id ?? "n/a"}</p>
+                      <p>Plugin: {actor.plugin_id ?? "n/a"}</p>
                       <div className="meta-grid">
-                        <div>Created: {provider.created_at ?? "—"}</div>
-                        <div>Updated: {provider.updated_at ?? "—"}</div>
+                        <div>Created: {actor.created_at ?? "—"}</div>
+                        <div>Updated: {actor.updated_at ?? "—"}</div>
                       </div>
                       <div className="button-row">
-                        <Link to={`/providers/${provider.id}`} className="link-button">
+                        <Link to={`/actors/${actor.id}`} className="link-button">
                           Details
                         </Link>
                         <button
                           type="button"
                           className="app-btn btn-primary"
-                          onClick={() => triggerScan(provider.id)}
+                          onClick={() => triggerScan(actor.id)}
                           disabled={scanningId !== null}
                         >
-                          {scanningId === provider.id ? "Starting..." : "Scan"}
+                          {scanningId === actor.id ? "Starting..." : "Scan"}
                         </button>
                       </div>
                     </div>
@@ -227,4 +227,4 @@ function ProvidersRoute() {
   );
 }
 
-export default ProvidersRoute;
+export default ActorsRoute;

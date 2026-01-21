@@ -12,9 +12,9 @@ DB_PATH = WORKSPACE / "katalog.db"
 DB_URL = f"sqlite:///{DB_PATH}"
 
 
-def provider_path(provider_id: int, subfolder: str | Path | None = None):
-    """Returns a path for storing provider-specific data in the workspace. Ensure the path exists."""
-    path = WORKSPACE / "providers" / str(provider_id)
+def actor_path(actor_id: int, subfolder: str | Path | None = None):
+    """Returns a path for storing actor-specific data in the workspace. Ensure the path exists."""
+    path = WORKSPACE / "actors" / str(actor_id)
     if subfolder:
         path = path / subfolder
     path.mkdir(parents=True, exist_ok=True)

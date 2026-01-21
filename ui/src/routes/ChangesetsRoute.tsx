@@ -62,7 +62,7 @@ function ChangesetsRoute() {
                   <span>Changeset #{snap.id}</span>
                   <span>{snap.status}</span>
                 </div>
-                <p>Provider: {snap.provider_name ?? snap.provider_id ?? "n/a"}</p>
+                <p>Actor: {snap.actor_name ?? snap.actor_id ?? "n/a"}</p>
                 <small>
                   Started: {snap.started_at ?? "unknown"} | Completed: {snap.completed_at ?? "n/a"}
                 </small>

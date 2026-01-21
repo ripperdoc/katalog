@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from katalog.models import Provider
+from katalog.models import Actor
 from katalog.sources.base import ScanResult, SourcePlugin
 from katalog.models import OpStatus
 
@@ -8,13 +8,13 @@ from katalog.models import OpStatus
 class UserEditorSource(SourcePlugin):
     """Pseudo source used for manual edits.
 
-    It does not implement scanning; it merely exists as a provider identity so
-    manual edits can be recorded as coming from a provider.
+    It does not implement scanning; it merely exists as an actor identity so
+    manual edits can be recorded as coming from an actor.
     """
 
     plugin_id = "katalog.sources.user_editor.UserEditorSource"
     title = "User Editor"
-    description = "Manual edits provider"
+    description = "Manual edits actor"
 
     async def scan(self) -> ScanResult:
         # Manual editor cannot scan; return empty iterator and skipped status.
@@ -26,11 +26,13 @@ class UserEditorSource(SourcePlugin):
 
 
 # Convenience factory used in code/tests
-def ensure_user_editor_provider(name: str = "Manual edits") -> Provider:
-    from katalog.models import ProviderType
+def ensure_user_editor_actor(name: str = "Manual edits") -> Actor:
+    from katalog.models import ActorType
 
-    existing = Provider.get_or_none(name=name)
+    existing = Actor.get_or_none(name=name)
     if existing:
         return existing  # type: ignore
     # NOTE: caller should await; left sync for brevity; actual creation is async elsewhere.
-    raise RuntimeError("ensure_user_editor_provider must be awaited via caller-specific logic")
+    raise RuntimeError(
+        "ensure_user_editor_actor must be awaited via caller-specific logic"
+    )

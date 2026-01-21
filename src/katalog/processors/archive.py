@@ -12,7 +12,7 @@ class ArchiveProcess(Processor):
     outputs = frozenset({})  # TODO
 
     # def should_run(self, record: Asset, prev_cache: str | None) -> bool:
-    #     return record.provider_id == "downloads" and prev_cache != self.cache_key(record)
+    #     return record.actor_id == "downloads" and prev_cache != self.cache_key(record)
 
     # async def run(self, record: Asset) -> Asset:
     #     return await super().run(record)

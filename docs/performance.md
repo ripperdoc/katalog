@@ -40,8 +40,8 @@ non-exhaustive list:
 
 - The UI should in general be Desktop-like in responsiveness (less than 200ms)
   - Each page query should be <200 ms. Exception is for more rare and advanced queries.
-- The time to scan a provider is unbounded, but the faster the better and users would prefer to
-  finish within minutes, not hours
+- The time to scan an actor is unbounded, but the faster the better and users would prefer to finish
+  within minutes, not hours
 - Memory usage should be kept in check, aim for less than 2GB
 - Database on-disk storage is unbounded, but a user wouldn't expect databases above 1GB
 

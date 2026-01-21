@@ -1,32 +1,29 @@
 import { useEffect, useState } from "react";
-import { fetchMetadataRegistry, fetchProviders } from "../api/client";
-import type { MetadataRegistryEntry, Provider, MetadataRegistryResponse } from "../types/api";
+import { fetchMetadataRegistry, fetchActors } from "../api/client";
+import type { MetadataRegistryEntry, Actor, MetadataRegistryResponse } from "../types/api";
 
 type RegistryData = {
   metadataById: Record<number, MetadataRegistryEntry>;
-  providersById: Record<number, Provider>;
+  actorsById: Record<number, Actor>;
 };
 
 let registryCache: RegistryData | null = null;
 let registryPromise: Promise<RegistryData> | null = null;
 
 async function loadRegistry(): Promise<RegistryData> {
-  const [metadataResponse, providersResponse] = await Promise.all([
+  const [metadataResponse, actorsResponse] = await Promise.all([
     fetchMetadataRegistry(),
-    fetchProviders(),
+    fetchActors(),
   ]);
 
-  const providersById = providersResponse.providers.reduce<Record<number, Provider>>(
-    (acc, provider) => {
-      acc[provider.id] = provider;
-      return acc;
-    },
-    {},
-  );
+  const actorsById = actorsResponse.actors.reduce<Record<number, Actor>>((acc, actor) => {
+    acc[actor.id] = actor;
+    return acc;
+  }, {});
 
   return {
     metadataById: (metadataResponse as MetadataRegistryResponse).registry,
-    providersById,
+    actorsById,
   };
 }
 

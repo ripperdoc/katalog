@@ -10,8 +10,8 @@ from katalog.models import (
     Asset,
     MetadataChangeSet,
     make_metadata,
-    Provider,
-    ProviderType,
+    Actor,
+    ActorType,
     Changeset,
 )
 from katalog.processors.runtime import enqueue_asset_processing, sort_processors
@@ -28,7 +28,7 @@ async def _persist_scan_only_item(
 ) -> None:
     # Ensure asset row exists and changeset markers are updated.
     was_created = await item.asset.save_record(
-        changeset=changeset, provider=changeset.provider
+        changeset=changeset, actor=changeset.actor
     )
     if item.asset.id is not None:
         seen_assets.add(int(item.asset.id))
@@ -40,8 +40,8 @@ async def _persist_scan_only_item(
     else:
         loaded_metadata = await item.asset.load_metadata()
 
-    # Mark asset as seen in this changeset for this provider.
-    item.metadata.append(make_metadata(ASSET_LOST, None, provider_id=item.provider.id))
+    # Mark asset as seen in this changeset for this actor.
+    item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
 
     change_set = MetadataChangeSet(loaded=loaded_metadata, staged=item.metadata)
     changes = await change_set.persist(asset=item.asset, changeset=changeset)
@@ -65,18 +65,18 @@ async def _flush_scan_only_batch(
     batch.clear()
 
 
-def get_source_plugin(provider_id: int) -> SourcePlugin:
-    """Retrieve a source provider by its ID, ensuring it is of type SOURCE."""
-    raise NotImplementedError("get_source_provider is not yet implemented")
-    # provider = Provider.get_or_none(id=provider_id)
-    # if not provider or provider.type != ProviderType.SOURCE:
-    #     raise ValueError(f"Provider with ID {provider_id} not found or not a source")
-    # return provider
+def get_source_plugin(actor_id: int) -> SourcePlugin:
+    """Retrieve a source actor by its ID, ensuring it is of type SOURCE."""
+    raise NotImplementedError("get_source_actor is not yet implemented")
+    # actor = Actor.get_or_none(id=actor_id)
+    # if not actor or actor.type != ActorType.SOURCE:
+    #     raise ValueError(f"Actor with ID {actor_id} not found or not a source")
+    # return actor
 
 
 async def run_sources(
     *,
-    sources: list[Provider],
+    sources: list[Actor],
     changeset: Changeset,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
@@ -103,10 +103,8 @@ async def run_sources(
             return False
 
     for source in sources:
-        if source.type != ProviderType.SOURCE:
-            logger.warning(
-                f"Skipping provider {source.id} ({source.name}): not a source"
-            )
+        if source.type != ActorType.SOURCE:
+            logger.warning(f"Skipping actor {source.id} ({source.name}): not a source")
             continue
         if await _should_cancel():
             raise asyncio.CancelledError()
@@ -126,7 +124,7 @@ async def run_sources(
 
             if has_processors:
                 was_created = await result.asset.save_record(
-                    changeset=changeset, provider=changeset.provider or source
+                    changeset=changeset, actor=changeset.actor or source
                 )
                 if was_created:
                     changeset.stats.assets_added += 1
@@ -137,7 +135,7 @@ async def run_sources(
                 change_set = MetadataChangeSet(
                     loaded=loaded_metadata,
                     staged=result.metadata
-                    + [make_metadata(ASSET_LOST, None, provider_id=result.provider.id)],
+                    + [make_metadata(ASSET_LOST, None, actor_id=result.actor.id)],
                 )
                 # Enqueue asset for processing, which will also persist the metadata
                 await enqueue_asset_processing(
@@ -190,7 +188,7 @@ async def run_sources(
                     tasks=len(changeset.tasks),
                 )
         lost_count = await Asset.mark_unseen_as_lost(
-            changeset=changeset, provider_ids=[source.id], seen_asset_ids=seen_assets
+            changeset=changeset, actor_ids=[source.id], seen_asset_ids=seen_assets
         )
         if lost_count:
             changeset.stats.assets_lost += lost_count

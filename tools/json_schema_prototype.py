@@ -28,11 +28,11 @@ from tortoise.models import Model
 
 
 class AssetRecord(Model):
-    """Append-only asset record with provider-scoped metadata JSON."""
+    """Append-only asset record with actor-scoped metadata JSON."""
 
     id = fields.IntField(pk=True)
     asset_id = fields.CharField(max_length=36, index=True)
-    provider_id = fields.CharField(max_length=64, index=True)
+    actor_id = fields.CharField(max_length=64, index=True)
     changeset_id = fields.IntField(index=True)
     tombstone = fields.BooleanField(default=False)
     metadata_json = fields.JSONField()
@@ -44,8 +44,8 @@ class AssetRecord(Model):
     class Meta:
         table = "asset_record"
         indexes = [
-            ("asset_id", "provider_id", "changeset_id"),
-            ("provider_id", "asset_id"),
+            ("asset_id", "actor_id", "changeset_id"),
+            ("actor_id", "asset_id"),
             ("changeset_id",),
         ]
 
@@ -59,7 +59,7 @@ async def init_db(db_url: str = "sqlite://:memory:") -> None:
     await Tortoise.init(db_url=db_url, modules={"models": [__name__]})
     await Tortoise.generate_schemas()
 
-    # View selecting latest non-tombstoned row per (asset, provider).
+    # View selecting latest non-tombstoned row per (asset, actor).
     await AssetRecord.raw(
         """
         CREATE VIEW IF NOT EXISTS asset_current AS
@@ -70,7 +70,7 @@ async def init_db(db_url: str = "sqlite://:memory:") -> None:
             SELECT MAX(r2.changeset_id)
             FROM asset_record r2
             WHERE r2.asset_id = r.asset_id
-              AND r2.provider_id = r.provider_id
+              AND r2.actor_id = r.actor_id
           );
         """
     )
@@ -79,7 +79,7 @@ async def init_db(db_url: str = "sqlite://:memory:") -> None:
     await AssetRecord.raw(
         """
         CREATE INDEX IF NOT EXISTS idx_asset_current_live
-          ON asset_record(asset_id, provider_id, changeset_id)
+          ON asset_record(asset_id, actor_id, changeset_id)
           WHERE tombstone = 0;
         """
     )
@@ -111,7 +111,7 @@ def _stable_hash(json_obj: object) -> str:
 async def append_version(
     *,
     asset_id: str,
-    provider_id: str,
+    actor_id: str,
     changeset_id: int,
     metadata_json: dict,
     tombstone: bool = False,
@@ -122,7 +122,7 @@ async def append_version(
     """
 
     latest = await (
-        AssetRecord.filter(asset_id=asset_id, provider_id=provider_id)
+        AssetRecord.filter(asset_id=asset_id, actor_id=actor_id)
         .order_by("-changeset_id")
         .first()
     )
@@ -135,7 +135,7 @@ async def append_version(
 
     record = await AssetRecord.create(
         asset_id=asset_id,
-        provider_id=provider_id,
+        actor_id=actor_id,
         changeset_id=changeset_id,
         tombstone=tombstone,
         metadata_json=metadata_json,
@@ -161,7 +161,7 @@ async def query_assets(
 
     - filters operate on metadata_json via json_extract using dot paths like "core/path".
     - sort_by can be any column of the view/table or json_extract path (prefix with "json:").
-    - when use_current_view is True, queries run against asset_current (latest per provider).
+    - when use_current_view is True, queries run against asset_current (latest per actor).
     """
 
     base = "asset_current" if use_current_view else "asset_record"

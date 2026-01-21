@@ -3,13 +3,13 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import AppHeader from "../components/AppHeader";
-import { fetchProvider, startScan, updateProvider, fetchProviderConfigSchema } from "../api/client";
-import type { Provider, Changeset } from "../types/api";
+import { fetchActor, startScan, updateActor, fetchActorConfigSchema } from "../api/client";
+import type { Actor, Changeset } from "../types/api";
 
-function ProviderDetailRoute() {
-  const { providerId } = useParams();
+function ActorDetailRoute() {
+  const { actorId } = useParams();
   const navigate = useNavigate();
-  const [provider, setProvider] = useState<Provider | null>(null);
+  const [actor, setActor] = useState<Actor | null>(null);
   const [changesets, setChangesets] = useState<Changeset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,51 +19,51 @@ function ProviderDetailRoute() {
   const [configSchema, setConfigSchema] = useState<Record<string, unknown>>({ type: "object" });
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
 
-  const providerIdNum = providerId ? Number(providerId) : NaN;
+  const actorIdNum = actorId ? Number(actorId) : NaN;
 
-  const loadProvider = useCallback(async () => {
-    if (!providerIdNum || Number.isNaN(providerIdNum)) {
-      setError("Invalid provider id");
+  const loadActor = useCallback(async () => {
+    if (!actorIdNum || Number.isNaN(actorIdNum)) {
+      setError("Invalid actor id");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchProvider(providerIdNum);
-      setProvider(response.provider);
+      const response = await fetchActor(actorIdNum);
+      setActor(response.actor);
       setChangesets(response.changesets ?? []);
-      setFormName(response.provider?.name ?? "");
-      setConfigData(response.provider?.config ?? {});
+      setFormName(response.actor?.name ?? "");
+      setConfigData(response.actor?.config ?? {});
       try {
-        const schemaRes = await fetchProviderConfigSchema(providerIdNum);
+        const schemaRes = await fetchActorConfigSchema(actorIdNum);
         setConfigSchema(schemaRes.schema || { type: "object" });
-        setConfigData(schemaRes.value || response.provider?.config || {});
+        setConfigData(schemaRes.value || response.actor?.config || {});
       } catch {
         setConfigSchema({ type: "object" });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
-      setProvider(null);
+      setActor(null);
       setChangesets([]);
     } finally {
       setLoading(false);
     }
-  }, [providerIdNum]);
+  }, [actorIdNum]);
 
   useEffect(() => {
-    void loadProvider();
-  }, [loadProvider]);
+    void loadActor();
+  }, [loadActor]);
 
   const triggerScan = async () => {
-    if (!providerIdNum || Number.isNaN(providerIdNum)) {
-      setError("Invalid provider id");
+    if (!actorIdNum || Number.isNaN(actorIdNum)) {
+      setError("Invalid actor id");
       return;
     }
     setScanning(true);
     setError(null);
     try {
-      const changeset = await startScan(providerIdNum);
+      const changeset = await startScan(actorIdNum);
       navigate(`/changesets/${changeset.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -76,15 +76,15 @@ function ProviderDetailRoute() {
   const canSave = useMemo(() => Boolean(formName), [formName]);
 
   const handleSave = async () => {
-    if (!providerIdNum || Number.isNaN(providerIdNum)) {
-      setError("Invalid provider id");
+    if (!actorIdNum || Number.isNaN(actorIdNum)) {
+      setError("Invalid actor id");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      await updateProvider(providerIdNum, { name: formName, config: configData });
-      await loadProvider();
+      await updateActor(actorIdNum, { name: formName, config: configData });
+      await loadActor();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -97,11 +97,11 @@ function ProviderDetailRoute() {
     <>
       <AppHeader>
         <div>
-          <h2>Provider #{providerId}</h2>
-          <p>Inspect provider details and changesets.</p>
+          <h2>Actor #{actorId}</h2>
+          <p>Inspect actor details and changesets.</p>
         </div>
         <div className="button-row">
-          <Link to="/providers" className="link-button">
+          <Link to="/actors" className="link-button">
             Back
           </Link>
           <button
@@ -117,17 +117,17 @@ function ProviderDetailRoute() {
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}
-          {provider && (
+          {actor && (
             <div className="record-list">
               <div className="file-card">
-                <h3>Provider</h3>
+                <h3>Actor</h3>
                 <label className="form-row">
                   <span>Name</span>
                   <input
                     type="text"
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
-                    placeholder="Provider name"
+                    placeholder="Actor name"
                   />
                 </label>
                 <label className="form-row">
@@ -165,13 +165,11 @@ function ProviderDetailRoute() {
               </div>
             </div>
           )}
-          {!provider && !loading && !error && (
-            <div className="empty-state">Provider not found.</div>
-          )}
+          {!actor && !loading && !error && <div className="empty-state">Actor not found.</div>}
         </section>
       </main>
     </>
   );
 }
 
-export default ProviderDetailRoute;
+export default ActorDetailRoute;

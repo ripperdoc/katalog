@@ -7,8 +7,8 @@ import sqlite3
 import shutil
 
 from tortoise import run_async
-from katalog.models import MetadataType, OpStatus, ProviderType
-from katalog.models import Asset, Metadata, MetadataRegistry, Provider, Changeset
+from katalog.models import MetadataType, OpStatus, ActorType
+from katalog.models import Asset, Metadata, MetadataRegistry, Actor, Changeset
 from katalog.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
@@ -55,9 +55,9 @@ def _format_bytes(num_bytes: int) -> str:
 async def populate_test_data(
     db_path: Path,
     *,
-    providers: int = 1,
-    changesets_per_provider: int = 3,
-    assets_per_provider: int = 1_000,
+    actors: int = 1,
+    changesets_per_actor: int = 3,
+    assets_per_actor: int = 1_000,
     metadata_per_asset: int = 20,
     relationships_per_asset: int = 2,
     seed: int = 1,
@@ -84,9 +84,9 @@ async def populate_test_data(
 
     rng = Random(seed)
 
-    provider_types = list(ProviderType)
-    if not provider_types:
-        raise RuntimeError("ProviderType enum has no members")
+    actor_types = list(ActorType)
+    if not actor_types:
+        raise RuntimeError("ActorType enum has no members")
 
     # Core metadata keys to populate (covers UI fields plus a few extras)
     metadata_keys = [
@@ -129,12 +129,12 @@ async def populate_test_data(
 
     total_metadata_entries = 0
 
-    for provider_idx in range(providers):
-        provider = await Provider.create(
-            name=f"provider-{provider_idx}",
-            plugin_id=f"plugin-{provider_idx}",
-            type=provider_types[provider_idx % len(provider_types)],
-            config={"seed": seed, "provider_idx": provider_idx},
+    for actor_idx in range(actors):
+        actor = await Actor.create(
+            name=f"actor-{actor_idx}",
+            plugin_id=f"plugin-{actor_idx}",
+            type=actor_types[actor_idx % len(actor_types)],
+            config={"seed": seed, "actor_idx": actor_idx},
         )
 
         registry_rows = await MetadataRegistry.filter(
@@ -143,12 +143,12 @@ async def populate_test_data(
         registry_by_key = {r.key: r for r in registry_rows}
 
         changesets: list[Changeset] = []
-        base_changeset_id = int(time()) + provider_idx * 10_000
-        for snap_idx in range(changesets_per_provider):
+        base_changeset_id = int(time()) + actor_idx * 10_000
+        for snap_idx in range(changesets_per_actor):
             changesets.append(
                 await Changeset.create(
                     id=base_changeset_id + snap_idx,
-                    provider=provider,
+                    actor=actor,
                     status=OpStatus.COMPLETED,
                     started_at=datetime.now(UTC),
                     completed_at=datetime.now(UTC),
@@ -161,16 +161,16 @@ async def populate_test_data(
 
         # Assets
         assets: list[Asset] = []
-        for asset_idx in range(assets_per_provider):
-            external_id = f"{provider.id}:{asset_idx}"
-            canonical_uri = f"katalog://{provider.name}/asset/{asset_idx}"
+        for asset_idx in range(assets_per_actor):
+            external_id = f"{actor.id}:{asset_idx}"
+            canonical_uri = f"katalog://{actor.name}/asset/{asset_idx}"
             asset = Asset(
                 external_id=external_id,
                 canonical_uri=canonical_uri,
             )
-            await asset.save_record(changeset=created_changeset, provider=provider)
+            await asset.save_record(changeset=created_changeset, actor=actor)
             if last_changeset.id != created_changeset.id:
-                await asset.save_record(changeset=last_changeset, provider=provider)
+                await asset.save_record(changeset=last_changeset, actor=actor)
             assets.append(asset)
 
         # Metadata (inserted for the last changeset only by default)
@@ -202,7 +202,7 @@ async def populate_test_data(
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
-                            provider=provider,
+                            actor=actor,
                             changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
@@ -222,7 +222,7 @@ async def populate_test_data(
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
-                            provider=provider,
+                            actor=actor,
                             changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
@@ -235,7 +235,7 @@ async def populate_test_data(
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
-                            provider=provider,
+                            actor=actor,
                             changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
@@ -257,7 +257,7 @@ async def populate_test_data(
                     metadata_entries.append(
                         Metadata(
                             asset=asset,
-                            provider=provider,
+                            actor=actor,
                             changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
@@ -269,11 +269,11 @@ async def populate_test_data(
             total_metadata_entries += len(metadata_entries)
             await Metadata.bulk_create(metadata_entries)
 
-    total_assets = providers * assets_per_provider
-    total_changesets = providers * changesets_per_provider
+    total_assets = actors * assets_per_actor
+    total_changesets = actors * changesets_per_actor
     print(
         f"Generated {total_assets} assets and {total_metadata_entries} metadata rows "
-        f"across {providers} providers and {total_changesets} changesets"
+        f"across {actors} actors and {total_changesets} changesets"
     )
     print(f"Database written to {db_path.resolve()}")
 
@@ -444,9 +444,9 @@ def _parse_args() -> object:
         help="Only initialize the schema without inserting data.",
     )
     parser.add_argument("--analyze", action="store_true")
-    parser.add_argument("--providers", type=int, default=1)
-    parser.add_argument("--changesets-per-provider", type=int, default=3)
-    parser.add_argument("--assets-per-provider", type=int, default=5_000)
+    parser.add_argument("--actors", type=int, default=1)
+    parser.add_argument("--changesets-per-actor", type=int, default=3)
+    parser.add_argument("--assets-per-actor", type=int, default=5_000)
     parser.add_argument("--metadata-per-asset", type=int, default=25)
     parser.add_argument("--relationships-per-asset", type=int, default=0)
     parser.add_argument("--seed", type=int, default=1)
@@ -460,9 +460,9 @@ async def main_async(args: object) -> None:
     if populate_flag or not setup_only:
         await populate_test_data(
             getattr(args, "db"),
-            providers=getattr(args, "providers"),
-            changesets_per_provider=getattr(args, "changesets_per_provider"),
-            assets_per_provider=getattr(args, "assets_per_provider"),
+            actors=getattr(args, "actors"),
+            changesets_per_actor=getattr(args, "changesets_per_actor"),
+            assets_per_actor=getattr(args, "assets_per_actor"),
             metadata_per_asset=getattr(args, "metadata_per_asset"),
             relationships_per_asset=getattr(args, "relationships_per_asset"),
             seed=getattr(args, "seed"),
