@@ -102,4 +102,7 @@ async def sync_config():
     """Initialize database and registry. Legacy name kept for compatibility."""
     await setup_db(DB_PATH)
     await sync_metadata_registry()
+    from katalog.editors.user_editor import ensure_user_editor
+
+    await ensure_user_editor()
     logger.info("Synchronized database schema and metadata registry")

@@ -73,17 +73,6 @@ function AssetDetailRoute() {
   const startManual = useCallback(async () => {
     setError(null);
     try {
-      const actors = await fetchActors();
-      const hasManual = actors.actors.find(
-        (p) => p.plugin_id === "katalog.sources.user_editor.UserEditor",
-      );
-      if (!hasManual) {
-        await createActor({
-          name: "Manual edits",
-          plugin_id: "katalog.sources.user_editor.UserEditor",
-          config: {},
-        });
-      }
       const snap = await startManualChangeset();
       setActiveChangeset(snap);
     } catch (err) {

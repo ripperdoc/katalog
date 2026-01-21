@@ -8,10 +8,10 @@ from katalog.db import (
     list_assets_for_view,
     list_grouped_assets,
 )
+from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import Asset, Metadata, MetadataChangeSet, make_metadata
 from katalog.views import get_view
 
-from katalog.api.helpers import ensure_manual_actor
 
 router = APIRouter()
 
@@ -118,7 +118,7 @@ async def manual_edit_asset(asset_id: int, request: Request):
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    actor = await ensure_manual_actor()
+    actor = await ensure_user_editor()
 
     # Build metadata from payload (dict of key -> value)
     metadata_entries: list[Metadata] = []

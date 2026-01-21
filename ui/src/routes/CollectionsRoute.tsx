@@ -86,7 +86,6 @@ function CollectionsRoute() {
               isLoading={loading}
             />
           </div>
-          {!loading && rows.length === 0 && <div className="empty-state">No collections yet.</div>}
         </section>
       </main>
     </>

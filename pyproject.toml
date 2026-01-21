@@ -46,4 +46,4 @@ name_readability = "katalog.processors.name_readability:NameReadabilityProcessor
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"
 
 [project.entry-points."katalog.editor"]
-user_editor = "katalog.sources.user_editor:UserEditor"
+user_editor = "katalog.editors.user_editor:UserEditor"

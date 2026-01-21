@@ -14,7 +14,7 @@ from katalog.models import (
     make_metadata,
 )
 from katalog.views import get_view
-from katalog.api.helpers import ensure_manual_actor
+from katalog.editors.user_editor import ensure_user_editor
 
 router = APIRouter()
 
@@ -81,7 +81,7 @@ async def create_collection(request: Request):
     )
 
     if unique_asset_ids:
-        actor = await ensure_manual_actor()
+        actor = await ensure_user_editor()
         changeset = await Changeset.create(
             actor=actor,
             status=OpStatus.COMPLETED,

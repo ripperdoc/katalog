@@ -8,7 +8,7 @@ from katalog.db import list_changeset_metadata_changes
 from katalog.models import Changeset, OpStatus
 from katalog.utils.changeset_events import sse_event
 
-from katalog.api.helpers import ensure_manual_actor
+from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.state import RUNNING_CHANGESETS, event_manager
 
 router = APIRouter()
@@ -21,7 +21,7 @@ async def create_changeset():
 
 @router.post("/changesets/manual/start")
 async def start_manual_changeset():
-    actor = await ensure_manual_actor()
+    actor = await ensure_user_editor()
     try:
         changeset = await Changeset.begin(actor=actor, status=OpStatus.IN_PROGRESS)
     except ValueError as exc:
