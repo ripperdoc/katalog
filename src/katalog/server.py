@@ -347,14 +347,7 @@ async def create_collection(request: Request):
                 detail="refresh_mode must be 'live' or 'on_demand'",
             )
 
-    # Validate asset ids exist
-    found_ids = await Asset.filter(id__in=asset_ids).values_list("id", flat=True)
-    missing = set(asset_ids) - set(int(a) for a in found_ids)
-    if missing:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Assets not found: {sorted(missing)}",
-        )
+    # TODO Validate asset ids exist
 
     collection = await AssetCollection.create(
         name=payload.name,
