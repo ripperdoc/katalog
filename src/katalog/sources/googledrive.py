@@ -120,7 +120,7 @@ class GoogleDriveClient(SourcePlugin):
     description = "List files from a Google Drive account using OAuth2."
 
     class ConfigModel(BaseModel):
-        model_config = ConfigDict(extra="ignore", populate_by_name=True)
+        model_config = ConfigDict(extra="ignore")
 
         max_files: int = Field(
             default=0, ge=0, description="Stop after this many files (0 means no limit)"
@@ -140,22 +140,18 @@ class GoogleDriveClient(SourcePlugin):
         )
         include_paths: list[str] = Field(
             default_factory=list,
-            alias="includePaths",
             description="Glob patterns (names or ID paths) to include",
         )
         exclude_paths: list[str] = Field(
             default_factory=list,
-            alias="excludePaths",
             description="Glob patterns to exclude",
         )
         modified_from: datetime | None = Field(
             default=None,
-            alias="modifiedFrom",
             description="ISO datetime lower bound (Drive modifiedTime)",
         )
         modified_to: datetime | None = Field(
             default=None,
-            alias="modifiedTo",
             description="ISO datetime upper bound (Drive modifiedTime)",
         )
         account: str | None = Field(
@@ -213,10 +209,6 @@ class GoogleDriveClient(SourcePlugin):
 
         self.modified_from = parse_datetime_utc(cfg.modified_from, strict=False)
         self.modified_to = parse_datetime_utc(cfg.modified_to, strict=False)
-        # Backwards/compat aliases (config may use camelCase).
-        self.modifiedFrom = self.modified_from
-        self.modifiedTo = self.modified_to
-
         self.http = httpx.AsyncClient(
             base_url="https://www.googleapis.com", timeout=5.0
         )

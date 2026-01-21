@@ -265,9 +265,7 @@ const AssetTable = ({
         />
       </div>
       {error && <p className="error">{error}</p>}
-      {!error && !loading && records.length === 0 && (
-        <div className="empty-state">No records available.</div>
-      )}
+
       <div className="table-container">
         <SimpleTable
           defaultHeaders={headers}
@@ -280,7 +278,7 @@ const AssetTable = ({
           rowsPerPage={pagination.limit}
           serverSidePagination={true}
           totalRowCount={total ?? records.length}
-          footerRenderer={(props) => <TableFooter {...props} queryTimeMs={durationMs ?? undefined} />}
+          footerRenderer={(props) => <TableFooter {...props} queryTimeMs={durationMs} />}
           onPageChange={(page) => {
             if (page === pagination.page) {
               return;

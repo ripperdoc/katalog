@@ -75,12 +75,12 @@ function AssetDetailRoute() {
     try {
       const actors = await fetchActors();
       const hasManual = actors.actors.find(
-        (p) => p.plugin_id === "katalog.sources.user_editor.UserEditorSource",
+        (p) => p.plugin_id === "katalog.sources.user_editor.UserEditor",
       );
       if (!hasManual) {
         await createActor({
           name: "Manual edits",
-          plugin_id: "katalog.sources.user_editor.UserEditorSource",
+          plugin_id: "katalog.sources.user_editor.UserEditor",
           config: {},
         });
       }

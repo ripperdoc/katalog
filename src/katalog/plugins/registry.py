@@ -15,6 +15,7 @@ ENTRYPOINT_GROUP_BY_TYPE: dict[ActorType, str] = {
     ActorType.SOURCE: "katalog.source",
     ActorType.PROCESSOR: "katalog.processor",
     ActorType.ANALYZER: "katalog.analyzer",
+    ActorType.EDITOR: "katalog.editor",
 }
 
 

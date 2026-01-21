@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import Form from "@rjsf/core";
-import validator from "@rjsf/validator-ajv8";
 import { createActor, fetchPlugins, fetchPluginConfigSchema, type PluginSpec } from "../api/client";
+import ActorForm from "../components/ActorForm";
 
-const USER_EDITOR_PLUGIN_ID = "katalog.sources.user_editor.UserEditorSource";
+const USER_EDITOR_PLUGIN_ID = "katalog.sources.user_editor.UserEditor";
 
 function ActorCreateRoute() {
   const navigate = useNavigate();
@@ -12,7 +11,8 @@ function ActorCreateRoute() {
   const [plugins, setPlugins] = useState<PluginSpec[]>([]);
   const [pluginId, setPluginId] = useState<string>("");
   const [name, setName] = useState<string>("");
-  const [schema, setSchema] = useState<Record<string, unknown>>({ type: "object" });
+  const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
+  const [configData, setConfigData] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +26,9 @@ function ActorCreateRoute() {
         ? "PROCESSOR"
         : upper === "ANALYZERS"
           ? "ANALYZER"
-          : null;
+          : upper === "EDITORS"
+            ? "EDITOR"
+            : null;
   }, [params]);
 
   const loadPlugins = useCallback(async () => {
@@ -55,20 +57,24 @@ function ActorCreateRoute() {
   useEffect(() => {
     const loadSchema = async () => {
       if (!pluginId) {
-        setSchema({ type: "object" });
+        setSchema(null);
         return;
       }
       try {
         const res = await fetchPluginConfigSchema(pluginId);
-        setSchema(res.schema || { type: "object" });
+        setSchema(res.schema ?? null);
       } catch {
-        setSchema({ type: "object" });
+        setSchema(null);
       }
     };
     void loadSchema();
   }, [pluginId]);
 
-  const handleSubmit = async ({ formData }: { formData: Record<string, unknown> }) => {
+  useEffect(() => {
+    setConfigData({});
+  }, [pluginId]);
+
+  const handleSubmit = async () => {
     if (!pluginId) {
       setError("Select a plugin");
       return;
@@ -79,7 +85,7 @@ function ActorCreateRoute() {
       const res = await createActor({
         name: name || pluginId,
         plugin_id: pluginId,
-        config: formData,
+        config: configData,
       });
       navigate(`/actors/${res.actor.id}`);
     } catch (err) {
@@ -105,37 +111,22 @@ function ActorCreateRoute() {
       </header>
       {error && <p className="error">{error}</p>}
       <div className="file-card">
-        <label className="form-row">
-          <span>Plugin</span>
-          <select value={pluginId} onChange={(e) => setPluginId(e.target.value)}>
-            {plugins.map((p) => (
-              <option key={p.plugin_id} value={p.plugin_id}>
-                {p.title ?? p.plugin_id} ({p.type.toLowerCase()})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="form-row">
-          <span>Name</span>
-          <input
-            type="text"
-            placeholder="Friendly name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <Form
-          schema={schema as any}
-          formData={{}}
-          onSubmit={(evt) => void handleSubmit(evt)}
-          validator={validator}
-        >
-          <div className="button-row">
-            <button type="submit" disabled={loading || !pluginId}>
-              {loading ? "Saving..." : "Create"}
-            </button>
-          </div>
-        </Form>
+        <ActorForm
+          isCreating
+          plugins={plugins}
+          pluginId={pluginId}
+          onPluginChange={setPluginId}
+          name={name}
+          onNameChange={setName}
+          schema={schema}
+          configData={configData}
+          onConfigChange={setConfigData}
+          onSubmit={() => void handleSubmit()}
+          canSubmit={Boolean(pluginId)}
+          submitting={loading}
+          submitLabel="Create"
+          submittingLabel="Saving..."
+        />
       </div>
     </section>
   );

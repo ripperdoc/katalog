@@ -1,28 +1,19 @@
 from __future__ import annotations
 
 from katalog.models import Actor
-from katalog.sources.base import ScanResult, SourcePlugin
-from katalog.models import OpStatus
+from katalog.editors.base import EditorPlugin
 
 
-class UserEditorSource(SourcePlugin):
+class UserEditor(EditorPlugin):
     """Pseudo source used for manual edits.
 
     It does not implement scanning; it merely exists as an actor identity so
     manual edits can be recorded as coming from an actor.
     """
 
-    plugin_id = "katalog.sources.user_editor.UserEditorSource"
+    plugin_id = "katalog.sources.user_editor.UserEditor"
     title = "User Editor"
     description = "Manual edits actor"
-
-    async def scan(self) -> ScanResult:
-        # Manual editor cannot scan; return empty iterator and skipped status.
-        async def _empty():
-            if False:
-                yield  # pragma: no cover
-
-        return ScanResult(iterator=_empty(), status=OpStatus.SKIPPED, ignored=0)
 
 
 # Convenience factory used in code/tests

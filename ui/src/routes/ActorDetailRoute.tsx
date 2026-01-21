@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import Form from "@rjsf/core";
-import validator from "@rjsf/validator-ajv8";
 import AppHeader from "../components/AppHeader";
+import ActorForm from "../components/ActorForm";
 import { fetchActor, startScan, updateActor, fetchActorConfigSchema } from "../api/client";
 import type { Actor, Changeset } from "../types/api";
 
@@ -16,7 +15,7 @@ function ActorDetailRoute() {
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formName, setFormName] = useState<string>("");
-  const [configSchema, setConfigSchema] = useState<Record<string, unknown>>({ type: "object" });
+  const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
 
   const actorIdNum = actorId ? Number(actorId) : NaN;
@@ -36,10 +35,11 @@ function ActorDetailRoute() {
       setConfigData(response.actor?.config ?? {});
       try {
         const schemaRes = await fetchActorConfigSchema(actorIdNum);
-        setConfigSchema(schemaRes.schema || { type: "object" });
-        setConfigData(schemaRes.value || response.actor?.config || {});
+        setConfigSchema(schemaRes.schema ?? null);
+        setConfigData(schemaRes.value ?? response.actor?.config ?? {});
       } catch {
-        setConfigSchema({ type: "object" });
+        setConfigSchema(null);
+        setConfigData(response.actor?.config ?? {});
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -97,21 +97,23 @@ function ActorDetailRoute() {
     <>
       <AppHeader>
         <div>
-          <h2>Actor #{actorId}</h2>
+          <h2>{formName ? formName : `Actor #${actorId}`}</h2>
           <p>Inspect actor details and changesets.</p>
         </div>
         <div className="button-row">
           <Link to="/actors" className="link-button">
             Back
           </Link>
-          <button
-            className="btn-primary"
-            type="button"
-            onClick={triggerScan}
-            disabled={scanning || loading}
-          >
-            {scanning ? "Starting..." : "Scan"}
-          </button>
+          {actor?.type !== "EDITOR" && (
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={triggerScan}
+              disabled={scanning || loading}
+            >
+              {scanning ? "Starting..." : "Scan"}
+            </button>
+          )}
         </div>
       </AppHeader>
       <main className="app-main">
@@ -121,37 +123,24 @@ function ActorDetailRoute() {
             <div className="record-list">
               <div className="file-card">
                 <h3>Actor</h3>
-                <label className="form-row">
-                  <span>Name</span>
-                  <input
-                    type="text"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="Actor name"
-                  />
-                </label>
-                <label className="form-row">
-                  <span>Config</span>
-                  <Form
-                    schema={configSchema as any}
-                    formData={configData}
-                    onChange={(evt) => setConfigData(evt.formData as Record<string, unknown>)}
-                    liveValidate={false}
-                    validator={validator}
-                  >
-                    <div />
-                  </Form>
-                </label>
-                <div className="button-row">
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    onClick={handleSave}
-                    disabled={!canSave || saving}
-                  >
-                    {saving ? "Saving..." : "Save"}
-                  </button>
+                <div className="meta-grid">
+                  <div>Created: {actor.created_at ?? "—"}</div>
+                  <div>Updated: {actor.updated_at ?? "—"}</div>
                 </div>
+                <ActorForm
+                  isCreating={false}
+                  pluginId={actor.plugin_id ?? ""}
+                  name={formName}
+                  onNameChange={setFormName}
+                  schema={configSchema}
+                  configData={configData}
+                  onConfigChange={setConfigData}
+                  onSubmit={() => void handleSave()}
+                  canSubmit={canSave}
+                  submitting={saving}
+                  submitLabel="Save"
+                  submittingLabel="Saving..."
+                />
               </div>
               <div className="file-card">
                 <h3>History</h3>

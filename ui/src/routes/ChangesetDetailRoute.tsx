@@ -261,11 +261,6 @@ function ChangesetDetailRoute() {
                 <div className="panel-header" style={{ padding: 0, marginBottom: "0.5rem" }}>
                   <div>
                     <h3>Changes</h3>
-                    {!changesLoading && (
-                      <p>
-                        Total {changesTotal ?? changes.length}, page {changesPage}
-                      </p>
-                    )}
                   </div>
                   <div className="panel-actions">
                     <button

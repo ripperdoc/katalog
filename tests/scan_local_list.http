@@ -31,3 +31,11 @@ content-type: application/json
 "sort_dir": "desc",
 "limit": 200
 }
+
+
+### Get plugin schema
+GET http://127.0.0.1:8000/plugins/katalog.sources.user_editor.UserEditor/config/schema HTTP/1.1
+
+
+####
+GET http://127.0.0.1:8000/actors/2/config/schema HTTP/1.1

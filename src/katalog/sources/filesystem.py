@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from urllib.parse import unquote, urlparse
 
 if os.name == "nt":
@@ -56,9 +56,7 @@ class FilesystemClient(SourcePlugin):
     description = "Scan a directory tree on the local machine."
 
     class ConfigModel(BaseModel):
-        model_config = ConfigDict(populate_by_name=True)
-
-        root_path: Path = Field(..., alias="rootPath", description="Directory to scan")
+        root_path: Path = Field(..., description="Directory to scan")
         max_files: int = Field(
             default=500,
             ge=0,

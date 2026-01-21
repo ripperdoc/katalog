@@ -244,6 +244,14 @@ select {
   background-color: #f8fafc;
 }
 
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: #e2e8f0;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
 textarea {
   border: 1px solid #cbd5f5;
   border-radius: 0.5rem;
@@ -270,9 +278,12 @@ button {
   color: #ffffff;
 }
 
-.app-button:disabled {
+.app-btn:disabled,
+.app-btn[disabled] {
   cursor: not-allowed;
   background-color: #94a3b8;
+  color: #f8fafc;
+  opacity: 0.7;
 }
 
 .status-bar {
@@ -314,6 +325,10 @@ button {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.form-actions {
+  margin-top: 1rem;
 }
 
 .table-toolbar {

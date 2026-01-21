@@ -69,7 +69,8 @@ function ActorsRoute() {
   };
 
   const filteredPlugins = useCallback(
-    (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER") => plugins.filter((p) => p.type === ptype),
+    (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER" | "EDITOR") =>
+      plugins.filter((p) => p.type === ptype),
     [plugins],
   );
 
@@ -77,6 +78,7 @@ function ActorsRoute() {
     sources: actors.filter((p) => p.type === "SOURCE"),
     processors: actors.filter((p) => p.type === "PROCESSOR"),
     analyzers: actors.filter((p) => p.type === "ANALYZER"),
+    editors: actors.filter((p) => p.type === "EDITOR"),
   };
 
   return (
@@ -84,32 +86,38 @@ function ActorsRoute() {
       <AppHeader>
         <div>
           <h2>Actors</h2>
-          <p>Configured source, processor, and analyzer actors.</p>
+          <p>Configured source, processor, analyzer, and editor actors.</p>
         </div>
       </AppHeader>
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}
-          {(["sources", "processors", "analyzers"] as const).map((groupKey) => {
+          {(["sources", "processors", "analyzers", "editors"] as const).map((groupKey) => {
             const typeLabel =
               groupKey === "sources"
                 ? "Sources"
                 : groupKey === "processors"
                   ? "Processors"
-                  : "Analyzers";
+                  : groupKey === "analyzers"
+                    ? "Analyzers"
+                    : "Editors";
             const typeConst =
               groupKey === "sources"
                 ? "SOURCE"
                 : groupKey === "processors"
                   ? "PROCESSOR"
-                  : "ANALYZER";
+                  : groupKey === "analyzers"
+                    ? "ANALYZER"
+                    : "EDITOR";
             const list = grouped[groupKey];
             const availablePlugins = filteredPlugins(
-              typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER",
+              typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER" | "EDITOR",
             );
             const runAllEnabled =
               groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
             const hasActors = list.length > 0;
+            const requiresActors =
+              groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
 
             return (
               <div key={groupKey} className="subsection">
@@ -140,9 +148,9 @@ function ActorsRoute() {
                             setScanningId(null);
                           }
                         }}
-                        disabled={scanningId !== null || loading || !hasActors}
+                        disabled={scanningId !== null || loading || (requiresActors && !hasActors)}
                         title={
-                          hasActors
+                          hasActors || !requiresActors
                             ? groupKey === "sources"
                               ? "Scan all sources"
                               : groupKey === "processors"
@@ -151,13 +159,7 @@ function ActorsRoute() {
                             : "Add an actor to enable this action"
                         }
                       >
-                        {groupKey === "sources"
-                          ? scanningId === null
-                            ? "Scan all sources"
-                            : "Starting..."
-                          : groupKey === "processors"
-                            ? "Run all processors"
-                            : "Run all analyzers"}
+                        {groupKey === "sources" && scanningId !== null ? "Starting..." : "Run all"}
                       </button>
                     )}
                     <button
@@ -170,7 +172,9 @@ function ActorsRoute() {
                               ? "sources"
                               : groupKey === "processors"
                                 ? "processors"
-                                : "analyzers"
+                                : groupKey === "analyzers"
+                                  ? "analyzers"
+                                  : "editors"
                           }`,
                         )
                       }
@@ -201,16 +205,18 @@ function ActorsRoute() {
                       </div>
                       <div className="button-row">
                         <Link to={`/actors/${actor.id}`} className="link-button">
-                          Details
+                          Edit
                         </Link>
-                        <button
-                          type="button"
-                          className="app-btn btn-primary"
-                          onClick={() => triggerScan(actor.id)}
-                          disabled={scanningId !== null}
-                        >
-                          {scanningId === actor.id ? "Starting..." : "Scan"}
-                        </button>
+                        {groupKey !== "editors" && (
+                          <button
+                            type="button"
+                            className="app-btn btn-primary"
+                            onClick={() => triggerScan(actor.id)}
+                            disabled={scanningId !== null}
+                          >
+                            {scanningId === actor.id ? "Starting..." : "Scan"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

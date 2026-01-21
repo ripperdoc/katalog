@@ -41,7 +41,7 @@ from katalog.plugins.registry import (
     get_plugin_spec,
     refresh_plugins,
 )
-from katalog.sources.user_editor import UserEditorSource
+from katalog.sources.user_editor import UserEditor
 from katalog.sources.runtime import get_source_plugin, run_sources
 from katalog.utils.changeset_events import (
     ChangesetEventManager,
@@ -773,12 +773,12 @@ def _validate_and_normalize_config(
 
 
 async def _ensure_manual_actor() -> Actor:
-    """Return the first Actor configured with the UserEditorSource plugin."""
-    actor = await Actor.get_or_none(plugin_id=UserEditorSource.plugin_id)
+    """Return the first Actor configured with the UserEditor plugin."""
+    actor = await Actor.get_or_none(plugin_id=UserEditor.plugin_id)
     if actor is None:
         raise HTTPException(
             status_code=400,
-            detail="No manual edit actor configured. Create an actor using the UserEditorSource plugin.",
+            detail="No manual edit actor configured. Create an actor using the UserEditor plugin.",
         )
     return actor
 
@@ -806,7 +806,7 @@ def _config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
     config_model = getattr(plugin_cls, "config_model", None)
     if config_model is None:
         return {"schema": {"type": "object", "properties": {}}}
-    return {"schema": config_model.model_json_schema()}
+    return {"schema": config_model.model_json_schema(by_alias=False)}
 
 
 @app.get("/plugins/{plugin_id}/config/schema")
