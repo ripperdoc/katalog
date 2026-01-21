@@ -4,5 +4,30 @@ POST http://127.0.0.1:8000/sources/run HTTP/1.1
 ### Run analysis
 POST http://127.0.0.1:8000/analyzers/3/run HTTP/1.1
 
+### First page of asset
+GET http://127.0.0.1:8000/views/default/assets?offset=0&limit=200 HTTP/1.1
+
 ### List providers
 GET http://127.0.0.1:8000/providers HTTP/1.1
+
+
+### Get provider config schema
+GET http://127.0.0.1:8000/providers/1/config/schema HTTP/1.1
+
+
+### Get grouped assets
+GET http://127.0.0.1:8000/assets/grouped?group_by=hash/md5 HTTP/1.1
+
+
+### Get Metadata registry
+GET http://127.0.0.1:8000/metadata/registry HTTP/1.1
+
+### Test
+POST http://127.0.0.1:8001/query HTTP/1.1
+content-type: application/json
+
+{
+"sort_by": "json:file/size",
+"sort_dir": "desc",
+"limit": 200
+}

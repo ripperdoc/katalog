@@ -8,7 +8,7 @@ from katalog.models import (
     MetadataScalar,
     OpStatus,
     Provider,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from katalog.plugins.base import PluginBase

@@ -13,7 +13,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from katalog.queries import sync_metadata_registry
@@ -33,23 +33,23 @@ async def _teardown_db() -> None:
     await Tortoise.close_connections()
 
 
-async def _seed_records() -> tuple[Provider, Snapshot, Asset]:
+async def _seed_records() -> tuple[Provider, Changeset, Asset]:
     provider = await Provider.create(
         name="tz-provider",
         plugin_id="plugin.tz",
         type=ProviderType.SOURCE,
     )
-    snapshot = await Snapshot.create(provider=provider, status=OpStatus.IN_PROGRESS)
+    changeset = await Changeset.create(provider=provider, status=OpStatus.IN_PROGRESS)
     asset = Asset(
         external_id="asset-tz",
         canonical_uri="file:///asset-tz",
     )
-    await asset.save_record(snapshot=snapshot, provider=provider)
-    return provider, snapshot, asset
+    await asset.save_record(changeset=changeset, provider=provider)
+    return provider, changeset, asset
 
 
 async def _roundtrip(datetimes: Iterable[datetime]) -> list[tuple[datetime, datetime]]:
-    provider, snapshot, asset = await _seed_records()
+    provider, changeset, asset = await _seed_records()
     pairs: list[tuple[datetime, datetime]] = []
 
     for idx, original in enumerate(datetimes):
@@ -58,7 +58,7 @@ async def _roundtrip(datetimes: Iterable[datetime]) -> list[tuple[datetime, date
             original,
             provider_id=provider.id,
             asset=asset,
-            snapshot=snapshot,
+            changeset=changeset,
         )
         md.removed = False
         await md.save()
@@ -97,7 +97,7 @@ async def test_datetime_roundtrip_preserves_tzinfo() -> None:
 async def test_naive_datetime_is_rejected() -> None:
     await _init_db()
     try:
-        provider, snapshot, asset = await _seed_records()
+        provider, changeset, asset = await _seed_records()
         naive = datetime(2024, 1, 1, 12, 0, 0)
         with pytest.raises(ValueError):
             md = make_metadata(
@@ -105,7 +105,7 @@ async def test_naive_datetime_is_rejected() -> None:
                 naive,
                 provider_id=provider.id,
                 asset=asset,
-                snapshot=snapshot,
+                changeset=changeset,
             )
             md.removed = False
             await md.save()

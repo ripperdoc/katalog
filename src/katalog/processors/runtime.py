@@ -13,7 +13,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
     MetadataChangeSet,
 )
 from katalog.processors.base import (
@@ -100,12 +100,12 @@ async def _run_processor(
 async def process_asset(
     *,
     asset: Asset,
-    snapshot: Snapshot,
+    changeset: Changeset,
     stages: Sequence[ProcessorStage],
     change_set: MetadataChangeSet,
     force_run: bool = False,
 ) -> set[MetadataKey]:
-    stats = snapshot.stats
+    stats = changeset.stats
     failed_runs = 0
 
     for stage in stages:
@@ -153,13 +153,13 @@ async def process_asset(
                 stage_metadata.append(meta)
         # Add all produced metadata to the change set for the next stage.
         change_set.add(stage_metadata)
-    return await change_set.persist(asset=asset, snapshot=snapshot)
+    return await change_set.persist(asset=asset, changeset=changeset)
 
 
 async def enqueue_asset_processing(
     *,
     asset: Asset,
-    snapshot: Snapshot,
+    changeset: Changeset,
     stages: Sequence[ProcessorStage],
     change_set: MetadataChangeSet,
     force_run: bool = False,
@@ -170,31 +170,31 @@ async def enqueue_asset_processing(
         return
 
     async def runner() -> set[MetadataKey]:
-        async with snapshot.semaphore:
-            snapshot.stats.assets_processed += 1
+        async with changeset.semaphore:
+            changeset.stats.assets_processed += 1
             return await process_asset(
                 asset=asset,
-                snapshot=snapshot,
+                changeset=changeset,
                 stages=stages,
                 change_set=change_set,
                 force_run=force_run,
             )
 
-    snapshot.tasks.append(asyncio.create_task(runner()))
+    changeset.tasks.append(asyncio.create_task(runner()))
 
 
-async def run_processors(*, snapshot: Snapshot, assets: list[Asset]):
+async def run_processors(*, changeset: Changeset, assets: list[Asset]):
     """Run processors for a list of assets belonging to one provider."""
     processor_pipeline = await sort_processors()
 
     for asset in assets:
-        snapshot.stats.assets_seen += 1
-        snapshot.stats.assets_saved += 1
+        changeset.stats.assets_seen += 1
+        changeset.stats.assets_saved += 1
         loaded_metadata = await asset.load_metadata()
         change_set = MetadataChangeSet(loaded=loaded_metadata)
         await enqueue_asset_processing(
             asset=asset,
-            snapshot=snapshot,
+            changeset=changeset,
             stages=processor_pipeline,
             change_set=change_set,
             # Run all processors regardless of should_run because we have no prior info on changes

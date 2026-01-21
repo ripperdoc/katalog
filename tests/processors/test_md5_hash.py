@@ -68,7 +68,7 @@ def make_record() -> Asset:
 def with_hash_cache(asset: Asset) -> Asset:
     md = make_metadata(HASH_MD5, "existing", provider_id=asset.provider_id)
     md.metadata_key_id = METADATA_REGISTRY[HASH_MD5].registry_id
-    md.snapshot_id = 1
+    md.changeset_id = 1
     asset._metadata_cache = [md]
     return asset
 
@@ -94,7 +94,7 @@ def test_runs_when_fingerprint_changed_even_with_existing_hash():
     cs = MetadataChangeSet(record._metadata_cache or [], staged=[])
     md = make_metadata(FILE_SIZE, 1, provider_id=record.provider_id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_SIZE].registry_id
-    md.snapshot_id = 2
+    md.changeset_id = 2
     cs.add([md])
     assert processor.should_run(record, cs) is True
     cs = MetadataChangeSet(record._metadata_cache or [], staged=[])
@@ -104,7 +104,7 @@ def test_runs_when_fingerprint_changed_even_with_existing_hash():
         provider_id=record.provider_id,
     )
     md.metadata_key_id = METADATA_REGISTRY[TIME_MODIFIED].registry_id
-    md.snapshot_id = 2
+    md.changeset_id = 2
     cs.add([md])
     assert processor.should_run(record, cs) is True
 

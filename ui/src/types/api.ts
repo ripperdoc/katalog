@@ -81,7 +81,7 @@ export interface PluginListResponse {
   plugins: PluginSpec[];
 }
 
-export type SnapshotStatus =
+export type ChangesetStatus =
   | "in_progress"
   | "partial"
   | "completed"
@@ -89,14 +89,14 @@ export type SnapshotStatus =
   | "skipped"
   | "error";
 
-export interface Snapshot {
+export interface Changeset {
   id: number;
   provider_id: number | null;
   provider_name: string | null;
   note: string | null;
   started_at: string | null;
   completed_at: string | null;
-  status: SnapshotStatus;
+  status: ChangesetStatus;
   metadata: Record<string, unknown> | null;
 }
 
@@ -106,7 +106,7 @@ export interface ProviderListResponse {
 
 export interface ProviderResponse {
   provider: Provider;
-  snapshots: Snapshot[];
+  changesets: Changeset[];
 }
 
 export interface ProviderCreateResponse {
@@ -117,19 +117,19 @@ export interface ProviderUpdateResponse {
   provider: Provider;
 }
 
-export interface SnapshotListResponse {
-  snapshots: Snapshot[];
+export interface ChangesetListResponse {
+  changesets: Changeset[];
 }
 
-export interface SnapshotResponse {
-  snapshot: Snapshot;
+export interface ChangesetResponse {
+  changeset: Changeset;
   logs: string[];
   running: boolean;
 }
 
-export interface DeleteSnapshotResponse {
+export interface DeleteChangesetResponse {
   status: string;
-  snapshot_id: number;
+  changeset_id: number;
 }
 
 export interface AssetCollection {
@@ -166,7 +166,7 @@ export interface MetadataRecord {
   id: number;
   asset_id: number;
   provider_id: number;
-  snapshot_id: number;
+  changeset_id: number;
   metadata_key_id: number;
   key: string;
   value_type: string;
@@ -199,11 +199,11 @@ export interface EditableMetadataSchemaResponse {
   uiSchema: Record<string, unknown>;
 }
 
-export interface SnapshotChangeRecord {
+export interface ChangesetChangeRecord {
   id: number;
   asset_id: number;
   provider_id: number;
-  snapshot_id: number;
+  changeset_id: number;
   metadata_key: string;
   metadata_key_id: number;
   value_type: number;
@@ -211,8 +211,8 @@ export interface SnapshotChangeRecord {
   removed: boolean;
 }
 
-export interface SnapshotChangesResponse {
-  items: SnapshotChangeRecord[];
+export interface ChangesetChangesResponse {
+  items: ChangesetChangeRecord[];
   stats: {
     returned: number;
     total: number | null;

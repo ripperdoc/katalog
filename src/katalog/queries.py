@@ -118,8 +118,8 @@ async def setup_db(db_path: Path) -> Path:
         PRAGMA busy_timeout = 5000;
         PRAGMA wal_autocheckpoint = 1000;
 
-        CREATE INDEX IF NOT EXISTS idx_metadata_asset_key_snapshot
-        ON metadata(asset_id, metadata_key_id, snapshot_id);
+        CREATE INDEX IF NOT EXISTS idx_metadata_asset_key_changeset
+        ON metadata(asset_id, metadata_key_id, changeset_id);
 
         -- Optional: targeted index for current MD5 lookups in analyzers/processors.
         -- Uncomment after measuring baseline performance.
@@ -185,7 +185,7 @@ asset_filter_fields = {
 def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
     """Decode a metadata row into a Python value based on value_type.
 
-    Shared by asset listings and snapshot change listings to keep value handling
+    Shared by asset listings and changeset change listings to keep value handling
     consistent between endpoints.
     """
 
@@ -215,7 +215,7 @@ def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
 def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
     """Decode a metadata row's value based on its value_type.
 
-    Shared between asset listings and snapshot change listings to keep value
+    Shared between asset listings and changeset change listings to keep value
     handling consistent.
     """
 
@@ -338,8 +338,8 @@ def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]
             "WHERE m.asset_id = a.id "
             "AND m.metadata_key_id = ? "
             "AND m.removed = 0 "
-            "AND m.snapshot_id = ("
-            f"    SELECT MAX(m2.snapshot_id) FROM {metadata_table} m2 "
+            "AND m.changeset_id = ("
+            f"    SELECT MAX(m2.changeset_id) FROM {metadata_table} m2 "
             "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? AND m2.removed = 0"
             ") "
             f"AND {non_null}"
@@ -358,8 +358,8 @@ def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]
             "WHERE m.asset_id = a.id "
             "AND m.metadata_key_id = ? "
             "AND m.removed = 0 "
-            "AND m.snapshot_id = ("
-            f"    SELECT MAX(m2.snapshot_id) FROM {metadata_table} m2 "
+            "AND m.changeset_id = ("
+            f"    SELECT MAX(m2.changeset_id) FROM {metadata_table} m2 "
             "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? AND m2.removed = 0"
             ") "
             f"AND {non_null}"
@@ -375,8 +375,8 @@ def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]
         "WHERE m.asset_id = a.id "
         "AND m.metadata_key_id = ? "
         "AND m.removed = 0 "
-        "AND m.snapshot_id = ("
-        f"    SELECT MAX(m2.snapshot_id) FROM {metadata_table} m2 "
+        "AND m.changeset_id = ("
+        f"    SELECT MAX(m2.changeset_id) FROM {metadata_table} m2 "
         "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? AND m2.removed = 0"
         ") "
         f"AND {predicate}"
@@ -588,7 +588,7 @@ async def list_grouped_assets(
                 lower(trim(m.value_text)) AS val,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.asset_id
-                    ORDER BY m.snapshot_id DESC
+                    ORDER BY m.changeset_id DESC
                 ) AS rn
             FROM {metadata_table} m
             JOIN filtered f ON f.asset_id = m.asset_id
@@ -623,7 +623,7 @@ async def list_grouped_assets(
                 lower(trim(m.value_text)) AS val,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.asset_id
-                    ORDER BY m.snapshot_id DESC
+                    ORDER BY m.changeset_id DESC
                 ) AS rn
             FROM {metadata_table} m
             JOIN filtered f ON f.asset_id = m.asset_id
@@ -694,7 +694,7 @@ def build_group_member_filter(group_by: str, group_value: str) -> tuple[str, lis
         "            SELECT\n"
         "                m.asset_id,\n"
         "                lower(trim(m.value_text)) AS val,\n"
-        "                ROW_NUMBER() OVER (PARTITION BY m.asset_id ORDER BY m.snapshot_id DESC) AS rn\n"
+        "                ROW_NUMBER() OVER (PARTITION BY m.asset_id ORDER BY m.changeset_id DESC) AS rn\n"
         f"            FROM {metadata_table} m\n"
         "            WHERE m.metadata_key_id = ?\n"
         "              AND m.removed = 0\n"
@@ -821,7 +821,7 @@ async def list_assets_for_view(
             SELECT
                 m.asset_id,
                 m.metadata_key_id,
-                MAX(m.snapshot_id) AS snapshot_id
+                MAX(m.changeset_id) AS changeset_id
             FROM {metadata_table} m
             WHERE
                 m.removed = 0
@@ -838,7 +838,7 @@ async def list_assets_for_view(
             JOIN latest_snap ls
                 ON ls.asset_id = m.asset_id
                 AND ls.metadata_key_id = m.metadata_key_id
-                AND ls.snapshot_id = m.snapshot_id
+                AND ls.changeset_id = m.changeset_id
             WHERE m.removed = 0
             GROUP BY m.asset_id, m.metadata_key_id
         )
@@ -902,14 +902,14 @@ async def list_assets_for_view(
     }
 
 
-async def list_snapshot_metadata_changes(
-    snapshot_id: int,
+async def list_changeset_metadata_changes(
+    changeset_id: int,
     *,
     offset: int = 0,
     limit: int = 200,
     include_total: bool = True,
 ) -> dict[str, Any]:
-    """Return paginated metadata rows belonging to a snapshot."""
+    """Return paginated metadata rows belonging to a changeset."""
 
     started_at = time.perf_counter()
     metadata_table = Metadata._meta.db_table
@@ -923,7 +923,7 @@ async def list_snapshot_metadata_changes(
         id,
         asset_id,
         provider_id,
-        snapshot_id,
+        changeset_id,
         metadata_key_id,
         value_type,
         value_text,
@@ -934,11 +934,11 @@ async def list_snapshot_metadata_changes(
         value_relation_id,
         removed
     FROM {metadata_table}
-    WHERE snapshot_id = ?
+    WHERE changeset_id = ?
     ORDER BY id
     LIMIT ? OFFSET ?
     """
-    params = [snapshot_id, limit, offset]
+    params = [changeset_id, limit, offset]
 
     rows_started = time.perf_counter()
     rows = await conn.execute_query_dict(sql, params)
@@ -953,7 +953,7 @@ async def list_snapshot_metadata_changes(
                 "id": int(row["id"]),
                 "asset_id": int(row["asset_id"]),
                 "provider_id": int(row["provider_id"]),
-                "snapshot_id": int(row["snapshot_id"]),
+                "changeset_id": int(row["changeset_id"]),
                 "metadata_key": key_str,
                 "metadata_key_id": int(row["metadata_key_id"]),
                 "value_type": int(row["value_type"]),
@@ -965,10 +965,10 @@ async def list_snapshot_metadata_changes(
     total_count = None
     if include_total:
         count_sql = (
-            f"SELECT COUNT(*) AS cnt FROM {metadata_table} WHERE snapshot_id = ?"
+            f"SELECT COUNT(*) AS cnt FROM {metadata_table} WHERE changeset_id = ?"
         )
         count_started = time.perf_counter()
-        count_rows = await conn.execute_query_dict(count_sql, [snapshot_id])
+        count_rows = await conn.execute_query_dict(count_sql, [changeset_id])
         count_duration_ms = int((time.perf_counter() - count_started) * 1000)
         total_count = int(count_rows[0]["cnt"]) if count_rows else 0
     else:

@@ -3,7 +3,7 @@ import { SimpleTable, HeaderObject } from "simple-table-core";
 import type { MetadataRecord } from "../types/api";
 import { groupByNested } from "../utils/metadataGrouping";
 import ProviderCell from "./ProviderCell";
-import SnapshotCell from "./SnapshotCell";
+import ChangesetCell from "./ChangesetCell";
 
 type MetadataTableProps = {
   metadata: MetadataRecord[];
@@ -21,11 +21,11 @@ const flatHeaders: HeaderObject[] = [
     cellRenderer: ProviderCell,
   },
   {
-    accessor: "snapshot_id",
-    label: "Snapshot",
+    accessor: "changeset_id",
+    label: "Changeset",
     width: "1fr",
     type: "number",
-    cellRenderer: SnapshotCell,
+    cellRenderer: ChangesetCell,
   },
   { accessor: "key", label: "Key", width: "1.4fr", type: "string" },
   // { accessor: "value_type", label: "Type", width: 100, type: "string" },
@@ -46,11 +46,11 @@ const providerGroupedHeaders: HeaderObject[] = [
     cellRenderer: ProviderCell,
   },
   {
-    accessor: "snapshot_id",
-    label: "Snapshot",
+    accessor: "changeset_id",
+    label: "Changeset",
     width: "1fr",
     type: "number",
-    cellRenderer: SnapshotCell,
+    cellRenderer: ChangesetCell,
   },
   { accessor: "key", label: "Key", width: "1.4fr", type: "string" },
   // { accessor: "value_type", label: "Type", width: 100, type: "string" },

@@ -52,8 +52,8 @@ from katalog.utils.utils import orm
 - ~30 million Metadata records (assuming an average of 30 metadata entries per asset). 
 Metadata will mostly be shorter text and date values, but some fields may grow pretty large, such as text contents, summaries, etc.
 - 10 to 100 Providers
-- As data changes over time, snapshots will be created, increasing the number of Metadata rows per asset. 
-On the other hand, users will be encouraged to purge snapshots regularly.
+- As data changes over time, changesets will be created, increasing the number of Metadata rows per asset. 
+On the other hand, users will be encouraged to purge changesets regularly.
 """
 
 
@@ -100,7 +100,7 @@ class Provider(Model):
 
 
 @dataclass(slots=True)
-class SnapshotStats:
+class ChangesetStats:
     # Total assets encountered/accessed during scan (saved + ignored)
     assets_seen: int = 0
     assets_saved: int = 0  # Assets yielded and saved/processed by the pipeline
@@ -115,7 +115,7 @@ class SnapshotStats:
     metadata_values_added: int = 0  # Metadata values added
     metadata_values_removed: int = 0  # Metadata values removed
     # TODO how to correctly count unique keys affected across
-    # a snapshot when we persist paralell async operations?
+    # a changeset when we persist paralell async operations?
     # metadata_keys_affected: int = 0
 
     processings_started: int = 0  # Total processing operations started
@@ -135,10 +135,10 @@ class SnapshotStats:
 DEFAULT_TASK_CONCURRENCY = 10
 
 
-class Snapshot(Model):
+class Changeset(Model):
     id = IntField(pk=True)
     provider = ForeignKeyField(
-        orm(Provider), related_name="snapshots", on_delete=CASCADE, null=True
+        orm(Provider), related_name="changesets", on_delete=CASCADE, null=True
     )
     note = CharField(max_length=512, null=True)
     started_at = DatetimeField(default=lambda: datetime.now(UTC))
@@ -147,9 +147,9 @@ class Snapshot(Model):
     metadata = JSONField(null=True)
 
     # Local fields not persisted to DB
-    stats: SnapshotStats
+    stats: ChangesetStats
     tasks: list[Task]
-    # Control concurrency of snapshot (processor) tasks
+    # Control concurrency of changeset (processor) tasks
     semaphore: asyncio.Semaphore
     # Just for type checking
     provider_id: int
@@ -160,7 +160,7 @@ class Snapshot(Model):
 
     def _init_runtime_state(self) -> None:
         # Safe defaults so instances materialized from the ORM always have runtime fields.
-        self.stats = getattr(self, "stats", SnapshotStats())
+        self.stats = getattr(self, "stats", ChangesetStats())
         self.tasks = getattr(self, "tasks", [])
         self.semaphore = getattr(
             self, "semaphore", asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
@@ -187,18 +187,18 @@ class Snapshot(Model):
     @classmethod
     async def find_partial_resume_point(
         cls, *, provider: Provider
-    ) -> "Snapshot | None":
+    ) -> "Changeset | None":
         """
-        Return the most recent PARTIAL snapshot that occurred after the latest
-        COMPLETED snapshot for this provider. If no COMPLETED snapshot exists,
+        Return the most recent PARTIAL changeset that occurred after the latest
+        COMPLETED changeset for this provider. If no COMPLETED changeset exists,
         return None (treat as full scan).
         """
-        snapshots = list(
+        changesets = list(
             await cls.filter(provider=provider).order_by("-completed_at", "-started_at")
         )
         last_full = None
         last_partial = None
-        for s in reversed(snapshots):
+        for s in reversed(changesets):
             if s.status == OpStatus.COMPLETED:
                 last_full = s
                 break
@@ -220,20 +220,20 @@ class Snapshot(Model):
         status: OpStatus = OpStatus.IN_PROGRESS,
         metadata: Mapping[str, Any] | None = None,
         provider: Provider | None = None,
-        snapshot_id: int | None = None,
+        changeset_id: int | None = None,
         note: str | None = None,
-    ) -> "Snapshot":
-        # Prevent concurrent in-progress snapshots (scans or edits).
+    ) -> "Changeset":
+        # Prevent concurrent in-progress changesets (scans or edits).
         existing_in_progress = await cls.get_or_none(status=OpStatus.IN_PROGRESS)
         if existing_in_progress is not None:
             raise ValueError(
-                f"Snapshot {existing_in_progress.id} is already in progress; finish or cancel it first"
+                f"Changeset {existing_in_progress.id} is already in progress; finish or cancel it first"
             )
-        snapshot_id = snapshot_id or int(time())
-        if await cls.get_or_none(id=snapshot_id):
-            raise ValueError(f"Snapshot with id {snapshot_id} already exists")
+        changeset_id = changeset_id or int(time())
+        if await cls.get_or_none(id=changeset_id):
+            raise ValueError(f"Changeset with id {changeset_id} already exists")
         return await cls.create(
-            id=snapshot_id,
+            id=changeset_id,
             provider=provider,
             status=status,
             note=note,
@@ -250,14 +250,14 @@ class Snapshot(Model):
 
         if self.tasks:
             logger.info(
-                "Draining {count} processor tasks before finalizing snapshot {snapshot_id}",
+                "Draining {count} processor tasks before finalizing changeset {changeset_id}",
                 count=len(self.tasks),
-                snapshot_id=self.id,
+                changeset_id=self.id,
             )
             modified, failures = await drain_tasks(self.tasks)
             logger.info(
-                "Finished draining processor tasks for snapshot {snapshot_id} (modified={modified}, failures={failures})",
-                snapshot_id=self.id,
+                "Finished draining processor tasks for changeset {changeset_id} (modified={modified}, failures={failures})",
+                changeset_id=self.id,
                 modified=modified,
                 failures=failures,
             )
@@ -286,56 +286,56 @@ class Snapshot(Model):
         status: OpStatus = OpStatus.IN_PROGRESS,
         metadata: Mapping[str, Any] | None = None,
         provider: Provider | None = None,
-        snapshot_id: int | None = None,
+        changeset_id: int | None = None,
         note: str | None = None,
         success_status: OpStatus = OpStatus.COMPLETED,
         error_status: OpStatus = OpStatus.ERROR,
     ):
         """
-        Async context manager for Snapshot lifecycle.
+        Async context manager for Changeset lifecycle.
 
         Usage:
-            async with Snapshot.context(provider=..., metadata=...) as snap:
-                # do work, snap is a Snapshot instance
+            async with Changeset.context(provider=..., metadata=...) as snap:
+                # do work, snap is a Changeset instance
         On normal exit -> finalize with success_status.
         On CancelledError -> finalize with CANCELED and re-raise.
         On other exceptions -> finalize with error_status and re-raise.
         """
-        snapshot = await cls.begin(
+        changeset = await cls.begin(
             status=status,
             metadata=metadata,
             provider=provider,
-            snapshot_id=snapshot_id,
+            changeset_id=changeset_id,
             note=note,
         )
         try:
-            yield snapshot
+            yield changeset
         except asyncio.CancelledError:
             # best-effort finalize as cancelled, then re-raise
             try:
-                await snapshot.finalize(status=OpStatus.CANCELED)
+                await changeset.finalize(status=OpStatus.CANCELED)
             except Exception as exc:  # keep exception simple and log
                 logger.opt(exception=exc).error(
-                    "Failed to finalize snapshot after cancellation"
+                    "Failed to finalize changeset after cancellation"
                 )
             raise
         except Exception:
             # error path: finalize as error (or custom error_status), then re-raise
             try:
-                await snapshot.finalize(status=error_status)
+                await changeset.finalize(status=error_status)
             except Exception as exc:
                 logger.opt(exception=exc).error(
-                    "Failed to finalize snapshot after error"
+                    "Failed to finalize changeset after error"
                 )
             raise
         else:
             # normal completion
             try:
-                await snapshot.finalize(status=success_status)
+                await changeset.finalize(status=success_status)
             except Exception as exc:
                 # If finalization fails on success, log and re-raise so caller is aware
                 logger.opt(exception=exc).error(
-                    "Failed to finalize snapshot after success"
+                    "Failed to finalize changeset after success"
                 )
                 raise
 
@@ -374,7 +374,7 @@ class Asset(Model):
 
     async def save_record(
         self,
-        snapshot: "Snapshot",
+        changeset: "Changeset",
         provider: Provider | None = None,
     ) -> bool:
         """Persist the asset row, reusing an existing canonical asset when present.
@@ -383,7 +383,7 @@ class Asset(Model):
             True if the asset was newly created in the DB, otherwise False.
         """
 
-        provider = provider or getattr(snapshot, "provider", None)
+        provider = provider or getattr(changeset, "provider", None)
         if provider is None:
             raise ValueError("provider must be supplied to save_record")
 
@@ -412,12 +412,12 @@ class Asset(Model):
     async def mark_unseen_as_lost(
         cls,
         *,
-        snapshot: "Snapshot",
+        changeset: "Changeset",
         provider_ids: Sequence[int],
         seen_asset_ids: Sequence[int] | None = None,
     ) -> int:
         """
-        Mark assets from the given providers as lost if they were not touched by this snapshot.
+        Mark assets from the given providers as lost if they were not touched by this changeset.
         Returns the number of affected rows (metadata rows written).
         """
         if not provider_ids:
@@ -455,7 +455,7 @@ class Asset(Model):
                 md = Metadata(
                     asset_id=aid,
                     provider_id=pid,
-                    snapshot_id=snapshot.id,
+                    changeset_id=changeset.id,
                     metadata_key_id=lost_key_id,
                     value_type=MetadataType.INT,
                     value_int=1,
@@ -535,8 +535,8 @@ class Metadata(Model):
     provider: ForeignKeyRelation[Provider] = ForeignKeyField(
         orm(Provider), related_name="metadata_entries", on_delete=CASCADE
     )
-    snapshot = ForeignKeyField(
-        orm(Snapshot), related_name="metadata_entries", on_delete=CASCADE
+    changeset = ForeignKeyField(
+        orm(Changeset), related_name="metadata_entries", on_delete=CASCADE
     )
     metadata_key = ForeignKeyField(
         orm(MetadataRegistry), related_name="metadata_entries", on_delete=RESTRICT
@@ -544,7 +544,7 @@ class Metadata(Model):
     # Just for fixing type errors, these are populated via ForeignKeyField
     asset_id: int
     provider_id: int
-    snapshot_id: int
+    changeset_id: int
     metadata_key_id: int
 
     value_type = IntEnumField(MetadataType)
@@ -563,7 +563,7 @@ class Metadata(Model):
             "metadata_key",
             "value_type",
         ]
-        # unique_together = ("asset", "provider", "snapshot", "metadata_key")
+        # unique_together = ("asset", "provider", "changeset", "metadata_key")
 
     @property
     def key(self) -> "MetadataKey":
@@ -618,7 +618,7 @@ class Metadata(Model):
             "id": int(self.id),
             "asset_id": int(self.asset_id),
             "provider_id": int(self.provider_id),
-            "snapshot_id": int(self.snapshot_id),
+            "changeset_id": int(self.changeset_id),
             "metadata_key_id": int(self.metadata_key_id),
             "key": str(self.key),
             "value_type": self.value_type.name,
@@ -753,8 +753,8 @@ def make_metadata(
     *,
     asset: Asset | None = None,
     asset_id: int | None = None,
-    snapshot: Snapshot | None = None,
-    snapshot_id: int | None = None,
+    changeset: Changeset | None = None,
+    changeset_id: int | None = None,
     metadata_id: int | None = None,  # Only used for testing or bypassing
 ) -> Metadata:
     """Create a Metadata instance, ensuring the value type matches the key definition."""
@@ -773,10 +773,10 @@ def make_metadata(
         md.asset = asset
     elif asset_id is not None:
         md.asset_id = asset_id
-    if snapshot is not None:
-        md.snapshot = snapshot
-    elif snapshot_id is not None:
-        md.snapshot_id = snapshot_id
+    if changeset is not None:
+        md.changeset = changeset
+    elif changeset_id is not None:
+        md.changeset_id = changeset_id
 
     return md
 
@@ -815,9 +815,9 @@ class MetadataChangeSet:
 
         ordered = sorted(
             metadata,
-            # Metadata should always have a snapshot id, if not we assume 0 which
+            # Metadata should always have a changeset id, if not we assume 0 which
             # means "oldest"
-            key=lambda m: m.snapshot_id if m.snapshot_id is not None else 0,
+            key=lambda m: m.changeset_id if m.changeset_id is not None else 0,
             reverse=True,
         )
 
@@ -893,13 +893,13 @@ class MetadataChangeSet:
     # - Missing keys are unchanged; only explicitly staged None triggers clear.
     # - Reads like current() intentionally hide removed rows; persistence needs latest *state* per
     #   (metadata_key_id, provider_id, value) (incl removed bit) to dedupe correctly and support
-    #   add -> remove -> add over time. Ordering must be newest-first (snapshot_id/id).
+    #   add -> remove -> add over time. Ordering must be newest-first (changeset_id/id).
     # - A cleaner rewrite could factor a shared latest() helper and derive current() from it;
     #   schema-level "clear all" tombstones would reduce writes but complicate queries.
     async def persist(
         self,
         asset: Asset,
-        snapshot: Snapshot,
+        changeset: Changeset,
     ) -> set[MetadataKey]:
         """Persist staged metadata entries from a change set for the given asset."""
         staged = self.pending_entries()
@@ -908,11 +908,11 @@ class MetadataChangeSet:
 
         existing_metadata = await asset.load_metadata()
         # Deduplication is based on latest state (not "ever seen"), so we can support:
-        # add -> remove -> add (same value) across snapshots.
+        # add -> remove -> add (same value) across changesets.
         ordered_existing = sorted(
             existing_metadata,
             key=lambda m: (
-                m.snapshot_id if m.snapshot_id is not None else 0,
+                m.changeset_id if m.changeset_id is not None else 0,
                 m.id if m.id is not None else 0,
             ),
             reverse=True,
@@ -979,8 +979,8 @@ class MetadataChangeSet:
                     )
                     removal.asset = asset
                     removal.asset_id = asset.id
-                    removal.snapshot = snapshot
-                    removal.snapshot_id = snapshot.id
+                    removal.changeset = changeset
+                    removal.changeset_id = changeset.id
 
                     value_key = removal.fingerprint()
                     if value_key is None:
@@ -998,8 +998,8 @@ class MetadataChangeSet:
         for md in staged:
             md.asset = asset
             md.asset_id = asset.id
-            md.snapshot = snapshot
-            md.snapshot_id = snapshot.id
+            md.changeset = changeset
+            md.changeset_id = changeset.id
             if md.provider is None and md.provider_id is None:
                 raise ValueError("Metadata provider_id is not set for persistence")
 
@@ -1023,9 +1023,9 @@ class MetadataChangeSet:
 
         if to_create:
             removed = sum(1 for md in to_create if md.removed is True)
-            snapshot.stats.metadata_values_added += len(to_create) - removed
-            snapshot.stats.metadata_values_removed += removed
-            snapshot.stats.metadata_values_changed += len(to_create)
+            changeset.stats.metadata_values_added += len(to_create) - removed
+            changeset.stats.metadata_values_removed += removed
+            changeset.stats.metadata_values_changed += len(to_create)
             await Metadata.bulk_create(to_create)
             if asset._metadata_cache is not None:
                 asset._metadata_cache.extend(to_create)

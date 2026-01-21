@@ -7,7 +7,7 @@ from katalog.models import (
     Metadata,
     MetadataChangeSet,
     OpStatus,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from tests.utils.pipeline_helpers import PipelineFixture
@@ -19,12 +19,14 @@ async def test_persist_none_does_not_write_null_row_when_no_prior_value(
 ) -> None:
     fx = await PipelineFixture.create()
 
-    snapshot2 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    changeset2 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
     loaded = await fx.asset.load_metadata()
     staged = [make_metadata(FILE_PATH, None, provider_id=fx.provider.id)]
 
     cs = MetadataChangeSet(loaded=loaded, staged=staged)
-    changed = await cs.persist(asset=fx.asset, snapshot=snapshot2)
+    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
 
     assert changed == set()
 
@@ -45,11 +47,13 @@ async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
     await existing.save()
     await fx.asset.load_metadata()
 
-    snapshot2 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    changeset2 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
     staged = [make_metadata(FILE_PATH, None, provider_id=fx.provider.id)]
     cs = MetadataChangeSet(loaded=await fx.asset.load_metadata(), staged=staged)
 
-    changed = await cs.persist(asset=fx.asset, snapshot=snapshot2)
+    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_PATH in changed
 
     key_id = existing.metadata_key_id
@@ -88,11 +92,13 @@ async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None
     await b.save()
     await fx.asset.load_metadata()
 
-    snapshot2 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    changeset2 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
     staged = [make_metadata(FILE_PATH, None, provider_id=fx.provider.id)]
     cs = MetadataChangeSet(loaded=await fx.asset.load_metadata(), staged=staged)
 
-    changed = await cs.persist(asset=fx.asset, snapshot=snapshot2)
+    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_PATH in changed
 
     key_id = a.metadata_key_id
@@ -120,11 +126,13 @@ async def test_missing_key_in_staged_keeps_existing_value_unchanged(
     await existing_path.save()
     await fx.asset.load_metadata()
 
-    snapshot2 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    changeset2 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
     staged = [make_metadata(FILE_NAME, "doc.txt", provider_id=fx.provider.id)]
     cs = MetadataChangeSet(loaded=await fx.asset.load_metadata(), staged=staged)
 
-    changed = await cs.persist(asset=fx.asset, snapshot=snapshot2)
+    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_NAME in changed
     assert FILE_PATH not in changed
 
@@ -141,23 +149,27 @@ async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
     await fx.asset.load_metadata()
 
     # Remove it.
-    snapshot2 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    changeset2 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
     cs2 = MetadataChangeSet(
         loaded=await fx.asset.load_metadata(),
         staged=[
             make_metadata(FILE_PATH, "/tmp/a", provider_id=fx.provider.id, removed=True)
         ],
     )
-    changed2 = await cs2.persist(asset=fx.asset, snapshot=snapshot2)
+    changed2 = await cs2.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_PATH in changed2
 
     # Re-add it (should not be deduped away).
-    snapshot3 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    changeset3 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
     cs3 = MetadataChangeSet(
         loaded=await fx.asset.load_metadata(),
         staged=[make_metadata(FILE_PATH, "/tmp/a", provider_id=fx.provider.id)],
     )
-    changed3 = await cs3.persist(asset=fx.asset, snapshot=snapshot3)
+    changed3 = await cs3.persist(asset=fx.asset, changeset=changeset3)
     assert FILE_PATH in changed3
 
     key_id = existing_path.metadata_key_id

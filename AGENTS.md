@@ -1,12 +1,14 @@
 # Agent protocol
 
 - Always strive for small, iterative changes
-- Always strive for readable and modular code, refactor if functions and files gets too long
-- Only solve the problem at hand, but propose in writing other improvements that you saw
+- Always strive for readable and modular code, refactor if functions and files gets more than 500
+  lines
+- Only solve the problem at hand, but propose in writing other improvements that you saw. Keep
+  proposals short and concise.
 - Always respond in text before changing code if the user seems unsure, is asking a question or is
   suggesting something with large ramifications.
-- Always ask the user if a requirement is unclear.
-- If solving a bug, find root cause or point out if we are just fixing symptoms.
+- Always ask the user if a requirement appears unclear.
+- If solving a bug, explain root cause in addition to fixing the bug.
 - Run tests using `pytest` CLI or try it in terminal to verify issues or check that code is working
 - Don't write tests unless explicitly asked for it
 - Avoid code bloat and complexity by following these rules of thumb:

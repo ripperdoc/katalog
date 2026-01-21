@@ -82,7 +82,7 @@ async def test_stage_dependency_triggers_following_stage(pipeline_db):
     change_set = MetadataChangeSet(await ctx.asset.load_metadata())
     changes = await process_asset(
         asset=ctx.asset,
-        snapshot=ctx.snapshot,
+        changeset=ctx.changeset,
         stages=[stage1, stage2],
         change_set=change_set,
     )
@@ -107,7 +107,7 @@ async def test_processor_skipped_when_dependency_not_changed(pipeline_db):
 
     change_set = MetadataChangeSet(await ctx.asset.load_metadata())
     changes = await process_asset(
-        asset=ctx.asset, snapshot=ctx.snapshot, stages=[[proc]], change_set=change_set
+        asset=ctx.asset, changeset=ctx.changeset, stages=[[proc]], change_set=change_set
     )
 
     assert proc.runs == 0
@@ -152,7 +152,7 @@ async def test_stage_processors_run_concurrently(pipeline_db):
     await asyncio.wait_for(
         process_asset(
             asset=ctx.asset,
-            snapshot=ctx.snapshot,
+            changeset=ctx.changeset,
             stages=[[proc_a, proc_b]],
             change_set=change_set,
         ),
@@ -171,17 +171,17 @@ async def test_md5_skips_when_hash_already_present(pipeline_db):
     # Seed an existing hash in DB and cache
     existing_md5 = make_metadata(HASH_MD5, "abc", provider_id=ctx.provider.id)
     existing_md5.asset = ctx.asset
-    existing_md5.snapshot = ctx.snapshot
-    await ctx.asset.save_record(snapshot=ctx.snapshot, provider=ctx.provider)
+    existing_md5.changeset = ctx.changeset
+    await ctx.asset.save_record(changeset=ctx.changeset, provider=ctx.provider)
     change_set = MetadataChangeSet(
         loaded=await ctx.asset.load_metadata(), staged=[existing_md5]
     )
-    await change_set.persist(asset=ctx.asset, snapshot=ctx.snapshot)
+    await change_set.persist(asset=ctx.asset, changeset=ctx.changeset)
 
     change_set = MetadataChangeSet(await ctx.asset.load_metadata())
     changes = await process_asset(
         asset=ctx.asset,
-        snapshot=ctx.snapshot,
+        changeset=ctx.changeset,
         stages=[[md5_processor]],
         change_set=change_set,
     )

@@ -7,7 +7,7 @@ import pytest_asyncio
 from tortoise import Tortoise
 
 from katalog.metadata import FILE_PATH, METADATA_REGISTRY, get_metadata_id
-from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Snapshot
+from katalog.models import Asset, Metadata, OpStatus, Provider, ProviderType, Changeset
 from katalog.queries import list_assets_for_view, setup_db, sync_metadata_registry
 from katalog.views import default_view
 
@@ -32,9 +32,9 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
         name="provider-2", plugin_id="plugin-2", type=ProviderType.SOURCE
     )
 
-    snap1 = await Snapshot.create(provider=provider, status=OpStatus.COMPLETED)
-    snap2 = await Snapshot.create(provider=provider, status=OpStatus.COMPLETED)
-    snap_other = await Snapshot.create(
+    snap1 = await Changeset.create(provider=provider, status=OpStatus.COMPLETED)
+    snap2 = await Changeset.create(provider=provider, status=OpStatus.COMPLETED)
+    snap_other = await Changeset.create(
         provider=other_provider, status=OpStatus.COMPLETED
     )
 
@@ -42,21 +42,21 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
         external_id="asset-1",
         canonical_uri="file:///asset-1",
     )
-    await asset.save_record(snapshot=snap1, provider=provider)
-    await asset.save_record(snapshot=snap2, provider=provider)
+    await asset.save_record(changeset=snap1, provider=provider)
+    await asset.save_record(changeset=snap2, provider=provider)
 
     other_asset = Asset(
         external_id="asset-2",
         canonical_uri="file:///asset-2",
     )
-    await other_asset.save_record(snapshot=snap_other, provider=other_provider)
+    await other_asset.save_record(changeset=snap_other, provider=other_provider)
 
     key_def = METADATA_REGISTRY[FILE_PATH]
     key_id = get_metadata_id(FILE_PATH)
     await Metadata.create(
         asset=asset,
         provider=provider,
-        snapshot=snap1,
+        changeset=snap1,
         metadata_key_id=key_id,
         value_type=key_def.value_type,
         value_text="/old/path",
@@ -65,7 +65,7 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
     await Metadata.create(
         asset=asset,
         provider=provider,
-        snapshot=snap2,
+        changeset=snap2,
         metadata_key_id=key_id,
         value_type=key_def.value_type,
         value_text="/new/path",
@@ -74,7 +74,7 @@ async def test_list_assets_for_view_filters_and_picks_latest(db: None):
     await Metadata.create(
         asset=other_asset,
         provider=other_provider,
-        snapshot=snap_other,
+        changeset=snap_other,
         metadata_key_id=key_id,
         value_type=key_def.value_type,
         value_text="/other/path",
@@ -105,12 +105,12 @@ async def test_list_assets_for_view_search_allows_special_chars(db: None):
     provider = await Provider.create(
         name="provider-1", plugin_id="plugin-1", type=ProviderType.SOURCE
     )
-    snap = await Snapshot.create(provider=provider, status=OpStatus.COMPLETED)
+    snap = await Changeset.create(provider=provider, status=OpStatus.COMPLETED)
     asset = Asset(
         external_id="asset-1",
         canonical_uri="file:///asset-1",
     )
-    await asset.save_record(snapshot=snap, provider=provider)
+    await asset.save_record(changeset=snap, provider=provider)
 
     # Populate the FTS table so the MATCH query is actually exercised and can
     # return the asset.

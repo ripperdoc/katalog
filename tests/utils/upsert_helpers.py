@@ -13,7 +13,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from katalog.queries import sync_metadata_registry
@@ -39,7 +39,7 @@ async def _teardown_db() -> None:
 @dataclass
 class UpsertFixture:
     asset: Asset
-    snapshot: Snapshot
+    changeset: Changeset
     provider: Provider
 
     @staticmethod
@@ -55,9 +55,9 @@ class UpsertFixture:
         return provider
 
     @staticmethod
-    async def _ensure_snapshot(*, provider: Provider, snapshot_id: int) -> Snapshot:
-        snapshot, _ = await Snapshot.get_or_create(
-            id=snapshot_id,
+    async def _ensure_changeset(*, provider: Provider, changeset_id: int) -> Changeset:
+        changeset, _ = await Changeset.get_or_create(
+            id=changeset_id,
             defaults={
                 "provider": provider,
                 "status": OpStatus.COMPLETED,
@@ -65,39 +65,39 @@ class UpsertFixture:
                 "completed_at": datetime.now(UTC),
             },
         )
-        return snapshot
+        return changeset
 
     @classmethod
     async def create(
-        cls, *, provider_id: int = 0, snapshot_id: int = 0
+        cls, *, provider_id: int = 0, changeset_id: int = 0
     ) -> "UpsertFixture":
         provider = await cls._ensure_provider(provider_id)
-        snapshot = await cls._ensure_snapshot(
-            provider=provider, snapshot_id=snapshot_id
+        changeset = await cls._ensure_changeset(
+            provider=provider, changeset_id=changeset_id
         )
         asset = Asset(
             external_id=f"canonical-{provider_id}",
             canonical_uri=f"uri://{provider_id}",
         )
-        await asset.save_record(snapshot=snapshot, provider=provider)
-        return cls(asset=asset, snapshot=snapshot, provider=provider)
+        await asset.save_record(changeset=changeset, provider=provider)
+        return cls(asset=asset, changeset=changeset, provider=provider)
 
     async def upsert(
-        self, *, provider_id: int, snapshot_id: int, metas: Sequence[Metadata]
+        self, *, provider_id: int, changeset_id: int, metas: Sequence[Metadata]
     ) -> set[MetadataKey]:
         provider = await self._ensure_provider(provider_id)
-        snapshot = await self._ensure_snapshot(
-            provider=provider, snapshot_id=snapshot_id
+        changeset = await self._ensure_changeset(
+            provider=provider, changeset_id=changeset_id
         )
         for m in metas:
             m.provider = provider
-            m.snapshot = snapshot
+            m.changeset = changeset
             m.asset = self.asset
-        await self.asset.save_record(snapshot=snapshot, provider=provider)
+        await self.asset.save_record(changeset=changeset, provider=provider)
         change_set = MetadataChangeSet(
             loaded=await self.asset.load_metadata(), staged=list(metas)
         )
-        return await change_set.persist(asset=self.asset, snapshot=snapshot)
+        return await change_set.persist(asset=self.asset, changeset=changeset)
 
     async def fetch_rows(self, key: MetadataKey) -> list[Metadata]:
         return (
@@ -109,16 +109,16 @@ class UpsertFixture:
         )
 
     async def add_initial(
-        self, provider_id: int, snapshot_id: int, metas: Sequence[Metadata]
+        self, provider_id: int, changeset_id: int, metas: Sequence[Metadata]
     ) -> None:
         records: list[Metadata] = []
         provider = await self._ensure_provider(provider_id)
-        snapshot = await self._ensure_snapshot(
-            provider=provider, snapshot_id=snapshot_id
+        changeset = await self._ensure_changeset(
+            provider=provider, changeset_id=changeset_id
         )
         for m in metas:
             m.provider = provider
-            m.snapshot = snapshot
+            m.changeset = changeset
             m.asset = self.asset
             records.append(m)
 

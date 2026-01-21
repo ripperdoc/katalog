@@ -23,7 +23,7 @@
   complexity to lookup names from integers
 - AssetState table, tracking when and how assets have been seen
 - Metadata table, EAV style append-only that allows single or multiple values for each key, provider
-  and snapshot. Tombstone logic to delete specific values.
+  and changeset. Tombstone logic to delete specific values.
 - EAV possibly creates a lot of repetition
 - The logic for what new EAV rows to store requires Python code in MetadataChangeSet, it's fairly
   complicated

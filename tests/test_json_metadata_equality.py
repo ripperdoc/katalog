@@ -9,7 +9,7 @@ from katalog.models import (
     Metadata,
     MetadataChangeSet,
     OpStatus,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from tests.utils.pipeline_helpers import PipelineFixture
@@ -59,14 +59,16 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
     existing = fx.metadata(FILE_TAGS, ["a", "b"])
     await existing.save()
 
-    # New snapshot to simulate a later run.
-    snapshot2 = await Snapshot.create(provider=fx.provider, status=OpStatus.IN_PROGRESS)
+    # New changeset to simulate a later run.
+    changeset2 = await Changeset.create(
+        provider=fx.provider, status=OpStatus.IN_PROGRESS
+    )
 
     loaded = await fx.asset.load_metadata()
     staged = [make_metadata(FILE_TAGS, ["a", "b"], provider_id=fx.provider.id)]
     change_set = MetadataChangeSet(loaded=loaded, staged=staged)
 
-    changed = await change_set.persist(asset=fx.asset, snapshot=snapshot2)
+    changed = await change_set.persist(asset=fx.asset, changeset=changeset2)
     assert changed == set()
 
     # Ensure we didn't insert a duplicate row.

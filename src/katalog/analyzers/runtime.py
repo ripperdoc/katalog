@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from katalog.analyzers.base import AnalyzerResult, make_analyzer_instance
-from katalog.models import Provider, ProviderType, Snapshot
+from katalog.models import Provider, ProviderType, Changeset
 
 
 async def run_analyzers(ids: list[int] | None = None) -> list[dict]:
@@ -19,10 +19,10 @@ async def run_analyzers(ids: list[int] | None = None) -> list[dict]:
     results: list[dict] = []
     for provider in providers:
         analyzer = make_analyzer_instance(provider)
-        async with Snapshot.context(provider=provider) as snapshot:
-            if not analyzer.should_run(snapshot=snapshot):
+        async with Changeset.context(provider=provider) as changeset:
+            if not analyzer.should_run(changeset=changeset):
                 continue
-            result = await analyzer.run(snapshot=snapshot)
+            result = await analyzer.run(changeset=changeset)
         results.append(
             {
                 "provider_id": provider.id,

@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  cancelSnapshot,
-  fetchSnapshot,
-  fetchSnapshotChanges,
-  deleteSnapshot,
-  snapshotEventsUrl,
+  cancelChangeset,
+  fetchChangeset,
+  fetchChangesetChanges,
+  deleteChangeset,
+  changesetEventsUrl,
 } from "../api/client";
-import type { Snapshot, SnapshotChangeRecord } from "../types/api";
+import type { Changeset, ChangesetChangeRecord } from "../types/api";
 import AppHeader from "../components/AppHeader";
 import { HeaderObject, SimpleTable } from "simple-table-core";
 import "simple-table-core/styles.css";
 
-function SnapshotDetailRoute() {
-  const { snapshotId } = useParams();
-  const snapshotIdNum = snapshotId ? Number(snapshotId) : NaN;
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+function ChangesetDetailRoute() {
+  const { changesetId } = useParams();
+  const changesetIdNum = changesetId ? Number(changesetId) : NaN;
+  const [changeset, setChangeset] = useState<Changeset | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [changesLoading, setChangesLoading] = useState(false);
@@ -23,53 +23,53 @@ function SnapshotDetailRoute() {
   const [cancelling, setCancelling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [changesError, setChangesError] = useState<string | null>(null);
-  const [changes, setChanges] = useState<SnapshotChangeRecord[]>([]);
+  const [changes, setChanges] = useState<ChangesetChangeRecord[]>([]);
   const [changesTotal, setChangesTotal] = useState<number | null>(null);
   const [changesPage, setChangesPage] = useState<number>(1);
   const changesLimit = 200;
   const streamRef = useRef<EventSource | null>(null);
 
   const isRunning = useMemo(
-    () => snapshot?.status === "in_progress" && snapshot?.running !== false,
-    [snapshot?.status, snapshot?.running]
+    () => changeset?.status === "in_progress" && changeset?.running !== false,
+    [changeset?.status, changeset?.running],
   );
 
-  const loadSnapshot = useCallback(async () => {
-    if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
-      setError("Invalid snapshot id");
+  const loadChangeset = useCallback(async () => {
+    if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
+      setError("Invalid changeset id");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchSnapshot(snapshotIdNum);
-      setSnapshot(response.snapshot);
+      const response = await fetchChangeset(changesetIdNum);
+      setChangeset(response.changeset);
       setLogs(response.logs ?? []);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
-      setSnapshot(null);
+      setChangeset(null);
       setLogs([]);
     } finally {
       setLoading(false);
     }
-  }, [snapshotIdNum]);
+  }, [changesetIdNum]);
 
   useEffect(() => {
-    void loadSnapshot();
-  }, [loadSnapshot]);
+    void loadChangeset();
+  }, [loadChangeset]);
 
   const loadChanges = useCallback(
     async (page: number = 1) => {
-      if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
-        setChangesError("Invalid snapshot id");
+      if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
+        setChangesError("Invalid changeset id");
         return;
       }
       setChangesLoading(true);
       setChangesError(null);
       try {
         const offset = (page - 1) * changesLimit;
-        const response = await fetchSnapshotChanges(snapshotIdNum, {
+        const response = await fetchChangesetChanges(changesetIdNum, {
           offset,
           limit: changesLimit,
         });
@@ -85,7 +85,7 @@ function SnapshotDetailRoute() {
         setChangesLoading(false);
       }
     },
-    [snapshotIdNum, changesLimit],
+    [changesetIdNum, changesLimit],
   );
 
   useEffect(() => {
@@ -93,10 +93,10 @@ function SnapshotDetailRoute() {
   }, [loadChanges]);
 
   useEffect(() => {
-    if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
+    if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
       return;
     }
-    const url = snapshotEventsUrl(snapshotIdNum);
+    const url = changesetEventsUrl(changesetIdNum);
     const source = new EventSource(url);
     streamRef.current = source;
 
@@ -105,10 +105,10 @@ function SnapshotDetailRoute() {
       setLogs((prev) => (prev.includes(message) ? prev : [...prev, message]));
     };
 
-    const handleSnapshot = (event: MessageEvent) => {
+    const handleChangeset = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as Snapshot;
-        setSnapshot(payload);
+        const payload = JSON.parse(event.data) as Changeset;
+        setChangeset(payload);
         if (payload.status !== "in_progress") {
           source.close();
           streamRef.current = null;
@@ -119,7 +119,7 @@ function SnapshotDetailRoute() {
     };
 
     source.addEventListener("log", handleLog);
-    source.addEventListener("snapshot", handleSnapshot);
+    source.addEventListener("changeset", handleChangeset);
     source.onerror = () => {
       setError((prev) => prev ?? "Stream disconnected");
       // If already finished, close to avoid reconnect loops.
@@ -131,21 +131,21 @@ function SnapshotDetailRoute() {
 
     return () => {
       source.removeEventListener("log", handleLog);
-      source.removeEventListener("snapshot", handleSnapshot);
+      source.removeEventListener("changeset", handleChangeset);
       source.close();
       streamRef.current = null;
     };
-  }, [snapshotIdNum, isRunning]);
+  }, [changesetIdNum, isRunning]);
 
   const requestCancel = async () => {
-    if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
-      setError("Invalid snapshot id");
+    if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
+      setError("Invalid changeset id");
       return;
     }
     setCancelling(true);
     setError(null);
     try {
-      await cancelSnapshot(snapshotIdNum);
+      await cancelChangeset(changesetIdNum);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -155,16 +155,16 @@ function SnapshotDetailRoute() {
   };
 
   const requestDelete = async () => {
-    if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
-      setError("Invalid snapshot id");
+    if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
+      setError("Invalid changeset id");
       return;
     }
     setDeleting(true);
     setError(null);
     try {
-      await deleteSnapshot(snapshotIdNum);
+      await deleteChangeset(changesetIdNum);
       // After delete, clear UI state.
-      setSnapshot(null);
+      setChangeset(null);
       setLogs([]);
       setChanges([]);
       setChangesTotal(null);
@@ -214,11 +214,11 @@ function SnapshotDetailRoute() {
     <>
       <AppHeader>
         <div>
-          <h2>Snapshot #{snapshotId}</h2>
+          <h2>Changeset #{changesetId}</h2>
           <p>Live view of scan progress and logs.</p>
         </div>
         <div className="button-row">
-          <Link to="/snapshots" className="link-button">
+          <Link to="/changesets" className="link-button">
             Back
           </Link>
           {isRunning && (
@@ -231,15 +231,15 @@ function SnapshotDetailRoute() {
               {cancelling ? "Cancelling..." : "Cancel"}
             </button>
           )}
-          {snapshot && (
+          {changeset && (
             <button
               type="button"
               onClick={requestDelete}
               disabled={deleting}
               className="app-btn danger"
-              title="Delete this snapshot and undo its changes"
+              title="Delete this changeset and undo its changes"
             >
-              {deleting ? "Deleting..." : "Discard snapshot"}
+              {deleting ? "Deleting..." : "Discard changeset"}
             </button>
           )}
         </div>
@@ -247,11 +247,11 @@ function SnapshotDetailRoute() {
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}
-          {snapshot && (
+          {changeset && (
             <div className="record-list">
               <div className="file-card">
-                <h3>Snapshot JSON</h3>
-                <pre>{JSON.stringify(snapshot, null, 2)}</pre>
+                <h3>Changeset JSON</h3>
+                <pre>{JSON.stringify(changeset, null, 2)}</pre>
               </div>
               <div className="file-card">
                 <h3>Logs</h3>
@@ -280,7 +280,7 @@ function SnapshotDetailRoute() {
                 </div>
                 {changesError && <p className="error">{changesError}</p>}
                 {!changesError && !changesLoading && changes.length === 0 && (
-                  <div className="empty-state">No changes in this snapshot.</div>
+                  <div className="empty-state">No changes in this changeset.</div>
                 )}
                 <SimpleTable
                   defaultHeaders={changeHeaders}
@@ -302,8 +302,8 @@ function SnapshotDetailRoute() {
               </div>
             </div>
           )}
-          {!snapshot && !loading && !error && (
-            <div className="empty-state">Snapshot not found.</div>
+          {!changeset && !loading && !error && (
+            <div className="empty-state">Changeset not found.</div>
           )}
         </section>
       </main>
@@ -311,4 +311,4 @@ function SnapshotDetailRoute() {
   );
 }
 
-export default SnapshotDetailRoute;
+export default ChangesetDetailRoute;

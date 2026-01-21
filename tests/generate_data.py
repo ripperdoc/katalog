@@ -8,7 +8,7 @@ import shutil
 
 from tortoise import run_async
 from katalog.models import MetadataType, OpStatus, ProviderType
-from katalog.models import Asset, Metadata, MetadataRegistry, Provider, Snapshot
+from katalog.models import Asset, Metadata, MetadataRegistry, Provider, Changeset
 from katalog.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
@@ -56,7 +56,7 @@ async def populate_test_data(
     db_path: Path,
     *,
     providers: int = 1,
-    snapshots_per_provider: int = 3,
+    changesets_per_provider: int = 3,
     assets_per_provider: int = 1_000,
     metadata_per_asset: int = 20,
     relationships_per_asset: int = 2,
@@ -142,12 +142,12 @@ async def populate_test_data(
         )
         registry_by_key = {r.key: r for r in registry_rows}
 
-        snapshots: list[Snapshot] = []
-        base_snapshot_id = int(time()) + provider_idx * 10_000
-        for snap_idx in range(snapshots_per_provider):
-            snapshots.append(
-                await Snapshot.create(
-                    id=base_snapshot_id + snap_idx,
+        changesets: list[Changeset] = []
+        base_changeset_id = int(time()) + provider_idx * 10_000
+        for snap_idx in range(changesets_per_provider):
+            changesets.append(
+                await Changeset.create(
+                    id=base_changeset_id + snap_idx,
                     provider=provider,
                     status=OpStatus.COMPLETED,
                     started_at=datetime.now(UTC),
@@ -156,8 +156,8 @@ async def populate_test_data(
                 )
             )
 
-        created_snapshot = snapshots[0]
-        last_snapshot = snapshots[-1]
+        created_changeset = changesets[0]
+        last_changeset = changesets[-1]
 
         # Assets
         assets: list[Asset] = []
@@ -168,12 +168,12 @@ async def populate_test_data(
                 external_id=external_id,
                 canonical_uri=canonical_uri,
             )
-            await asset.save_record(snapshot=created_snapshot, provider=provider)
-            if last_snapshot.id != created_snapshot.id:
-                await asset.save_record(snapshot=last_snapshot, provider=provider)
+            await asset.save_record(changeset=created_changeset, provider=provider)
+            if last_changeset.id != created_changeset.id:
+                await asset.save_record(changeset=last_changeset, provider=provider)
             assets.append(asset)
 
-        # Metadata (inserted for the last snapshot only by default)
+        # Metadata (inserted for the last changeset only by default)
         metadata_entries: list[Metadata] = []
         tag_pool = [
             "work",
@@ -203,7 +203,7 @@ async def populate_test_data(
                         Metadata(
                             asset=asset,
                             provider=provider,
-                            snapshot=last_snapshot,
+                            changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
                             value_int=value_int,
@@ -223,7 +223,7 @@ async def populate_test_data(
                         Metadata(
                             asset=asset,
                             provider=provider,
-                            snapshot=last_snapshot,
+                            changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
                             value_datetime=aware_dt,
@@ -236,7 +236,7 @@ async def populate_test_data(
                         Metadata(
                             asset=asset,
                             provider=provider,
-                            snapshot=last_snapshot,
+                            changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
                             value_json=value_json,
@@ -258,7 +258,7 @@ async def populate_test_data(
                         Metadata(
                             asset=asset,
                             provider=provider,
-                            snapshot=last_snapshot,
+                            changeset=last_changeset,
                             metadata_key=registry,
                             value_type=value_type,
                             value_text=value_text,
@@ -270,10 +270,10 @@ async def populate_test_data(
             await Metadata.bulk_create(metadata_entries)
 
     total_assets = providers * assets_per_provider
-    total_snapshots = providers * snapshots_per_provider
+    total_changesets = providers * changesets_per_provider
     print(
         f"Generated {total_assets} assets and {total_metadata_entries} metadata rows "
-        f"across {providers} providers and {total_snapshots} snapshots"
+        f"across {providers} providers and {total_changesets} changesets"
     )
     print(f"Database written to {db_path.resolve()}")
 
@@ -445,7 +445,7 @@ def _parse_args() -> object:
     )
     parser.add_argument("--analyze", action="store_true")
     parser.add_argument("--providers", type=int, default=1)
-    parser.add_argument("--snapshots-per-provider", type=int, default=3)
+    parser.add_argument("--changesets-per-provider", type=int, default=3)
     parser.add_argument("--assets-per-provider", type=int, default=5_000)
     parser.add_argument("--metadata-per-asset", type=int, default=25)
     parser.add_argument("--relationships-per-asset", type=int, default=0)
@@ -461,7 +461,7 @@ async def main_async(args: object) -> None:
         await populate_test_data(
             getattr(args, "db"),
             providers=getattr(args, "providers"),
-            snapshots_per_provider=getattr(args, "snapshots_per_provider"),
+            changesets_per_provider=getattr(args, "changesets_per_provider"),
             assets_per_provider=getattr(args, "assets_per_provider"),
             metadata_per_asset=getattr(args, "metadata_per_asset"),
             relationships_per_asset=getattr(args, "relationships_per_asset"),

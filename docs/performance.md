@@ -15,8 +15,8 @@ different depending on the scale.
   is a realistic upper bound:
   - 1 million assets
   - 30 points of metadata per asset
-  - 1 to 100 snapshots. The main way a user can control size on disk is to remove or compress
-    historical snapshots.
+  - 1 to 100 changesets. The main way a user can control size on disk is to remove or compress
+    historical changesets.
   - File data is NOT stored read or stored by default, but a on-disk cache capped at a maximum size
     of e.g 5GB could be used
 - When scanning remote sources, we may be limited by page sizes, e.g. we might need to scan up to 1M
@@ -34,7 +34,7 @@ non-exhaustive list:
   - One level grouping is typical
   - In some cases, more nested grouping to present e.g. a folder system. However, that would need
     special handling
-- List all Assets and Metadata affected by a Snapshot
+- List all Assets and Metadata affected by a Changeset
 
 ## Performance targets
 

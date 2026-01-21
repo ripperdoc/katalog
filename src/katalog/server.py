@@ -23,7 +23,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
 )
 from katalog.processors.runtime import run_processors, sort_processors
 from katalog.analyzers.runtime import run_analyzers
@@ -32,7 +32,7 @@ from katalog.queries import (
     list_grouped_assets,
     build_group_member_filter,
     sync_config,
-    list_snapshot_metadata_changes,
+    list_changeset_metadata_changes,
 )
 from katalog.metadata import editable_metadata_schema, METADATA_REGISTRY_BY_ID
 from katalog.plugins.registry import (
@@ -43,9 +43,9 @@ from katalog.plugins.registry import (
 )
 from katalog.sources.user_editor import UserEditorSource
 from katalog.sources.runtime import get_source_plugin, run_sources
-from katalog.utils.snapshot_events import (
-    SnapshotEventManager,
-    SnapshotRunState,
+from katalog.utils.changeset_events import (
+    ChangesetEventManager,
+    ChangesetRunState,
     sse_event,
 )
 from katalog.views import get_view, list_views
@@ -73,15 +73,15 @@ async def lifespan(app):
     try:
         yield
     finally:
-        # Best-effort cancel running snapshot tasks on shutdown to avoid reload hangs.
+        # Best-effort cancel running changeset tasks on shutdown to avoid reload hangs.
         cancel_waits: list[asyncio.Task] = []
-        for state in list(RUNNING_SNAPSHOTS.values()):
+        for state in list(RUNNING_CHANGESETS.values()):
             try:
                 state.cancel_event.set()
                 state.task.cancel()
-                cancel_waits.append(state.done_event.wait())
+                cancel_waits.append(asyncio.create_task(state.done_event.wait()))
             except Exception:
-                logger.exception("Failed to cancel snapshot task on shutdown")
+                logger.exception("Failed to cancel changeset task on shutdown")
         if cancel_waits:
             try:
                 await asyncio.wait_for(
@@ -89,7 +89,7 @@ async def lifespan(app):
                 )
             except Exception:
                 logger.warning(
-                    "Timeout while waiting for snapshot tasks to cancel during shutdown"
+                    "Timeout while waiting for changeset tasks to cancel during shutdown"
                 )
         # run shutdown logic
         await Tortoise.close_connections()
@@ -97,9 +97,9 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
-event_manager = SnapshotEventManager()
+event_manager = ChangesetEventManager()
 
-RUNNING_SNAPSHOTS: dict[int, SnapshotRunState] = {}
+RUNNING_CHANGESETS: dict[int, ChangesetRunState] = {}
 
 # region ASSETS
 
@@ -190,15 +190,15 @@ async def get_asset(asset_id: int):
 @app.post("/assets/{asset_id}/manual-edit")
 async def manual_edit_asset(asset_id: int, request: Request):
     payload = await request.json()
-    snapshot_id = payload.get("snapshot_id")
-    if snapshot_id is None:
-        raise HTTPException(status_code=400, detail="snapshot_id is required")
+    changeset_id = payload.get("changeset_id")
+    if changeset_id is None:
+        raise HTTPException(status_code=400, detail="changeset_id is required")
 
-    snapshot = await Snapshot.get_or_none(id=int(snapshot_id))
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
-    if snapshot.status != OpStatus.IN_PROGRESS:
-        raise HTTPException(status_code=409, detail="Snapshot is not in progress")
+    changeset = await Changeset.get_or_none(id=int(changeset_id))
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    if changeset.status != OpStatus.IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="Changeset is not in progress")
 
     asset = await Asset.get_or_none(id=asset_id)
     if asset is None:
@@ -217,17 +217,17 @@ async def manual_edit_asset(asset_id: int, request: Request):
                 status_code=400, detail=f"Invalid metadata {key}: {exc}"
             )
         md.asset = asset
-        md.snapshot = snapshot
+        md.changeset = changeset
         metadata_entries.append(md)
 
     # Apply changes
     loaded = await asset.load_metadata()
     change_set = MetadataChangeSet(loaded=loaded, staged=metadata_entries)
-    changed_keys = await change_set.persist(asset=asset, snapshot=snapshot)
+    changed_keys = await change_set.persist(asset=asset, changeset=changeset)
 
     return {
         "asset_id": asset_id,
-        "snapshot_id": snapshot.id,
+        "changeset_id": changeset.id,
         "changed_keys": [str(k) for k in changed_keys],
     }
 
@@ -487,11 +487,11 @@ async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
 
     if not sources:
         raise HTTPException(status_code=404, detail="No sources configured")
-    provider_for_snapshot = None
+    provider_for_changeset = None
     if len(sources) == 1:
-        provider_for_snapshot = sources[0]
-    snapshot = await Snapshot.begin(
-        provider=provider_for_snapshot, status=OpStatus.IN_PROGRESS
+        provider_for_changeset = sources[0]
+    changeset = await Changeset.begin(
+        provider=provider_for_changeset, status=OpStatus.IN_PROGRESS
     )
 
     cancel_event = asyncio.Event()
@@ -502,46 +502,46 @@ async def do_run_sources(request: Request, ids: list[int] | None = Query(None)):
 
     async def runner():
         try:
-            with logger.contextualize(snapshot_id=snapshot.id):
-                logger.info(f"Starting scan for snapshot {snapshot.id}")
+            with logger.contextualize(changeset_id=changeset.id):
+                logger.info(f"Starting scan for changeset {changeset.id}")
                 await run_sources(
-                    snapshot=snapshot,
+                    changeset=changeset,
                     sources=sources,
                     is_cancelled=is_cancelled,
                 )
-            await snapshot.finalize(status=OpStatus.COMPLETED)
+            await changeset.finalize(status=OpStatus.COMPLETED)
         except asyncio.CancelledError:
-            with logger.contextualize(snapshot_id=snapshot.id):
-                logger.info(f"Cancelled snapshot {snapshot.id}")
+            with logger.contextualize(changeset_id=changeset.id):
+                logger.info(f"Cancelled changeset {changeset.id}")
             try:
-                await snapshot.finalize(status=OpStatus.CANCELED)
+                await changeset.finalize(status=OpStatus.CANCELED)
             finally:
                 raise
         except Exception as exc:
-            with logger.contextualize(snapshot_id=snapshot.id):
-                logger.exception(f"Snapshot {snapshot.id} failed: {exc}")
+            with logger.contextualize(changeset_id=changeset.id):
+                logger.exception(f"Changeset {changeset.id} failed: {exc}")
             try:
                 tb = traceback.format_exc()
-                meta = dict(snapshot.metadata or {})
+                meta = dict(changeset.metadata or {})
                 meta["error_message"] = str(exc)
                 meta["error_traceback"] = tb
-                snapshot.metadata = meta
+                changeset.metadata = meta
             except Exception:
                 # Best-effort; don't block finalization on metadata failure.
                 pass
-            await snapshot.finalize(status=OpStatus.ERROR)
+            await changeset.finalize(status=OpStatus.ERROR)
         finally:
             done_event.set()
-            RUNNING_SNAPSHOTS.pop(snapshot.id, None)
+            RUNNING_CHANGESETS.pop(changeset.id, None)
 
     task = asyncio.create_task(runner())
-    state = SnapshotRunState(
-        snapshot=snapshot, task=task, cancel_event=cancel_event, done_event=done_event
+    state = ChangesetRunState(
+        changeset=changeset, task=task, cancel_event=cancel_event, done_event=done_event
     )
     task.add_done_callback(lambda _: done_event.set())
-    RUNNING_SNAPSHOTS[snapshot.id] = state
+    RUNNING_CHANGESETS[changeset.id] = state
 
-    return snapshot.to_dict()
+    return changeset.to_dict()
 
 
 @app.post("/processors/run")
@@ -563,9 +563,9 @@ async def do_run_processor(ids: list[int] | None = Query(None)):
     if not assets:
         raise HTTPException(status_code=404, detail="No assets found to process")
 
-    async with Snapshot.context() as snapshot:
-        return await run_processors(snapshot=snapshot, assets=assets)
-    return snapshot
+    async with Changeset.context() as changeset:
+        return await run_processors(changeset=changeset, assets=assets)
+    return changeset
 
 
 @app.post("/analyzers/{analyzer_id}/run")
@@ -597,104 +597,106 @@ async def do_run_analyzers(analyzer_id: str):
 
 # endregion
 
-# region SNAPSHOTS
+# region CHANGESETS
 
 
-@app.post("/snapshots")
-async def create_snapshot(request: Request):
-    raise NotImplementedError("Not supported to create snapshots directly")
+@app.post("/changesets")
+async def create_changeset(request: Request):
+    raise NotImplementedError("Not supported to create changesets directly")
 
 
-@app.post("/snapshots/manual/start")
-async def start_manual_snapshot():
+@app.post("/changesets/manual/start")
+async def start_manual_changeset():
     provider = await _ensure_manual_provider()
     try:
-        snapshot = await Snapshot.begin(provider=provider, status=OpStatus.IN_PROGRESS)
+        changeset = await Changeset.begin(
+            provider=provider, status=OpStatus.IN_PROGRESS
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    return snapshot.to_dict()
+    return changeset.to_dict()
 
 
-@app.post("/snapshots/{snapshot_id}/finish")
-async def finish_snapshot(snapshot_id: int):
-    snapshot = await Snapshot.get_or_none(id=snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
-    if snapshot.status != OpStatus.IN_PROGRESS:
-        raise HTTPException(status_code=409, detail="Snapshot is not in progress")
-    await snapshot.finalize(status=OpStatus.COMPLETED)
-    return {"snapshot": (await Snapshot.get(id=snapshot_id)).to_dict()}
+@app.post("/changesets/{changeset_id}/finish")
+async def finish_changeset(changeset_id: int):
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    if changeset.status != OpStatus.IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="Changeset is not in progress")
+    await changeset.finalize(status=OpStatus.COMPLETED)
+    return {"changeset": (await Changeset.get(id=changeset_id)).to_dict()}
 
 
-@app.get("/snapshots")
-async def list_snapshots():
-    snapshots = (
-        await Snapshot.all().order_by("-started_at").prefetch_related("provider")
+@app.get("/changesets")
+async def list_changesets():
+    changesets = (
+        await Changeset.all().order_by("-started_at").prefetch_related("provider")
     )
-    return {"snapshots": [s.to_dict() for s in snapshots]}
+    return {"changesets": [s.to_dict() for s in changesets]}
 
 
-@app.get("/snapshots/{snapshot_id}")
-async def get_snapshot(snapshot_id: int, stream: bool = Query(False)):
-    snapshot = await Snapshot.get_or_none(id=snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
-    await snapshot.fetch_related("provider")
+@app.get("/changesets/{changeset_id}")
+async def get_changeset(changeset_id: int, stream: bool = Query(False)):
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    await changeset.fetch_related("provider")
 
     if stream:
-        return await stream_snapshot_events(snapshot_id)
+        return await stream_changeset_events(changeset_id)
     return {
-        "snapshot": snapshot.to_dict(),
-        "logs": event_manager.get_buffer(snapshot_id),
-        "running": snapshot.status == OpStatus.IN_PROGRESS,
+        "changeset": changeset.to_dict(),
+        "logs": event_manager.get_buffer(changeset_id),
+        "running": changeset.status == OpStatus.IN_PROGRESS,
     }
 
 
-@app.delete("/snapshots/{snapshot_id}")
-async def delete_snapshot(snapshot_id: int):
-    """Undo a snapshot by deleting it (cascade removes related rows)."""
-    snapshot = await Snapshot.get_or_none(id=snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
+@app.delete("/changesets/{changeset_id}")
+async def delete_changeset(changeset_id: int):
+    """Undo a changeset by deleting it (cascade removes related rows)."""
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
 
-    await snapshot.delete()
-    return {"status": "deleted", "snapshot_id": snapshot_id}
+    await changeset.delete()
+    return {"status": "deleted", "changeset_id": changeset_id}
 
 
-@app.get("/snapshots/{snapshot_id}/changes")
-async def list_snapshot_changes(
-    snapshot_id: int,
+@app.get("/changesets/{changeset_id}/changes")
+async def list_changeset_changes(
+    changeset_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
 ):
-    snapshot = await Snapshot.get_or_none(id=snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
 
     try:
-        return await list_snapshot_metadata_changes(
-            snapshot_id, offset=offset, limit=limit, include_total=True
+        return await list_changeset_metadata_changes(
+            changeset_id, offset=offset, limit=limit, include_total=True
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.patch("/snapshots/{snapshot_id}")
-async def update_snapshot(snapshot_id: int):
+@app.patch("/changesets/{changeset_id}")
+async def update_changeset(changeset_id: int):
     raise NotImplementedError()
 
 
-@app.get("/snapshots/{snapshot_id}/events")
-async def stream_snapshot_events(snapshot_id: int):
-    snapshot = await Snapshot.get_or_none(id=snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
+@app.get("/changesets/{changeset_id}/events")
+async def stream_changeset_events(changeset_id: int):
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
 
-    await snapshot.fetch_related("provider")
-    history, queue = event_manager.subscribe(snapshot_id)
-    run_state = RUNNING_SNAPSHOTS.get(snapshot_id)
+    await changeset.fetch_related("provider")
+    history, queue = event_manager.subscribe(changeset_id)
+    run_state = RUNNING_CHANGESETS.get(changeset_id)
     done_event = run_state.done_event if run_state else asyncio.Event()
-    if run_state is None and snapshot.status != OpStatus.IN_PROGRESS:
+    if run_state is None and changeset.status != OpStatus.IN_PROGRESS:
         done_event.set()
 
     async def event_generator():
@@ -715,31 +717,31 @@ async def stream_snapshot_events(snapshot_id: int):
                 else:
                     log_waiter.cancel()
                 if done_waiter in done:
-                    latest = await Snapshot.get(id=snapshot_id)
+                    latest = await Changeset.get(id=changeset_id)
                     await latest.fetch_related("provider")
-                    yield sse_event("snapshot", json.dumps(latest.to_dict()))
+                    yield sse_event("changeset", json.dumps(latest.to_dict()))
                     break
         finally:
-            event_manager.unsubscribe(snapshot_id, queue)
+            event_manager.unsubscribe(changeset_id, queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@app.post("/snapshots/{snapshot_id}/cancel")
-async def cancel_snapshot(snapshot_id: int):
-    snapshot = await Snapshot.get_or_none(id=snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
-    run_state = RUNNING_SNAPSHOTS.get(snapshot_id)
+@app.post("/changesets/{changeset_id}/cancel")
+async def cancel_changeset(changeset_id: int):
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    run_state = RUNNING_CHANGESETS.get(changeset_id)
     if run_state is None or run_state.done_event.is_set():
         # Nothing running: finalize as CANCELED
-        await snapshot.finalize(status=OpStatus.CANCELED)
-        latest = await Snapshot.get(id=snapshot_id)
+        await changeset.finalize(status=OpStatus.CANCELED)
+        latest = await Changeset.get(id=changeset_id)
         await latest.fetch_related("provider")
-        return {"status": "cancelled", "snapshot": latest.to_dict()}
+        return {"status": "cancelled", "changeset": latest.to_dict()}
 
     run_state.cancel_event.set()
-    for task in list(run_state.snapshot.tasks):
+    for task in list(run_state.changeset.tasks):
         task.cancel()
     run_state.task.cancel()
 
@@ -868,12 +870,12 @@ async def get_provider(provider_id: int):
     provider = await Provider.get_or_none(id=provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")
-    snapshots = await Snapshot.filter(provider=provider).order_by("-started_at")
-    for snapshot in snapshots:
-        await snapshot.fetch_related("provider")
+    changesets = await Changeset.filter(provider=provider).order_by("-started_at")
+    for changeset in changesets:
+        await changeset.fetch_related("provider")
     return {
         "provider": provider.to_dict(),
-        "snapshots": [s.to_dict() for s in snapshots],
+        "changesets": [s.to_dict() for s in changesets],
     }
 
 

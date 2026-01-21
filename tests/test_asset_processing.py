@@ -7,7 +7,7 @@ from katalog.models import (
     Asset,
     Metadata,
     MetadataChangeSet,
-    Snapshot,
+    Changeset,
     OpStatus,
 )
 from tests.utils.upsert_helpers import UpsertFixture, ctx, md  # noqa: F401
@@ -18,8 +18,8 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     # Existing asset already created in fixture
     existing = ctx.asset
 
-    # New snapshot for this run
-    snap = await Snapshot.create(provider=ctx.provider, status=OpStatus.COMPLETED)
+    # New changeset for this run
+    snap = await Changeset.create(provider=ctx.provider, status=OpStatus.COMPLETED)
 
     # New Asset instance with the same external_id should reuse the row
     new_asset = Asset(
@@ -29,17 +29,17 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
 
     meta = md(FILE_PATH, "/tmp/new")
     meta.provider = ctx.provider
-    meta.snapshot = snap
+    meta.changeset = snap
     meta.asset = new_asset
 
-    await new_asset.save_record(snapshot=snap, provider=ctx.provider)
+    await new_asset.save_record(changeset=snap, provider=ctx.provider)
     change_set = MetadataChangeSet(
         loaded=await new_asset.load_metadata(), staged=[meta]
     )
-    changes = await change_set.persist(asset=new_asset, snapshot=snap)
+    changes = await change_set.persist(asset=new_asset, changeset=snap)
 
     assert new_asset.id == existing.id
-    # A new metadata row should have been recorded for the latest snapshot.
+    # A new metadata row should have been recorded for the latest changeset.
     assert FILE_PATH in changes
 
 
@@ -57,9 +57,9 @@ async def test_upsert_uses_metadata_cache(ctx: UpsertFixture):
     ctx.asset.fetch_related = wrapped  # type: ignore
 
     # First upsert populates cache
-    await ctx.upsert(provider_id=0, snapshot_id=1, metas=[md(FILE_PATH, "/tmp/one")])
+    await ctx.upsert(provider_id=0, changeset_id=1, metas=[md(FILE_PATH, "/tmp/one")])
     # Second save should use cache and skip fetch_related
-    await ctx.upsert(provider_id=0, snapshot_id=2, metas=[md(FILE_PATH, "/tmp/two")])
+    await ctx.upsert(provider_id=0, changeset_id=2, metas=[md(FILE_PATH, "/tmp/two")])
 
     assert calls == 1
     rows = await ctx.fetch_rows(FILE_PATH)

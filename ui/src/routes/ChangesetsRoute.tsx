@@ -1,33 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { fetchSnapshots } from "../api/client";
+import { fetchChangesets } from "../api/client";
 import AppHeader from "../components/AppHeader";
-import type { Snapshot } from "../types/api";
+import type { Changeset } from "../types/api";
 
-function SnapshotsRoute() {
+function ChangesetsRoute() {
   const navigate = useNavigate();
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [changesets, setChangesets] = useState<Changeset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSnapshots = useCallback(async () => {
+  const loadChangesets = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchSnapshots();
-      setSnapshots(response.snapshots ?? []);
+      const response = await fetchChangesets();
+      setChangesets(response.changesets ?? []);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
-      setSnapshots([]);
+      setChangesets([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadSnapshots();
-  }, [loadSnapshots]);
+    void loadChangesets();
+  }, [loadChangesets]);
 
   return (
     <>
@@ -40,7 +40,7 @@ function SnapshotsRoute() {
           <button
             type="button"
             className="app-btn btn-primary"
-            onClick={() => loadSnapshots()}
+            onClick={() => loadChangesets()}
             disabled={loading}
           >
             {loading ? "Loading..." : "Refresh"}
@@ -51,15 +51,15 @@ function SnapshotsRoute() {
         <section className="panel">
           {error && <p className="error">{error}</p>}
           <div className="record-list">
-            {snapshots.map((snap) => (
+            {changesets.map((snap) => (
               <div
                 key={snap.id}
                 className="file-card"
-                onClick={() => navigate(`/snapshots/${snap.id}`)}
+                onClick={() => navigate(`/changesets/${snap.id}`)}
                 style={{ cursor: "pointer" }}
               >
                 <div className="status-bar">
-                  <span>Snapshot #{snap.id}</span>
+                  <span>Changeset #{snap.id}</span>
                   <span>{snap.status}</span>
                 </div>
                 <p>Provider: {snap.provider_name ?? snap.provider_id ?? "n/a"}</p>
@@ -68,8 +68,8 @@ function SnapshotsRoute() {
                 </small>
               </div>
             ))}
-            {!loading && snapshots.length === 0 && (
-              <div className="empty-state">No snapshots found.</div>
+            {!loading && changesets.length === 0 && (
+              <div className="empty-state">No changesets found.</div>
             )}
           </div>
         </section>
@@ -78,4 +78,4 @@ function SnapshotsRoute() {
   );
 }
 
-export default SnapshotsRoute;
+export default ChangesetsRoute;

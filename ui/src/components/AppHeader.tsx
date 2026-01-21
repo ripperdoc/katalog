@@ -16,7 +16,7 @@ const AppHeader = ({ children }: AppHeaderProps) => {
           <Link to="/providers">Providers</Link>
           <Link to="/assets">Assets</Link>
           <Link to="/collections">Collections</Link>
-          <Link to="/snapshots">History</Link>
+          <Link to="/changesets">History</Link>
         </nav>
       </div>
       {children && <div className="page-header">{children}</div>}

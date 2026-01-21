@@ -2,8 +2,8 @@
 
 # Next up
 
-- [ ] As snapshots can contain multiple providers, how do we map ScanResult.status to the snapshot
-      status? Also, currently the cutoff logic assumes there is always one scan per snapshot.
+- [ ] As changesets can contain multiple providers, how do we map ScanResult.status to the changeset
+      status? Also, currently the cutoff logic assumes there is always one scan per changeset.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
@@ -26,7 +26,7 @@
 - [ ] Use `react-jsonschema-form` to directly render a UI from Pydantic Config model for each
       plugin, instead taking in TOML
   - [ ] However, that removes the simplicity of commenting and commenting out parts of a config
-- [ ] Add deletion of snapshots for quick undo.
+- [ ] Add deletion of changesets for quick undo.
 - [ ] Google Canonical URI to folders should be different than files
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.

@@ -13,7 +13,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from katalog.queries import sync_metadata_registry
@@ -34,13 +34,13 @@ async def _teardown_db() -> None:
     await Tortoise.close_connections()
 
 
-async def _seed() -> tuple[Provider, Snapshot, Asset]:
+async def _seed() -> tuple[Provider, Changeset, Asset]:
     provider = await Provider.create(
         name="source",
         plugin_id="plugin.source",
         type=ProviderType.SOURCE,
     )
-    snapshot = await Snapshot.create(
+    changeset = await Changeset.create(
         provider=provider,
         status=OpStatus.COMPLETED,
         started_at=datetime.now(UTC),
@@ -50,15 +50,15 @@ async def _seed() -> tuple[Provider, Snapshot, Asset]:
         external_id="asset-1",
         canonical_uri="file:///asset-1",
     )
-    await asset.save_record(snapshot=snapshot, provider=provider)
-    return provider, snapshot, asset
+    await asset.save_record(changeset=changeset, provider=provider)
+    return provider, changeset, asset
 
 
 @pytest.mark.asyncio
 async def test_changeset_persist_handles_removals_and_noops() -> None:
     await _init_db()
     try:
-        provider, baseline_snapshot, asset = await _seed()
+        provider, baseline_changeset, asset = await _seed()
 
         # Baseline metadata: name and modified time
         baseline_name = make_metadata(
@@ -66,7 +66,7 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
             "doc.txt",
             provider_id=provider.id,
             asset=asset,
-            snapshot=baseline_snapshot,
+            changeset=baseline_changeset,
         )
         modified_dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         baseline_modified = make_metadata(
@@ -74,17 +74,17 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
             modified_dt,
             provider_id=provider.id,
             asset=asset,
-            snapshot=baseline_snapshot,
+            changeset=baseline_changeset,
         )
         await Metadata.bulk_create([baseline_name, baseline_modified])
 
         await asset.load_metadata()
 
-        # New snapshot with staged changes:
+        # New changeset with staged changes:
         # - same name (should be treated as no-op)
         # - modified time removed (marked removed=True)
         # - new name value (should add a new row)
-        next_snapshot = await Snapshot.create(
+        next_changeset = await Changeset.create(
             provider=provider, status=OpStatus.IN_PROGRESS
         )
         staged = [
@@ -93,27 +93,27 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
                 "doc.txt",
                 provider_id=provider.id,
                 asset=asset,
-                snapshot=next_snapshot,
+                changeset=next_changeset,
             ),
             make_metadata(
                 FILE_NAME,
                 "doc_v2.txt",
                 provider_id=provider.id,
                 asset=asset,
-                snapshot=next_snapshot,
+                changeset=next_changeset,
             ),
             make_metadata(
                 TIME_MODIFIED,
                 modified_dt,
                 provider_id=provider.id,
                 asset=asset,
-                snapshot=next_snapshot,
+                changeset=next_changeset,
                 removed=True,
             ),
         ]
 
         cs = MetadataChangeSet(loaded=await asset.load_metadata(), staged=staged)
-        changed = await cs.persist(asset=asset, snapshot=next_snapshot)
+        changed = await cs.persist(asset=asset, changeset=next_changeset)
 
         # Should record changes for FILE_NAME and TIME_MODIFIED
         assert FILE_NAME in changed

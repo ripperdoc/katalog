@@ -58,8 +58,8 @@ function ProvidersRoute() {
     setScanningId(providerId ?? 0);
     setError(null);
     try {
-      const snapshot = await startScan(providerId);
-      navigate(`/snapshots/${snapshot.id}`);
+      const changeset = await startScan(providerId);
+      navigate(`/changesets/${changeset.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -128,7 +128,7 @@ function ProvidersRoute() {
                             } else if (groupKey === "processors") {
                               setScanningId(0);
                               const snap = await runAllProcessors();
-                              navigate(`/snapshots/${snap.id}`);
+                              navigate(`/changesets/${snap.id}`);
                             } else if (groupKey === "analyzers") {
                               setScanningId(0);
                               await runAllAnalyzers();

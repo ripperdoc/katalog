@@ -12,7 +12,7 @@ from katalog.models import (
     make_metadata,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
 )
 from katalog.processors.runtime import enqueue_asset_processing, sort_processors
 
@@ -23,36 +23,36 @@ from katalog.metadata import ASSET_LOST
 async def _persist_scan_only_item(
     *,
     item: AssetScanResult,
-    snapshot: Snapshot,
+    changeset: Changeset,
     seen_assets: set[int],
 ) -> None:
-    # Ensure asset row exists and snapshot markers are updated.
+    # Ensure asset row exists and changeset markers are updated.
     was_created = await item.asset.save_record(
-        snapshot=snapshot, provider=snapshot.provider
+        changeset=changeset, provider=changeset.provider
     )
     if item.asset.id is not None:
         seen_assets.add(int(item.asset.id))
     if was_created:
-        snapshot.stats.assets_added += 1
+        changeset.stats.assets_added += 1
         # Newly created assets cannot have existing metadata.
         item.asset._metadata_cache = []
         loaded_metadata = []
     else:
         loaded_metadata = await item.asset.load_metadata()
 
-    # Mark asset as seen in this snapshot for this provider.
+    # Mark asset as seen in this changeset for this provider.
     item.metadata.append(make_metadata(ASSET_LOST, None, provider_id=item.provider.id))
 
     change_set = MetadataChangeSet(loaded=loaded_metadata, staged=item.metadata)
-    changes = await change_set.persist(asset=item.asset, snapshot=snapshot)
+    changes = await change_set.persist(asset=item.asset, changeset=changeset)
     if changes:
-        snapshot.stats.assets_changed += 1
+        changeset.stats.assets_changed += 1
 
 
 async def _flush_scan_only_batch(
     *,
     batch: list[AssetScanResult],
-    snapshot: Snapshot,
+    changeset: Changeset,
     seen_assets: set[int],
 ) -> None:
     if not batch:
@@ -60,7 +60,7 @@ async def _flush_scan_only_batch(
     async with in_transaction():
         for item in batch:
             await _persist_scan_only_item(
-                item=item, snapshot=snapshot, seen_assets=seen_assets
+                item=item, changeset=changeset, seen_assets=seen_assets
             )
     batch.clear()
 
@@ -77,10 +77,10 @@ def get_source_plugin(provider_id: int) -> SourcePlugin:
 async def run_sources(
     *,
     sources: list[Provider],
-    snapshot: Snapshot,
+    changeset: Changeset,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
-    """Run a scan + processor pipeline for a single source and finalize its snapshot."""
+    """Run a scan + processor pipeline for a single source and finalize its changeset."""
 
     processor_pipeline = await sort_processors()
     has_processors = bool(processor_pipeline)
@@ -121,15 +121,15 @@ async def run_sources(
         async for result in scan_result.iterator:
             if await _should_cancel():
                 raise asyncio.CancelledError()
-            snapshot.stats.assets_seen += 1
-            snapshot.stats.assets_saved += 1
+            changeset.stats.assets_seen += 1
+            changeset.stats.assets_saved += 1
 
             if has_processors:
                 was_created = await result.asset.save_record(
-                    snapshot=snapshot, provider=snapshot.provider or source
+                    changeset=changeset, provider=changeset.provider or source
                 )
                 if was_created:
-                    snapshot.stats.assets_added += 1
+                    changeset.stats.assets_added += 1
                     result.asset._metadata_cache = []
                     loaded_metadata = []
                 else:
@@ -142,7 +142,7 @@ async def run_sources(
                 # Enqueue asset for processing, which will also persist the metadata
                 await enqueue_asset_processing(
                     asset=result.asset,
-                    snapshot=snapshot,
+                    changeset=changeset,
                     stages=processor_pipeline,
                     change_set=change_set,
                 )
@@ -153,7 +153,7 @@ async def run_sources(
                 if len(pending) >= tx_chunk_size:
                     batch_size = len(pending)
                     await _flush_scan_only_batch(
-                        batch=pending, snapshot=snapshot, seen_assets=seen_assets
+                        batch=pending, changeset=changeset, seen_assets=seen_assets
                     )
                     persisted_assets += batch_size
 
@@ -162,14 +162,14 @@ async def run_sources(
                             "Persisted {persisted_assets} scan results for {source} (changed={changed}, added={added})",
                             persisted_assets=persisted_assets,
                             source=f"{source.id}:{source.name}",
-                            changed=snapshot.stats.assets_changed,
-                            added=snapshot.stats.assets_added,
+                            changed=changeset.stats.assets_changed,
+                            added=changeset.stats.assets_added,
                         )
 
         if not has_processors:
             batch_size = len(pending)
             await _flush_scan_only_batch(
-                batch=pending, snapshot=snapshot, seen_assets=seen_assets
+                batch=pending, changeset=changeset, seen_assets=seen_assets
             )
             persisted_assets += batch_size
 
@@ -178,28 +178,28 @@ async def run_sources(
                 "Finished persisting scan results for {source} (persisted={persisted}, changed={changed}, added={added})",
                 source=f"{source.id}:{source.name}",
                 persisted=persisted_assets,
-                changed=snapshot.stats.assets_changed,
-                added=snapshot.stats.assets_added,
+                changed=changeset.stats.assets_changed,
+                added=changeset.stats.assets_added,
             )
         else:
             # In processor mode, DB activity continues in background tasks after the scan iterator ends.
-            if snapshot.tasks:
+            if changeset.tasks:
                 logger.info(
                     "Scan finished for {source}; {tasks} processor tasks queued",
                     source=f"{source.id}:{source.name}",
-                    tasks=len(snapshot.tasks),
+                    tasks=len(changeset.tasks),
                 )
         lost_count = await Asset.mark_unseen_as_lost(
-            snapshot=snapshot, provider_ids=[source.id], seen_asset_ids=seen_assets
+            changeset=changeset, provider_ids=[source.id], seen_asset_ids=seen_assets
         )
         if lost_count:
-            snapshot.stats.assets_lost += lost_count
-            snapshot.stats.assets_changed += lost_count
+            changeset.stats.assets_lost += lost_count
+            changeset.stats.assets_changed += lost_count
         ignored = scan_result.ignored
         if ignored:
-            snapshot.stats.assets_seen += ignored
-            snapshot.stats.assets_ignored += ignored
+            changeset.stats.assets_seen += ignored
+            changeset.stats.assets_ignored += ignored
         if len(sources) == 1:
-            # Assume the snapshot status is that of the single source
-            # TODO this is currently overwritten by Snapshot.finalize
-            snapshot.status = scan_result.status
+            # Assume the changeset status is that of the single source
+            # TODO this is currently overwritten by Changeset.finalize
+            changeset.status = scan_result.status

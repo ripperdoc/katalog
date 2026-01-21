@@ -98,7 +98,7 @@ _Supported processors of digital assets._
 ### Core features
 
 - ✓ Web-based minimalistic UI
-- ✓ Snapshot-based append-only data model - any change can be undone
+- ✓ Changeset-based append-only data model - any change can be undone
 - ✓ Efficiently scan or crawl REST APIs
 - ✓ Extensible metadata model
 - ✓ Discover, import and configure plugins

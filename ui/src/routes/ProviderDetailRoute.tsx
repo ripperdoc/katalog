@@ -4,13 +4,13 @@ import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import AppHeader from "../components/AppHeader";
 import { fetchProvider, startScan, updateProvider, fetchProviderConfigSchema } from "../api/client";
-import type { Provider, Snapshot } from "../types/api";
+import type { Provider, Changeset } from "../types/api";
 
 function ProviderDetailRoute() {
   const { providerId } = useParams();
   const navigate = useNavigate();
   const [provider, setProvider] = useState<Provider | null>(null);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [changesets, setChangesets] = useState<Changeset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -31,7 +31,7 @@ function ProviderDetailRoute() {
     try {
       const response = await fetchProvider(providerIdNum);
       setProvider(response.provider);
-      setSnapshots(response.snapshots ?? []);
+      setChangesets(response.changesets ?? []);
       setFormName(response.provider?.name ?? "");
       setConfigData(response.provider?.config ?? {});
       try {
@@ -45,7 +45,7 @@ function ProviderDetailRoute() {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       setProvider(null);
-      setSnapshots([]);
+      setChangesets([]);
     } finally {
       setLoading(false);
     }
@@ -63,8 +63,8 @@ function ProviderDetailRoute() {
     setScanning(true);
     setError(null);
     try {
-      const snapshot = await startScan(providerIdNum);
-      navigate(`/snapshots/${snapshot.id}`);
+      const changeset = await startScan(providerIdNum);
+      navigate(`/changesets/${changeset.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -98,7 +98,7 @@ function ProviderDetailRoute() {
       <AppHeader>
         <div>
           <h2>Provider #{providerId}</h2>
-          <p>Inspect provider details and snapshots.</p>
+          <p>Inspect provider details and changesets.</p>
         </div>
         <div className="button-row">
           <Link to="/providers" className="link-button">
@@ -155,10 +155,10 @@ function ProviderDetailRoute() {
               </div>
               <div className="file-card">
                 <h3>History</h3>
-                {snapshots.length === 0 && <div className="empty-state">No snapshots yet.</div>}
-                {snapshots.map((snap) => (
+                {changesets.length === 0 && <div className="empty-state">No changesets yet.</div>}
+                {changesets.map((snap) => (
                   <div key={snap.id} className="status-bar">
-                    <Link to={`/snapshots/${snap.id}`}>Snapshot #{snap.id}</Link>
+                    <Link to={`/changesets/${snap.id}`}>Changeset #{snap.id}</Link>
                     <span>{snap.status}</span>
                   </div>
                 ))}

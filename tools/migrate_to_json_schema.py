@@ -4,8 +4,8 @@ prototype JSON-per-provider schema (tools/json_schema_prototype.py).
 
 Assumptions:
 - The source DB uses the existing katalog schema (assets, metadata, providers, etc.).
-- Treat all data as belonging to a single snapshot/version per (asset, provider); we
-  pick the latest snapshot_id we find for each pair.
+- Treat all data as belonging to a single changeset/version per (asset, provider); we
+  pick the latest changeset_id we find for each pair.
 - Only non-removed metadata rows are migrated.
 
 Usage:
@@ -61,7 +61,9 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
     conn = sqlite3.connect(source_db)
     conn.row_factory = sqlite3.Row
 
-    providers = {row["id"]: row["name"] for row in conn.execute("SELECT id, name FROM provider")}
+    providers = {
+        row["id"]: row["name"] for row in conn.execute("SELECT id, name FROM provider")
+    }
     key_registry = {
         row["id"]: row["key"]
         for row in conn.execute("SELECT id, key FROM metadataregistry")
@@ -86,35 +88,45 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
     ):
         grouped[(row["asset_id"], row["provider_id"])].append(row)
 
-    # Track max snapshot per (asset, provider) to preserve ordering
-    latest_snapshot: Dict[Tuple[int, int], int] = {}
+    # Track max changeset per (asset, provider) to preserve ordering
+    latest_changeset: Dict[Tuple[int, int], int] = {}
     for (asset_id, provider_id), rows in grouped.items():
-        latest_snapshot[(asset_id, provider_id)] = max(r["snapshot_id"] or 0 for r in rows)
+        latest_changeset[(asset_id, provider_id)] = max(
+            r["changeset_id"] or 0 for r in rows
+        )
 
     await init_db(db_url=f"sqlite:///{dest_db}")
 
     for (asset_id, provider_id), rows in grouped.items():
         metadata_json: Dict[str, Any] = {}
         for r in rows:
-            key = key_registry.get(r["metadata_key_id"], f"unknown/{r['metadata_key_id']}")
+            key = key_registry.get(
+                r["metadata_key_id"], f"unknown/{r['metadata_key_id']}"
+            )
             val = _convert_value(r)
             if val is None:
                 continue
-            slot = metadata_json.setdefault(key, {"v": [], "source": providers.get(provider_id)})
+            slot = metadata_json.setdefault(
+                key, {"v": [], "source": providers.get(provider_id)}
+            )
             if val not in slot["v"]:
                 slot["v"].append(val)
 
         # add core asset fields if missing
         asset_info = assets.get(asset_id)
         if asset_info:
-            metadata_json.setdefault("asset/external_id", {"v": [asset_info["external_id"]]})
-            metadata_json.setdefault("asset/canonical_uri", {"v": [asset_info["canonical_uri"]]})
+            metadata_json.setdefault(
+                "asset/external_id", {"v": [asset_info["external_id"]]}
+            )
+            metadata_json.setdefault(
+                "asset/canonical_uri", {"v": [asset_info["canonical_uri"]]}
+            )
 
-        snapshot_id = latest_snapshot.get((asset_id, provider_id), 0) or 0
+        changeset_id = latest_changeset.get((asset_id, provider_id), 0) or 0
         await append_version(
             asset_id=str(asset_id),
             provider_id=str(provider_id),
-            snapshot_id=snapshot_id,
+            changeset_id=changeset_id,
             metadata_json=metadata_json,
             tombstone=False,
         )
@@ -123,9 +135,15 @@ async def migrate(source_db: Path, dest_db: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Migrate katalog DB to JSON schema prototype.")
-    parser.add_argument("--source-db", required=True, help="Path to existing katalog.db")
-    parser.add_argument("--dest-db", required=True, help="Path to write the new JSON-schema DB")
+    parser = argparse.ArgumentParser(
+        description="Migrate katalog DB to JSON schema prototype."
+    )
+    parser.add_argument(
+        "--source-db", required=True, help="Path to existing katalog.db"
+    )
+    parser.add_argument(
+        "--dest-db", required=True, help="Path to write the new JSON-schema DB"
+    )
     args = parser.parse_args()
 
     src = Path(args.source_db).expanduser().resolve()

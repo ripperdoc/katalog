@@ -12,7 +12,7 @@ from katalog.models import (
     OpStatus,
     Provider,
     ProviderType,
-    Snapshot,
+    Changeset,
     make_metadata,
 )
 from katalog.queries import sync_metadata_registry
@@ -33,7 +33,7 @@ async def teardown_db() -> None:
 @dataclass
 class PipelineFixture:
     provider: Provider
-    snapshot: Snapshot
+    changeset: Changeset
     asset: Asset
 
     @classmethod
@@ -43,13 +43,15 @@ class PipelineFixture:
             plugin_id="plugin.source",
             type=ProviderType.SOURCE,
         )
-        snapshot = await Snapshot.create(provider=provider, status=OpStatus.IN_PROGRESS)
+        changeset = await Changeset.create(
+            provider=provider, status=OpStatus.IN_PROGRESS
+        )
         asset = Asset(
             external_id="asset-1",
             canonical_uri="file:///asset-1",
         )
-        await asset.save_record(snapshot=snapshot, provider=provider)
-        return cls(provider=provider, snapshot=snapshot, asset=asset)
+        await asset.save_record(changeset=changeset, provider=provider)
+        return cls(provider=provider, changeset=changeset, asset=asset)
 
     def metadata(
         self,
@@ -64,7 +66,7 @@ class PipelineFixture:
             provider_id=self.provider.id,
             removed=removed,
             asset=self.asset,
-            snapshot=self.snapshot,
+            changeset=self.changeset,
         )
         return md
 

@@ -8,11 +8,11 @@ import type {
   ProviderCreateResponse,
   ProviderUpdateResponse,
   MetadataRegistryResponse,
-  Snapshot,
-  SnapshotListResponse,
-  SnapshotResponse,
-  DeleteSnapshotResponse,
-  SnapshotChangesResponse,
+  Changeset,
+  ChangesetListResponse,
+  ChangesetResponse,
+  DeleteChangesetResponse,
+  ChangesetChangesResponse,
   AssetDetailResponse,
   AssetCollection,
   CollectionListResponse,
@@ -133,8 +133,8 @@ export async function fetchPluginConfigSchema(
   return handleResponse(response);
 }
 
-export async function fetchSnapshots(): Promise<SnapshotListResponse> {
-  const response = await fetch(`${API_BASE}/snapshots`, {
+export async function fetchChangesets(): Promise<ChangesetListResponse> {
+  const response = await fetch(`${API_BASE}/changesets`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
@@ -176,15 +176,15 @@ export async function updateProvider(
   return handleResponse(response);
 }
 
-export async function fetchSnapshot(id: number): Promise<SnapshotResponse> {
-  const response = await fetch(`${API_BASE}/snapshots/${id}`, {
+export async function fetchChangeset(id: number): Promise<ChangesetResponse> {
+  const response = await fetch(`${API_BASE}/changesets/${id}`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
 }
 
-export async function fetchSnapshotChanges(
-  snapshotId: number,
+export async function fetchChangesetChanges(
+  changesetId: number,
   {
     offset = 0,
     limit = 200,
@@ -192,12 +192,12 @@ export async function fetchSnapshotChanges(
     offset?: number;
     limit?: number;
   } = {},
-): Promise<SnapshotChangesResponse> {
+): Promise<ChangesetChangesResponse> {
   const params = new URLSearchParams();
   params.set("offset", String(offset));
   params.set("limit", String(limit));
   const response = await fetch(
-    `${API_BASE}/snapshots/${encodeURIComponent(snapshotId)}/changes?${params.toString()}`,
+    `${API_BASE}/changesets/${encodeURIComponent(changesetId)}/changes?${params.toString()}`,
     {
       headers: { Accept: "application/json" },
     },
@@ -303,7 +303,7 @@ export async function fetchCollectionAssets(
   return handleResponse(response);
 }
 
-export async function startScan(providerId?: number): Promise<Snapshot> {
+export async function startScan(providerId?: number): Promise<Changeset> {
   const search = providerId !== undefined ? `?ids=${encodeURIComponent(providerId)}` : "";
   const response = await fetch(`${API_BASE}/sources/run${search}`, {
     method: "POST",
@@ -312,32 +312,32 @@ export async function startScan(providerId?: number): Promise<Snapshot> {
   return handleResponse(response);
 }
 
-export async function cancelSnapshot(snapshotId: number): Promise<void> {
-  const response = await fetch(`${API_BASE}/snapshots/${snapshotId}/cancel`, {
+export async function cancelChangeset(changesetId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/changesets/${changesetId}/cancel`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
   await handleResponse(response);
 }
 
-export async function deleteSnapshot(snapshotId: number): Promise<DeleteSnapshotResponse> {
-  const response = await fetch(`${API_BASE}/snapshots/${snapshotId}`, {
+export async function deleteChangeset(changesetId: number): Promise<DeleteChangesetResponse> {
+  const response = await fetch(`${API_BASE}/changesets/${changesetId}`, {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
 }
 
-export async function startManualSnapshot(): Promise<Snapshot> {
-  const response = await fetch(`${API_BASE}/snapshots/manual/start`, {
+export async function startManualChangeset(): Promise<Changeset> {
+  const response = await fetch(`${API_BASE}/changesets/manual/start`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
 }
 
-export async function finishSnapshot(snapshotId: number): Promise<SnapshotResponse> {
-  const response = await fetch(`${API_BASE}/snapshots/${snapshotId}/finish`, {
+export async function finishChangeset(changesetId: number): Promise<ChangesetResponse> {
+  const response = await fetch(`${API_BASE}/changesets/${changesetId}/finish`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
@@ -354,7 +354,7 @@ export async function fetchEditableMetadataSchema(): Promise<{
   return handleResponse(response);
 }
 
-export async function runAllProcessors(): Promise<Snapshot> {
+export async function runAllProcessors(): Promise<Changeset> {
   const response = await fetch(`${API_BASE}/processors/run`, {
     method: "POST",
     headers: { Accept: "application/json" },
@@ -378,6 +378,6 @@ export async function syncConfig(): Promise<void> {
   await handleResponse(response);
 }
 
-export function snapshotEventsUrl(snapshotId: number): string {
-  return `${API_BASE}/snapshots/${snapshotId}/events`;
+export function changesetEventsUrl(changesetId: number): string {
+  return `${API_BASE}/changesets/${changesetId}/events`;
 }

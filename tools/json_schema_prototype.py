@@ -33,7 +33,7 @@ class AssetRecord(Model):
     id = fields.IntField(pk=True)
     asset_id = fields.CharField(max_length=36, index=True)
     provider_id = fields.CharField(max_length=64, index=True)
-    snapshot_id = fields.IntField(index=True)
+    changeset_id = fields.IntField(index=True)
     tombstone = fields.BooleanField(default=False)
     metadata_json = fields.JSONField()
     content_hash = fields.CharField(
@@ -44,9 +44,9 @@ class AssetRecord(Model):
     class Meta:
         table = "asset_record"
         indexes = [
-            ("asset_id", "provider_id", "snapshot_id"),
+            ("asset_id", "provider_id", "changeset_id"),
             ("provider_id", "asset_id"),
-            ("snapshot_id",),
+            ("changeset_id",),
         ]
 
 
@@ -66,8 +66,8 @@ async def init_db(db_url: str = "sqlite://:memory:") -> None:
         SELECT r.*
         FROM asset_record r
         WHERE r.tombstone = 0
-          AND r.snapshot_id = (
-            SELECT MAX(r2.snapshot_id)
+          AND r.changeset_id = (
+            SELECT MAX(r2.changeset_id)
             FROM asset_record r2
             WHERE r2.asset_id = r.asset_id
               AND r2.provider_id = r.provider_id
@@ -79,7 +79,7 @@ async def init_db(db_url: str = "sqlite://:memory:") -> None:
     await AssetRecord.raw(
         """
         CREATE INDEX IF NOT EXISTS idx_asset_current_live
-          ON asset_record(asset_id, provider_id, snapshot_id)
+          ON asset_record(asset_id, provider_id, changeset_id)
           WHERE tombstone = 0;
         """
     )
@@ -112,7 +112,7 @@ async def append_version(
     *,
     asset_id: str,
     provider_id: str,
-    snapshot_id: int,
+    changeset_id: int,
     metadata_json: dict,
     tombstone: bool = False,
 ) -> Optional[AssetRecord]:
@@ -123,7 +123,7 @@ async def append_version(
 
     latest = await (
         AssetRecord.filter(asset_id=asset_id, provider_id=provider_id)
-        .order_by("-snapshot_id")
+        .order_by("-changeset_id")
         .first()
     )
 
@@ -136,7 +136,7 @@ async def append_version(
     record = await AssetRecord.create(
         asset_id=asset_id,
         provider_id=provider_id,
-        snapshot_id=snapshot_id,
+        changeset_id=changeset_id,
         tombstone=tombstone,
         metadata_json=metadata_json,
         content_hash=content_hash,
@@ -151,7 +151,7 @@ Filter = Tuple[str, FilterOp, object]  # (metadata_key, op, value)
 async def query_assets(
     *,
     filters: Sequence[Filter] = (),
-    sort_by: str = "snapshot_id",
+    sort_by: str = "changeset_id",
     sort_dir: Literal["asc", "desc"] = "desc",
     limit: int = 200,
     offset: int = 0,
@@ -214,7 +214,7 @@ class FilterModel(BaseModel):
 
 class QueryRequest(BaseModel):
     filters: List[FilterModel] = Field(default_factory=list)
-    sort_by: str = "snapshot_id"
+    sort_by: str = "changeset_id"
     sort_dir: Literal["asc", "desc"] = "desc"
     limit: int = 200
     offset: int = 0

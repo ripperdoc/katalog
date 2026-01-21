@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from katalog.models import Snapshot
+from katalog.models import Changeset
 
 
 def sse_event(event: str, data: str) -> str:
@@ -12,8 +12,8 @@ def sse_event(event: str, data: str) -> str:
     return f"event: {event}\n{payload}\n\n"
 
 
-class SnapshotEventManager:
-    """Keep a small in-memory buffer of snapshot logs and stream new ones."""
+class ChangesetEventManager:
+    """Keep a small in-memory buffer of changeset logs and stream new ones."""
 
     def __init__(self, *, max_events: int = 200):
         self.max_events = max_events
@@ -30,48 +30,48 @@ class SnapshotEventManager:
             return
         logger.add(
             self._handle_message,
-            filter=lambda record: "snapshot_id" in record["extra"],
+            filter=lambda record: "changeset_id" in record["extra"],
             backtrace=False,
             diagnose=False,
         )
         self._sink_added = True
 
     def _handle_message(self, message) -> None:
-        snapshot_id = message.record["extra"].get("snapshot_id")
-        if snapshot_id is None:
+        changeset_id = message.record["extra"].get("changeset_id")
+        if changeset_id is None:
             return
         ts = message.record["time"].strftime("%Y-%m-%d %H:%M:%S")
         text = f"[{ts}] {message.record['level'].name}: {message.record['message']}"
         if self.loop is None:
             return
-        self.loop.call_soon_threadsafe(self._append, int(snapshot_id), text)
+        self.loop.call_soon_threadsafe(self._append, int(changeset_id), text)
 
-    def _append(self, snapshot_id: int, text: str) -> None:
-        buf = self.buffers.setdefault(snapshot_id, deque(maxlen=self.max_events))
+    def _append(self, changeset_id: int, text: str) -> None:
+        buf = self.buffers.setdefault(changeset_id, deque(maxlen=self.max_events))
         buf.append(text)
-        for queue in self.listeners.get(snapshot_id, set()):
+        for queue in self.listeners.get(changeset_id, set()):
             queue.put_nowait(text)
 
-    def subscribe(self, snapshot_id: int) -> tuple[list[str], asyncio.Queue[str]]:
-        buffer = self.buffers.setdefault(snapshot_id, deque(maxlen=self.max_events))
+    def subscribe(self, changeset_id: int) -> tuple[list[str], asyncio.Queue[str]]:
+        buffer = self.buffers.setdefault(changeset_id, deque(maxlen=self.max_events))
         queue: asyncio.Queue[str] = asyncio.Queue()
-        self.listeners.setdefault(snapshot_id, set()).add(queue)
+        self.listeners.setdefault(changeset_id, set()).add(queue)
         return list(buffer), queue
 
-    def unsubscribe(self, snapshot_id: int, queue: asyncio.Queue[str]) -> None:
-        listeners = self.listeners.get(snapshot_id)
+    def unsubscribe(self, changeset_id: int, queue: asyncio.Queue[str]) -> None:
+        listeners = self.listeners.get(changeset_id)
         if listeners and queue in listeners:
             listeners.remove(queue)
             if not listeners:
-                self.listeners.pop(snapshot_id, None)
+                self.listeners.pop(changeset_id, None)
 
-    def get_buffer(self, snapshot_id: int) -> list[str]:
-        return list(self.buffers.get(snapshot_id, []))
+    def get_buffer(self, changeset_id: int) -> list[str]:
+        return list(self.buffers.get(changeset_id, []))
 
 
 @dataclass
-class SnapshotRunState:
-    snapshot: Snapshot
+class ChangesetRunState:
+    changeset: Changeset
     task: asyncio.Task
     cancel_event: asyncio.Event
     done_event: asyncio.Event

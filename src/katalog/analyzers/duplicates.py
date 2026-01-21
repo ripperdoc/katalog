@@ -12,7 +12,7 @@ from katalog.analyzers.base import (
     AnalyzerResult,
     FileGroupFinding,
 )
-from katalog.models import Metadata, Provider, Snapshot
+from katalog.models import Metadata, Provider, Changeset
 from katalog.metadata import HASH_MD5, get_metadata_id
 
 
@@ -40,12 +40,12 @@ class ExactDuplicateAnalyzer(Analyzer):
         self.config = self.config_model.model_validate(config or {})
         super().__init__(provider, **config)
 
-    def should_run(self, *, snapshot: Snapshot) -> bool:  # noqa: D401
+    def should_run(self, *, changeset: Changeset) -> bool:  # noqa: D401
         """Currently always runs; future versions may add change detection."""
 
         return True
 
-    async def run(self, *, snapshot: Snapshot) -> AnalyzerResult:
+    async def run(self, *, changeset: Changeset) -> AnalyzerResult:
         """Find duplicate assets by MD5 using SQL-only grouping."""
 
         md5_registry_id = get_metadata_id(HASH_MD5)
@@ -61,7 +61,7 @@ class ExactDuplicateAnalyzer(Analyzer):
                 lower(trim(m.value_text)) AS md5,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.asset_id, m.provider_id
-                    ORDER BY m.snapshot_id DESC
+                    ORDER BY m.changeset_id DESC
                 ) AS rn
             FROM metadata AS m
             WHERE m.metadata_key_id = ?
@@ -107,7 +107,7 @@ class ExactDuplicateAnalyzer(Analyzer):
                 lower(trim(m.value_text)) AS md5,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.asset_id, m.provider_id
-                    ORDER BY m.snapshot_id DESC
+                    ORDER BY m.changeset_id DESC
                 ) AS rn
             FROM metadata AS m
             WHERE m.metadata_key_id = ?

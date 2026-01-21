@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, FrozenSet, cast
 
-from katalog.models import Metadata, MetadataKey, Provider, Snapshot
+from katalog.models import Metadata, MetadataKey, Provider, Changeset
 from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_plugin_class
 
@@ -54,7 +54,7 @@ class AnalyzerResult:
 
 
 class Analyzer(PluginBase, ABC):
-    """Interface for analyzers that operate on the full dataset after a snapshot."""
+    """Interface for analyzers that operate on the full dataset after a changeset."""
 
     # Metadata keys that must exist before this analyzer can run
     dependencies: ClassVar[FrozenSet[MetadataKey]] = frozenset()
@@ -73,11 +73,11 @@ class Analyzer(PluginBase, ABC):
         cls.dependencies, cls.outputs = deps, outs
 
     @abstractmethod
-    def should_run(self, *, snapshot: Snapshot) -> bool:
-        """Return True if the analyzer needs to execute for the given snapshot."""
+    def should_run(self, *, changeset: Changeset) -> bool:
+        """Return True if the analyzer needs to execute for the given changeset."""
 
     @abstractmethod
-    async def run(self, *, snapshot: Snapshot) -> AnalyzerResult:
+    async def run(self, *, changeset: Changeset) -> AnalyzerResult:
         """Execute the analyzer and return the metadata mutations to persist."""
 
 

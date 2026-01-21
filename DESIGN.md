@@ -52,7 +52,7 @@ asset - where it exists, who created it, when and how.
 ### Asset
 
 A recorded asset is typically a reference to a file, or something file-like. It is one instance of
-digital data. By it's nature, it's a digital snapshot in time of a "work", e.g that represents a
+digital data. By it's nature, it's a digital changeset in time of a "work", e.g that represents a
 version or variant of the work. An asset can be located within a source using an identifier, often a
 URI, and it may also exist in one (or more) path-like hierarchies. It comes with a set of metadata
 that can tell us how and when the asset was created and modified, and much more.
@@ -83,7 +83,7 @@ When we say two files reference the same asset, are versions or duplicates of ea
 talking about a relationship between two file records. Here are some of the relationships we want to
 be able to track:
 
-- **Version**: A set of files are snapshots in time over the same asset, and could be seen as an
+- **Version**: A set of files are changesets in time over the same asset, and could be seen as an
   ordered (linked) list or even a graph, as a version may split into multiple branches.
 - **Variant**: Typically a variant is a file that is a derivative or can be generated from a
   `master` file, such thumbnail. In this way, a variant is typically connected to a single
@@ -124,18 +124,18 @@ structure. The settings on a source will control how files are accessed and cata
 it. The whole user journey of `katalog` starts with the user adding a first Adapter, e.g. their
 "Document" folder.
 
-Whenever we scan a source, we create a snapshot which adds new assets and/or metadata to the system.
+Whenever we scan a source, we create a changeset which adds new assets and/or metadata to the system.
 
 ## Processors
 
-A processor is a plugin which operates on a assets emitted by a source snapshot. A process runs on
+A processor is a plugin which operates on a assets emitted by a source changeset. A process runs on
 each record that has been added or updated, which allows them to run in paralell. In order to run
 them efficiently, they have a `should_run` function which can look at what data has been updated and
 decide whether it should run or not. It relies on the source to correctly tell it what has been
 updated.
 
 When the processor has run, which may take some time, it outputs a list of new metadata that can be
-saved to the database using a new snapshot.
+saved to the database using a new changeset.
 
 Processors can be seen as "map" functions in a map-reduce paradigm.
 
@@ -150,7 +150,7 @@ An analyzer is like a processor but for a whole set of assets - two all the way 
 together. This allows them to compare assets against each other and create relationships between
 them, as well as suggest batch updates. The output of an analyzer can be large amount of changes
 across many assets, and should either be possible to review before applying, or it should be
-appended as a snapshot that isn't yet considered canonical, e.g. fully undoable.
+appended as a changeset that isn't yet considered canonical, e.g. fully undoable.
 
 Note that if we want an analyzer to apply something back to the source, e.g. things get more
 complicated and there may not be possible to fully capture the proposed edit.
@@ -200,15 +200,15 @@ code. It should be globally unique but can't be enforced without a plugin regist
 from a specific plugin, all relating to `time` or all relating to a specific concept such as
 `time/created_at`.
 
-### Snapshots
+### Changesets
 
 By considering asset and metadata tables as "append-only" EAV, and connecting each change to a
-snapshot id, we get the ability to undo any change and edit history after the fact. This makes it
+changeset id, we get the ability to undo any change and edit history after the fact. This makes it
 very safe to do new scans and manual edits.
 
 However there are a few important notes about how this works:
 
-#### Metadata snapshots
+#### Metadata changesets
 
 Take a metadata value like `access/owner`. It might seem at first a scalar, singular value. But in
 fact it can have multiple values. On one hand, we may have multiple sources (`provider_id`s) that
@@ -225,7 +225,7 @@ If we have new a value but there was nothing before from that `provider_id`, we 
 row.
 
 If we have a new value but it's different than the previous one for that `provider_id`, we add a new
-row and the default queries will only show the most recent (maximum) snapshot e.g. row for this
+row and the default queries will only show the most recent (maximum) changeset e.g. row for this
 value.
 
 If have a new value, from a different `provider_id`, we add it as a new row and a query might show
@@ -235,44 +235,44 @@ If we remove a value that was previously there, from same `provider_id`, we add 
 value as before but `removed=1`.
 
 If the provider at some time later suddenly provides multiple values (e.g. an array) we compare the
-values with the most recent snapshot for same provider, and any values added are given a new row,
+values with the most recent changeset for same provider, and any values added are given a new row,
 any values the same are ignored and any values removed are added as a row with `removed=1`.
 
 Note, this approach does not allow us to store duplicate values, which would in theory be possible
 in a list. E.g it's more correct that say that we store "sets" of metadata values. This would be a
 very minor problem, and the escape hatch is to store it all as JSON.
 
-#### Relationship snapshots
+#### Relationship changesets
 
 Relationships are modeled as a metadata with a relation type. Therefore the same rules that apply
-for metadata snapshots apply here.
+for metadata changesets apply here.
 
-#### Removing snapshots
+#### Removing changesets
 
-Removing the last snapshot, e.g. undo, is as straightforward as deleting the snapshot and letting
+Removing the last changeset, e.g. undo, is as straightforward as deleting the changeset and letting
 the cascade delete all related rows.
 
-To restore to a point in history, it just means deleting every snapshot from now back to that point
+To restore to a point in history, it just means deleting every changeset from now back to that point
 in time.
 
-The history can also be edited by removing snapshots in the middle.
+The history can also be edited by removing changesets in the middle.
 
-Finally, we may want remove some snapshots to save space. The naive approach of removing the X
-oldest snapshots will not work, because as we record only changes the first snapshot will contain
-most data and subsequent ones will only contain changes. We could concatenate snapshots, but that
+Finally, we may want remove some changesets to save space. The naive approach of removing the X
+oldest changesets will not work, because as we record only changes the first changeset will contain
+most data and subsequent ones will only contain changes. We could concatenate changesets, but that
 effectively only saves space if values have been changing back and forth many times, to only contain
 the last written value, e.g. a type of compression.
 
-#### Snapshot stats
+#### Changeset stats
 
-A snapshot can modify several things: assets, metadata associated with assets and relationships
-between assets. It's very useful to gather some structured statistics for each snapshot, which can
+A changeset can modify several things: assets, metadata associated with assets and relationships
+between assets. It's very useful to gather some structured statistics for each changeset, which can
 be logged or displayed in UI. Each stat is a number, and some of those numbers can be broken down
 into smaller numbers, allowing us to render it as e.g. a chart. It's important that when a number is
 broken down, it creates a complete breakdown, e.g. we need to return all parts not just some. Here
 is the current assumption:
 
-- Snapshot stats
+- Changeset stats
   - Assets seen
     - Assets changed
       - Breakdown A
@@ -304,11 +304,11 @@ is the current assumption:
 
 ### Data views
 
-Snapshotting deals with how we add data, but an even more important activity is to allow the local
+Changesetting deals with how we add data, but an even more important activity is to allow the local
 Web UI to read the data in the database. We strive for a UI that feels like a desktop UI, that can
 handle very large amount of files with ease, and also gives a lot of flexibility to the user to
 search, sort, filter and query this data. This is not so easy, because the way we structure the data
-for easy snapshotting and metadata flexibility also makes it a lot harder to read data in a
+for easy changesetting and metadata flexibility also makes it a lot harder to read data in a
 performant way.
 
 The requirements from a UI perspective are:
@@ -477,7 +477,7 @@ plugin code.
 ## Sources
 
 - Should not attempt to look up Assets from database, can just create a new Asset and it will be
-  fixed when the snapshot is saved.
+  fixed when the changeset is saved.
 - Must return correct scan results based on if the scan was cancelled, completed, etc
 - Sources are not currently meant to know anything about the Asset and it's metadat from earlier
   scans. We also assume any metadata set from a scan are intended to replace any previous value from
