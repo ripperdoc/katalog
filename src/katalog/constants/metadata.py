@@ -22,6 +22,7 @@ class MetadataType(IntEnum):
     DATETIME = 3
     JSON = 4
     RELATION = 5
+    COLLECTION = 6
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,11 @@ def editable_metadata_schema() -> tuple[dict[str, Any], dict[str, Any]]:
         prefix = key_str.split("/", 1)[0] if "/" in key_str else "other"
         json_type = "string"
         fmt = None
-        if definition.value_type in (MetadataType.INT, MetadataType.FLOAT):
+        if definition.value_type in (
+            MetadataType.INT,
+            MetadataType.FLOAT,
+            MetadataType.COLLECTION,
+        ):
             json_type = "number"
         elif definition.value_type == MetadataType.DATETIME:
             json_type = "string"
@@ -256,6 +261,13 @@ REL_DUPLICATE_OF = define_metadata(
     "relationship/duplicate_of", MetadataType.RELATION, "Duplicate of"
 )
 REL_LINK_TO = define_metadata("relationship/link_to", MetadataType.RELATION, "Link to")
+
+COLLECTION_MEMBER = define_metadata(
+    "collection/member",
+    MetadataType.COLLECTION,
+    "Collection member",
+    "Membership in an asset collection",
+)
 
 WARNING_NAME_READABILITY = define_metadata(
     "warning/name_readability", MetadataType.JSON

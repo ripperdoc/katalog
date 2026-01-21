@@ -33,6 +33,7 @@ def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]
         MetadataType.DATETIME: ("m.value_datetime", "datetime"),
         MetadataType.JSON: ("m.value_json", "str"),
         MetadataType.RELATION: ("m.value_relation_id", "int"),
+        MetadataType.COLLECTION: ("m.value_collection_id", "int"),
     }
     try:
         column_name, col_type = col_map[definition.value_type]

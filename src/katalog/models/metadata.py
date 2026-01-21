@@ -74,6 +74,9 @@ class Metadata(Model):
     value_datetime = DatetimeField(null=True)
     value_json = JSONField(null=True)
     value_relation = ForeignKeyField("models.Asset", null=True, on_delete=CASCADE)
+    value_collection = ForeignKeyField(
+        "models.AssetCollection", null=True, on_delete=CASCADE
+    )
     removed = BooleanField(default=False)
     # Null means no confidence score, which can be assumed to be 1.0
     confidence = FloatField(null=True)
@@ -82,6 +85,8 @@ class Metadata(Model):
         indexes = (
             # Used by list_assets_for_view(), list_grouped_assets(), and _metadata_filter_condition().
             ("asset", "metadata_key", "changeset"),
+            # Used by collection membership lookups (collection/member key).
+            ("metadata_key", "value_collection"),
         )
         # unique_together = ("asset", "actor", "changeset", "metadata_key")
 
@@ -114,6 +119,8 @@ class Metadata(Model):
             return self.value_json
         if self.value_type == MetadataType.RELATION:
             return self.value_relation
+        if self.value_type == MetadataType.COLLECTION:
+            return self.value_collection
         else:
             raise ValueError(f"Unsupported metadata value_type {self.value_type}")
 
@@ -131,6 +138,8 @@ class Metadata(Model):
             value = self.value_json
         elif self.value_type == MetadataType.RELATION:
             value = self.value_relation_id
+        elif self.value_type == MetadataType.COLLECTION:
+            value = self.value_collection_id
         else:
             value = None
 
@@ -187,7 +196,9 @@ class Metadata(Model):
                     ) from exc
             self.value_json = value
         elif self.value_type == MetadataType.RELATION:
-            self.value_relation_id = int(value)
+            self.value_relation_id = self._coerce_fk_value(value)
+        elif self.value_type == MetadataType.COLLECTION:
+            self.value_collection_id = self._coerce_fk_value(value)
         else:
             raise ValueError(
                 f"Unsupported value to set '{value}' of type '{type(value)} for Metadata of type {self.value_type}"
@@ -208,6 +219,17 @@ class Metadata(Model):
             separators=(",", ":"),
             allow_nan=False,
         )
+
+    @staticmethod
+    def _coerce_fk_value(value: Any) -> int:
+        if value is None:
+            raise ValueError("Foreign key value must not be None")
+        if isinstance(value, int):
+            return int(value)
+        value_id = getattr(value, "id", None)
+        if value_id is not None:
+            return int(value_id)
+        return int(value)
 
     def fingerprint(self) -> Any:
         """Return a hashable, stable representation of this metadata value.
@@ -241,6 +263,22 @@ class Metadata(Model):
                 relation_pk = getattr(relation, "id", None)
                 if relation_pk is not None:
                     return int(relation_pk)
+            if value is None:
+                return None
+            value_id = getattr(value, "id", None)
+            if value_id is not None:
+                return int(value_id)
+            return int(value)
+
+        if self.value_type == MetadataType.COLLECTION:
+            collection_id = getattr(self, "value_collection_id", None)
+            if collection_id is not None:
+                return int(collection_id)
+            collection = getattr(self, "value_collection", None)
+            if collection is not None:
+                collection_pk = getattr(collection, "id", None)
+                if collection_pk is not None:
+                    return int(collection_pk)
             if value is None:
                 return None
             value_id = getattr(value, "id", None)
@@ -477,10 +515,18 @@ class MetadataChangeSet:
                 existing_current = existing_current_by_actor[actor_id].get(key, [])
 
                 for existing_entry in existing_current:
-                    if existing_entry.value_type == MetadataType.RELATION:
-                        existing_value = getattr(
-                            existing_entry, "value_relation_id", None
-                        )
+                    if existing_entry.value_type in (
+                        MetadataType.RELATION,
+                        MetadataType.COLLECTION,
+                    ):
+                        if existing_entry.value_type == MetadataType.RELATION:
+                            existing_value = getattr(
+                                existing_entry, "value_relation_id", None
+                            )
+                        else:
+                            existing_value = getattr(
+                                existing_entry, "value_collection_id", None
+                            )
                     else:
                         existing_value = existing_entry.value
 

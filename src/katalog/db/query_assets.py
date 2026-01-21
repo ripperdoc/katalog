@@ -164,7 +164,8 @@ async def list_assets_for_view(
             m.value_real,
             m.value_datetime,
             m.value_json,
-            m.value_relation_id
+            m.value_relation_id,
+            m.value_collection_id
         FROM {metadata_table} m
         JOIN latest_id li ON li.id = m.id
         """

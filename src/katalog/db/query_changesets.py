@@ -39,6 +39,7 @@ async def list_changeset_metadata_changes(
         value_datetime,
         value_json,
         value_relation_id,
+        value_collection_id,
         removed
     FROM {metadata_table}
     WHERE changeset_id = ?

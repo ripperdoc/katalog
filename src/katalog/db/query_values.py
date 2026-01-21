@@ -32,4 +32,6 @@ def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
         return row.get("value_json")
     if value_type == MetadataType.RELATION:
         return row.get("value_relation_id")
+    if value_type == MetadataType.COLLECTION:
+        return row.get("value_collection_id")
     return None

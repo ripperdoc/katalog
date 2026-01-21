@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from katalog.models import Actor
+from katalog.models import Actor, ActorType
 from katalog.plugins.registry import (
     PluginSpec,
     get_plugin_class,
@@ -36,11 +36,17 @@ async def ensure_manual_actor() -> Actor:
     """Return the first Actor configured with the UserEditor plugin."""
     actor = await Actor.get_or_none(plugin_id=UserEditor.plugin_id)
     if actor is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "No manual edit actor configured. Create an actor using the UserEditor plugin."
-            ),
+        base_name = "Manual edits"
+        name = base_name
+        suffix = 1
+        while await Actor.get_or_none(name=name):
+            suffix += 1
+            name = f"{base_name} ({suffix})"
+
+        actor = await Actor.create(
+            name=name,
+            plugin_id=UserEditor.plugin_id,
+            type=ActorType.EDITOR,
         )
     return actor
 

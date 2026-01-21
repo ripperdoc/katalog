@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
 
 from tortoise import Tortoise
 from tortoise.fields import (
-    CASCADE,
     CharEnumField,
     CharField,
     DatetimeField,
@@ -14,6 +13,7 @@ from tortoise.fields import (
     JSONField,
     IntField,
     TextField,
+    RESTRICT,
 )
 from tortoise.models import Model
 
@@ -162,6 +162,11 @@ class AssetCollection(Model):
     name = CharField(max_length=255, unique=True)
     description = TextField(null=True)
     source = JSONField(null=True)  # opaque JSON describing query/view used to create
+    membership_key = ForeignKeyField(
+        "models.MetadataRegistry", on_delete=RESTRICT, null=True
+    )
+    membership_key_id: int | None
+    item_count = IntField(default=0)
     refresh_mode = CharEnumField(
         CollectionRefreshMode, default=CollectionRefreshMode.ON_DEMAND
     )
@@ -169,12 +174,14 @@ class AssetCollection(Model):
     updated_at = DatetimeField(auto_now=True)
 
     def to_dict(self, *, asset_count: int | None = None) -> dict[str, Any]:
+        resolved_count = asset_count if asset_count is not None else self.item_count
         return {
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "asset_count": asset_count,
+            "asset_count": resolved_count,
             "source": self.source,
+            "membership_key_id": self.membership_key_id,
             "refresh_mode": self.refresh_mode.value
             if isinstance(self.refresh_mode, CollectionRefreshMode)
             else str(self.refresh_mode),
@@ -183,27 +190,7 @@ class AssetCollection(Model):
         }
 
 
-class CollectionItem(Model):
-    collection = ForeignKeyField(
-        "models.AssetCollection", related_name="items", on_delete=CASCADE
-    )
-    asset = ForeignKeyField(
-        "models.Asset", related_name="collections", on_delete=CASCADE
-    )
-    added_at = DatetimeField(auto_now_add=True)
-
-    class Meta(Model.Meta):
-        # Prevent duplicate membership; relied on by create_collection() bulk inserts.
-        unique_together = (("collection", "asset"),)
-        indexes = (
-            # Used by list_collection_assets() and collection counts in list_collections().
-            ("collection", "asset"),
-        )
-
-
 # Type-checking imports
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from .core import Actor, Changeset
     from .metadata import Metadata

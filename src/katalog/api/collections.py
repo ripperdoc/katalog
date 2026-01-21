@@ -3,9 +3,18 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from katalog.constants.metadata import COLLECTION_MEMBER, get_metadata_id
 from katalog.db import list_assets_for_view
-from katalog.models import AssetCollection, CollectionItem, CollectionRefreshMode
+from katalog.models import (
+    AssetCollection,
+    Changeset,
+    Metadata,
+    CollectionRefreshMode,
+    OpStatus,
+    make_metadata,
+)
 from katalog.views import get_view
+from katalog.api.helpers import ensure_manual_actor
 
 router = APIRouter()
 
@@ -29,8 +38,7 @@ async def list_collections():
     collections = await AssetCollection.all().order_by("-created_at")
     result = []
     for col in collections:
-        count = await CollectionItem.filter(collection_id=col.id).count()
-        result.append(col.to_dict(asset_count=count))
+        result.append(col.to_dict())
     return {"collections": result}
 
 
@@ -42,6 +50,8 @@ async def create_collection(request: Request):
         asset_ids = [int(a) for a in payload.asset_ids]
     except Exception:
         raise HTTPException(status_code=400, detail="asset_ids must be integers")
+
+    unique_asset_ids = sorted(set(asset_ids))
 
     existing = await AssetCollection.get_or_none(name=payload.name)
     if existing:
@@ -59,20 +69,33 @@ async def create_collection(request: Request):
 
     # TODO Validate asset ids exist
 
+    membership_key_id = get_metadata_id(COLLECTION_MEMBER)
+
     collection = await AssetCollection.create(
         name=payload.name,
         description=payload.description,
         source=payload.source,
+        membership_key_id=membership_key_id,
+        item_count=len(unique_asset_ids),
         refresh_mode=refresh_mode,
     )
-    # Bulk insert membership
-    items = [
-        CollectionItem(collection_id=collection.id, asset_id=aid) for aid in asset_ids
-    ]
-    if items:
-        await CollectionItem.bulk_create(items, ignore_conflicts=True)
-    count = len(items)
-    return {"collection": collection.to_dict(asset_count=count)}
+
+    if unique_asset_ids:
+        actor = await ensure_manual_actor()
+        changeset = await Changeset.create(
+            actor=actor,
+            status=OpStatus.COMPLETED,
+            note=f"collection:{collection.id} membership",
+        )
+        membership_entries = []
+        for asset_id in unique_asset_ids:
+            md = make_metadata(COLLECTION_MEMBER, collection.id, actor_id=actor.id)
+            md.asset_id = asset_id
+            md.changeset_id = changeset.id
+            membership_entries.append(md)
+        await Metadata.bulk_create(membership_entries)
+
+    return {"collection": collection.to_dict()}
 
 
 @router.get("/collections/{collection_id}")
@@ -80,8 +103,7 @@ async def get_collection(collection_id: int):
     collection = await AssetCollection.get_or_none(id=collection_id)
     if collection is None:
         raise HTTPException(status_code=404, detail="Collection not found")
-    count = await CollectionItem.filter(collection_id=collection.id).count()
-    return {"collection": collection.to_dict(asset_count=count)}
+    return {"collection": collection.to_dict()}
 
 
 @router.patch("/collections/{collection_id}")
@@ -116,8 +138,7 @@ async def update_collection(collection_id: int, request: Request):
             )
 
     await collection.save()
-    count = await CollectionItem.filter(collection_id=collection.id).count()
-    return {"collection": collection.to_dict(asset_count=count)}
+    return {"collection": collection.to_dict()}
 
 
 @router.get("/collections/{collection_id}/assets")
@@ -148,9 +169,25 @@ async def list_collection_assets(
             col, direction = sort, "asc"
         sort_tuple = (col, direction)
 
+    metadata_table = Metadata._meta.db_table
+    membership_key_id = get_metadata_id(COLLECTION_MEMBER)
     extra_where = (
-        "a.id IN (SELECT asset_id FROM collectionitem ci WHERE ci.collection_id = ?)",
-        [collection.id],
+        "a.id IN ("
+        "    WITH latest AS ("
+        "        SELECT"
+        "            m.asset_id,"
+        "            m.removed,"
+        "            ROW_NUMBER() OVER ("
+        "                PARTITION BY m.asset_id, m.value_collection_id, m.actor_id"
+        "                ORDER BY m.changeset_id DESC, m.id DESC"
+        "            ) AS rn"
+        f"        FROM {metadata_table} m"
+        "        WHERE m.metadata_key_id = ?"
+        "          AND m.value_collection_id = ?"
+        "    )"
+        "    SELECT asset_id FROM latest WHERE rn = 1 AND removed = 0"
+        ")",
+        [membership_key_id, collection.id],
     )
 
     try:

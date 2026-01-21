@@ -5,7 +5,6 @@ from katalog.constants.metadata import MetadataKey, MetadataScalar, MetadataType
 from .assets import (
     Asset,
     AssetCollection,
-    CollectionItem,
     CollectionRefreshMode,
     FileAccessor,
 )
@@ -32,7 +31,6 @@ __all__ = [
     "AssetCollection",
     "Changeset",
     "ChangesetStats",
-    "CollectionItem",
     "CollectionRefreshMode",
     "DEFAULT_TASK_CONCURRENCY",
     "FileAccessor",
