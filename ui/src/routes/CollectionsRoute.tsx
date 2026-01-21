@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { HeaderObject, SimpleTable, type Row } from "simple-table-core";
 import { fetchCollections } from "../api/client";
-import ListTable, { ListColumn } from "../components/ListTable";
 import AppHeader from "../components/AppHeader";
 import type { AssetCollection } from "../types/api";
+import "simple-table-core/styles.css";
 
 function CollectionsRoute() {
-  const navigate = useNavigate();
   const [collections, setCollections] = useState<AssetCollection[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,13 +29,31 @@ function CollectionsRoute() {
     void loadCollections();
   }, [loadCollections]);
 
-  const columns: ListColumn<AssetCollection>[] = [
-    { accessor: "name", label: "Name" },
-    { accessor: "asset_count", label: "Assets", width: 100 },
-    { accessor: "refresh_mode", label: "Mode", width: 120 },
-    { accessor: "created_at", label: "Created", width: 180 },
-    { accessor: "updated_at", label: "Updated", width: 180 },
-  ];
+  const headers: HeaderObject[] = useMemo(
+    () => [
+      {
+        accessor: "id",
+        label: "ID",
+        width: 90,
+        type: "number",
+        cellRenderer: ({ value }) => {
+          const id = typeof value === "number" ? value : Number(value);
+          if (!id || Number.isNaN(id)) {
+            return <span>{String(value ?? "")}</span>;
+          }
+          return <Link to={`/collections/${id}`}>{String(id)}</Link>;
+        },
+      },
+      { accessor: "name", label: "Name", width: "1.5fr", type: "string" },
+      { accessor: "asset_count", label: "Assets", width: 110, type: "number" },
+      { accessor: "refresh_mode", label: "Mode", width: 140, type: "string" },
+      { accessor: "created_at", label: "Created", width: 200, type: "date" },
+      { accessor: "updated_at", label: "Updated", width: 200, type: "date" },
+    ],
+    [],
+  );
+
+  const rows = useMemo(() => collections.map((col) => ({ ...col }) as Row), [collections]);
 
   return (
     <>
@@ -58,13 +76,17 @@ function CollectionsRoute() {
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}
-          <ListTable
-            items={collections}
-            columns={columns}
-            loading={loading}
-            emptyMessage="No collections yet."
-            onRowClick={(col) => navigate(`/collections/${col.id}`)}
-          />
+          <div className="table-container">
+            <SimpleTable
+              defaultHeaders={headers}
+              rows={rows}
+              height="60vh"
+              selectableCells={true}
+              shouldPaginate={false}
+              isLoading={loading}
+            />
+          </div>
+          {!loading && rows.length === 0 && <div className="empty-state">No collections yet.</div>}
         </section>
       </main>
     </>

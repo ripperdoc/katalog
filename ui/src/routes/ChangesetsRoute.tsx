@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { HeaderObject, SimpleTable } from "simple-table-core";
 import { fetchChangesets } from "../api/client";
 import AppHeader from "../components/AppHeader";
+import ChangesetCell from "../components/ChangesetCell";
 import type { Changeset } from "../types/api";
+import "simple-table-core/styles.css";
 
 function ChangesetsRoute() {
-  const navigate = useNavigate();
   const [changesets, setChangesets] = useState<Changeset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,33 @@ function ChangesetsRoute() {
     void loadChangesets();
   }, [loadChangesets]);
 
+  const headers: HeaderObject[] = useMemo(
+    () => [
+      {
+        accessor: "id",
+        label: "ID",
+        width: 100,
+        type: "number",
+        cellRenderer: ChangesetCell,
+      },
+      { accessor: "status", label: "Status", width: 140, type: "string" },
+      { accessor: "actor_label", label: "Actor", width: "1fr", type: "string" },
+      { accessor: "note", label: "Note", width: "1.5fr", type: "string" },
+      { accessor: "started_at", label: "Started", width: 200, type: "date" },
+      { accessor: "completed_at", label: "Completed", width: 200, type: "date" },
+    ],
+    [],
+  );
+
+  const rows = useMemo(
+    () =>
+      changesets.map((snap) => ({
+        ...snap,
+        actor_label: snap.actor_name ?? snap.actor_id ?? "n/a",
+      })),
+    [changesets],
+  );
+
   return (
     <>
       <AppHeader>
@@ -50,28 +78,17 @@ function ChangesetsRoute() {
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}
-          <div className="record-list">
-            {changesets.map((snap) => (
-              <div
-                key={snap.id}
-                className="file-card"
-                onClick={() => navigate(`/changesets/${snap.id}`)}
-                style={{ cursor: "pointer" }}
-              >
-                <div className="status-bar">
-                  <span>Changeset #{snap.id}</span>
-                  <span>{snap.status}</span>
-                </div>
-                <p>Actor: {snap.actor_name ?? snap.actor_id ?? "n/a"}</p>
-                <small>
-                  Started: {snap.started_at ?? "unknown"} | Completed: {snap.completed_at ?? "n/a"}
-                </small>
-              </div>
-            ))}
-            {!loading && changesets.length === 0 && (
-              <div className="empty-state">No changesets found.</div>
-            )}
+          <div className="table-container">
+            <SimpleTable
+              defaultHeaders={headers}
+              rows={rows}
+              height="60vh"
+              selectableCells={true}
+              shouldPaginate={false}
+              isLoading={loading}
+            />
           </div>
+          {!loading && rows.length === 0 && <div className="empty-state">No changesets found.</div>}
         </section>
       </main>
     </>
