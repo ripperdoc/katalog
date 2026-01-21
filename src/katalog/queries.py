@@ -118,15 +118,6 @@ async def setup_db(db_path: Path) -> Path:
         PRAGMA busy_timeout = 5000;
         PRAGMA wal_autocheckpoint = 1000;
 
-        CREATE INDEX IF NOT EXISTS idx_metadata_asset_key_changeset
-        ON metadata(asset_id, metadata_key_id, changeset_id);
-
-        -- Optional: targeted index for current MD5 lookups in analyzers/processors.
-        -- Uncomment after measuring baseline performance.
-        -- CREATE INDEX IF NOT EXISTS idx_metadata_md5_current
-        -- ON metadata(metadata_key_id, removed, value_text)
-        -- WHERE metadata_key_id = (SELECT id FROM metadataregistry WHERE key = 'hash/md5')
-        --   AND removed = 0;
 
         -- Full-text search index for current metadata (one row per asset_id).
         -- Keep it minimal: one column, no positional detail.

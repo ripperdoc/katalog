@@ -24,6 +24,7 @@ open-source tools and SDKs.
 
 - Catalogue (scan) all digital assets you've created across both local and remote storage actors
 - Find files using filters, text search or semantic search (vector search)
+- Letting AI access your data across providers, creating a local-first RAG solution
 - Browse and list files faster and with more detail, even if the cloud actor is slow, broken or
   offline
 - Merge metadata for the same files from multiple sources, like the posts from a webpage with the

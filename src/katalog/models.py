@@ -29,7 +29,6 @@ from tortoise.fields import (
     BooleanField,
     TextField,
     RESTRICT,
-    SET_NULL,
 )
 from tortoise.models import Model
 from tortoise import Tortoise
@@ -336,7 +335,10 @@ class Changeset(Model):
                 raise
 
     class Meta(Model.Meta):
-        indexes = (("actor", "started_at"),)
+        indexes = (
+            # Used by server.list_changesets(), server.get_actor(), and Changeset.find_partial_resume_point().
+            ("actor", "started_at"),
+        )
 
 
 class FileAccessor(ABC):
@@ -465,6 +467,7 @@ class Asset(Model):
         return affected
 
     class Meta(Model.Meta):
+        # No Asset indexes yet; list_assets_for_view() is driven by metadata queries.
         indexes = ()
 
 
@@ -507,8 +510,12 @@ class CollectionItem(Model):
     added_at = DatetimeField(auto_now_add=True)
 
     class Meta(Model.Meta):
+        # Prevent duplicate membership; relied on by create_collection() bulk inserts.
         unique_together = (("collection", "asset"),)
-        indexes = (("collection", "asset"), ("asset",))
+        indexes = (
+            # Used by list_collection_assets() and collection counts in list_collections().
+            ("collection", "asset"),
+        )
 
 
 class MetadataRegistry(Model):
@@ -522,6 +529,7 @@ class MetadataRegistry(Model):
     width = IntField(null=True)
 
     class Meta(Model.Meta):
+        # Enforce unique keys per plugin for sync_metadata_registry().
         unique_together = ("plugin_id", "key")
 
 
@@ -555,10 +563,10 @@ class Metadata(Model):
     confidence = FloatField(null=True)
 
     class Meta(Model.Meta):
-        indexes = [
-            "metadata_key",
-            "value_type",
-        ]
+        indexes = (
+            # Used by list_assets_for_view(), list_grouped_assets(), and _metadata_filter_condition().
+            ("asset", "metadata_key", "changeset"),
+        )
         # unique_together = ("asset", "actor", "changeset", "metadata_key")
 
     @property
