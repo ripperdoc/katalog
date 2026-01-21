@@ -175,9 +175,28 @@ export interface MetadataRecord {
   confidence: number | null;
 }
 
+export interface MetadataRegistryEntry {
+  plugin_id: string;
+  key: string;
+  registry_id: number | null;
+  value_type: string;
+  title: string;
+  description: string;
+  width: number | null;
+}
+
+export interface MetadataRegistryResponse {
+  registry: Record<number, MetadataRegistryEntry>;
+}
+
 export interface AssetDetailResponse {
   asset: AssetDetailRecord;
   metadata: MetadataRecord[];
+}
+
+export interface EditableMetadataSchemaResponse {
+  schema: Record<string, unknown>;
+  uiSchema: Record<string, unknown>;
 }
 
 export interface SnapshotChangeRecord {

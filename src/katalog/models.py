@@ -159,9 +159,12 @@ class Snapshot(Model):
         self._init_runtime_state()
 
     def _init_runtime_state(self) -> None:
-        self.stats = SnapshotStats()
-        self.tasks = []
-        self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+        # Safe defaults so instances materialized from the ORM always have runtime fields.
+        self.stats = getattr(self, "stats", SnapshotStats())
+        self.tasks = getattr(self, "tasks", [])
+        self.semaphore = getattr(
+            self, "semaphore", asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+        )
 
     def to_dict(self) -> dict:
         # Note needs to have been fetched related 'provider' beforehand
@@ -220,6 +223,12 @@ class Snapshot(Model):
         snapshot_id: int | None = None,
         note: str | None = None,
     ) -> "Snapshot":
+        # Prevent concurrent in-progress snapshots (scans or edits).
+        existing_in_progress = await cls.get_or_none(status=OpStatus.IN_PROGRESS)
+        if existing_in_progress is not None:
+            raise ValueError(
+                f"Snapshot {existing_in_progress.id} is already in progress; finish or cancel it first"
+            )
         snapshot_id = snapshot_id or int(time())
         if await cls.get_or_none(id=snapshot_id):
             raise ValueError(f"Snapshot with id {snapshot_id} already exists")
@@ -232,6 +241,10 @@ class Snapshot(Model):
         )
 
     async def finalize(self, *, status: OpStatus) -> None:
+        # Ensure runtime fields exist even if object was loaded from DB outside __init__ context.
+        if not hasattr(self, "tasks"):
+            self._init_runtime_state()
+
         completed_at = datetime.now(UTC)
         metadata_payload: dict[str, Any] | None = None
 

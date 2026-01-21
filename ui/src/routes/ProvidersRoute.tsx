@@ -163,7 +163,17 @@ function ProvidersRoute() {
                     <button
                       type="button"
                       className="app-btn btn-primary"
-                      onClick={() => navigate(`/providers/new?type=${groupKey}`)}
+                      onClick={() =>
+                        navigate(
+                          `/providers/new?type=${
+                            groupKey === "sources"
+                              ? "sources"
+                              : groupKey === "processors"
+                                ? "processors"
+                                : "analyzers"
+                          }`,
+                        )
+                      }
                       disabled={availablePlugins.length === 0}
                       title={
                         availablePlugins.length === 0

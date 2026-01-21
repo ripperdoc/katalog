@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
 from typing import Any, Mapping, NewType
@@ -34,12 +34,70 @@ class MetadataDef:
     description: str = ""
     width: int | None = None  # For UI display purposes
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plugin_id": self.plugin_id,
+            "key": str(self.key),
+            "registry_id": self.registry_id,
+            "value_type": self.value_type.name.lower(),
+            "title": self.title,
+            "description": self.description,
+            "width": self.width,
+        }
+
 
 # Central registry of built-in keys
 METADATA_REGISTRY: dict[MetadataKey, MetadataDef] = {}
 
 # Fast lookup from DB integer id -> definition. Populated by `sync_metadata_registry()`.
 METADATA_REGISTRY_BY_ID: dict[int, MetadataDef] = {}
+
+
+def editable_metadata_schema() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return JSON Schema and UI Schema for editable metadata (non-asset/ keys).
+
+    Groups fields by their prefix (segment before '/'), and excludes keys starting
+    with "asset/" which are system-managed.
+    """
+
+    properties: dict[str, Any] = {}
+    ui_order: list[str] = []
+    groups: dict[str, list[str]] = {}
+
+    for key, definition in METADATA_REGISTRY.items():
+        key_str = str(key)
+        if key_str.startswith("asset/"):
+            continue
+
+        prefix = key_str.split("/", 1)[0] if "/" in key_str else "other"
+        json_type = "string"
+        fmt = None
+        if definition.value_type in (MetadataType.INT, MetadataType.FLOAT):
+            json_type = "number"
+        elif definition.value_type == MetadataType.DATETIME:
+            json_type = "string"
+            fmt = "date-time"
+        elif definition.value_type == MetadataType.JSON:
+            json_type = "object"
+
+        prop: dict[str, Any] = {
+            "type": json_type,
+            "title": definition.title or key_str,
+            "description": definition.description or "",
+        }
+        if fmt:
+            prop["format"] = fmt
+
+        properties[key_str] = prop
+        ui_order.append(key_str)
+        groups.setdefault(prefix, []).append(key_str)
+
+    schema = {"type": "object", "properties": properties}
+    ui_schema: dict[str, Any] = {"ui:order": ui_order}
+    for prefix, fields in groups.items():
+        ui_schema[prefix] = {"ui:order": fields}
+
+    return schema, ui_schema
 
 
 def define_metadata(
@@ -81,7 +139,7 @@ def get_metadata_schema(key: MetadataKey) -> dict:
     if definition is None:
         return {}
     else:
-        return asdict(definition)
+        return definition.to_dict()
 
 
 def get_metadata_def_by_key(key: MetadataKey) -> MetadataDef:

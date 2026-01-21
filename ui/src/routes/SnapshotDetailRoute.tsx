@@ -29,7 +29,10 @@ function SnapshotDetailRoute() {
   const changesLimit = 200;
   const streamRef = useRef<EventSource | null>(null);
 
-  const isRunning = useMemo(() => snapshot?.status === "in_progress", [snapshot?.status]);
+  const isRunning = useMemo(
+    () => snapshot?.status === "in_progress" && snapshot?.running !== false,
+    [snapshot?.status, snapshot?.running]
+  );
 
   const loadSnapshot = useCallback(async () => {
     if (!snapshotIdNum || Number.isNaN(snapshotIdNum)) {
@@ -228,7 +231,7 @@ function SnapshotDetailRoute() {
               {cancelling ? "Cancelling..." : "Cancel"}
             </button>
           )}
-          {!isRunning && snapshot && (
+          {snapshot && (
             <button
               type="button"
               onClick={requestDelete}
@@ -236,7 +239,7 @@ function SnapshotDetailRoute() {
               className="app-btn danger"
               title="Delete this snapshot and undo its changes"
             >
-              {deleting ? "Deleting..." : "Delete snapshot"}
+              {deleting ? "Deleting..." : "Discard snapshot"}
             </button>
           )}
         </div>

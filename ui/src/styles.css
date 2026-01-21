@@ -316,6 +316,23 @@ button {
   align-items: center;
 }
 
+.table-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.button-toggle {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.button-toggle.is-active {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
 .collection-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

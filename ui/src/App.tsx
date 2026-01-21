@@ -3,6 +3,7 @@ import AssetsRoute from "./routes/AssetsRoute";
 import AssetDetailRoute from "./routes/AssetDetailRoute";
 import ProviderDetailRoute from "./routes/ProviderDetailRoute";
 import ProvidersRoute from "./routes/ProvidersRoute";
+import ProviderCreateRoute from "./routes/ProviderCreateRoute";
 import SnapshotDetailRoute from "./routes/SnapshotDetailRoute";
 import SnapshotsRoute from "./routes/SnapshotsRoute";
 import CollectionsRoute from "./routes/CollectionsRoute";
@@ -12,8 +13,9 @@ function App() {
   return (
     <div className="app-shell">
       <Routes>
-        <Route path="/providers" element={<ProvidersRoute />} />
-        <Route path="/providers/:providerId" element={<ProviderDetailRoute />} />
+          <Route path="/providers" element={<ProvidersRoute />} />
+          <Route path="/providers/new" element={<ProviderCreateRoute />} />
+          <Route path="/providers/:providerId" element={<ProviderDetailRoute />} />
         <Route path="/snapshots" element={<SnapshotsRoute />} />
         <Route path="/snapshots/:snapshotId" element={<SnapshotDetailRoute />} />
         <Route path="/assets" element={<AssetsRoute />} />

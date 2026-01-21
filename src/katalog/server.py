@@ -16,6 +16,9 @@ from katalog.models import (
     AssetCollection,
     CollectionItem,
     CollectionRefreshMode,
+    MetadataKey,
+    make_metadata,
+    MetadataChangeSet,
     Metadata,
     OpStatus,
     Provider,
@@ -31,12 +34,14 @@ from katalog.queries import (
     sync_config,
     list_snapshot_metadata_changes,
 )
+from katalog.metadata import editable_metadata_schema, METADATA_REGISTRY_BY_ID
 from katalog.plugins.registry import (
     PluginSpec,
     get_plugin_class,
     get_plugin_spec,
     refresh_plugins,
 )
+from katalog.sources.user_editor import UserEditorSource
 from katalog.sources.runtime import get_source_plugin, run_sources
 from katalog.utils.snapshot_events import (
     SnapshotEventManager,
@@ -68,6 +73,24 @@ async def lifespan(app):
     try:
         yield
     finally:
+        # Best-effort cancel running snapshot tasks on shutdown to avoid reload hangs.
+        cancel_waits: list[asyncio.Task] = []
+        for state in list(RUNNING_SNAPSHOTS.values()):
+            try:
+                state.cancel_event.set()
+                state.task.cancel()
+                cancel_waits.append(state.done_event.wait())
+            except Exception:
+                logger.exception("Failed to cancel snapshot task on shutdown")
+        if cancel_waits:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*cancel_waits, return_exceptions=True), timeout=5
+                )
+            except Exception:
+                logger.warning(
+                    "Timeout while waiting for snapshot tasks to cancel during shutdown"
+                )
         # run shutdown logic
         await Tortoise.close_connections()
 
@@ -161,6 +184,51 @@ async def get_asset(asset_id: int):
     return {
         "asset": asset.to_dict(),
         "metadata": [m.to_dict() for m in metadata],
+    }
+
+
+@app.post("/assets/{asset_id}/manual-edit")
+async def manual_edit_asset(asset_id: int, request: Request):
+    payload = await request.json()
+    snapshot_id = payload.get("snapshot_id")
+    if snapshot_id is None:
+        raise HTTPException(status_code=400, detail="snapshot_id is required")
+
+    snapshot = await Snapshot.get_or_none(id=int(snapshot_id))
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    if snapshot.status != OpStatus.IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="Snapshot is not in progress")
+
+    asset = await Asset.get_or_none(id=asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    provider = await _ensure_manual_provider()
+
+    # Build metadata from payload (dict of key -> value)
+    metadata_entries: list[Metadata] = []
+    for key, value in payload.get("metadata", {}).items():
+        try:
+            mk = MetadataKey(key)
+            md = make_metadata(mk, value, provider_id=provider.id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid metadata {key}: {exc}"
+            )
+        md.asset = asset
+        md.snapshot = snapshot
+        metadata_entries.append(md)
+
+    # Apply changes
+    loaded = await asset.load_metadata()
+    change_set = MetadataChangeSet(loaded=loaded, staged=metadata_entries)
+    changed_keys = await change_set.persist(asset=asset, snapshot=snapshot)
+
+    return {
+        "asset_id": asset_id,
+        "snapshot_id": snapshot.id,
+        "changed_keys": [str(k) for k in changed_keys],
     }
 
 
@@ -324,7 +392,9 @@ async def update_collection(collection_id: int, request: Request):
     if payload.name:
         existing = await AssetCollection.get_or_none(name=payload.name)
         if existing and existing.id != collection.id:
-            raise HTTPException(status_code=400, detail="Collection name already exists")
+            raise HTTPException(
+                status_code=400, detail="Collection name already exists"
+            )
         collection.name = payload.name
 
     if payload.description is not None:
@@ -535,6 +605,27 @@ async def create_snapshot(request: Request):
     raise NotImplementedError("Not supported to create snapshots directly")
 
 
+@app.post("/snapshots/manual/start")
+async def start_manual_snapshot():
+    provider = await _ensure_manual_provider()
+    try:
+        snapshot = await Snapshot.begin(provider=provider, status=OpStatus.IN_PROGRESS)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return snapshot.to_dict()
+
+
+@app.post("/snapshots/{snapshot_id}/finish")
+async def finish_snapshot(snapshot_id: int):
+    snapshot = await Snapshot.get_or_none(id=snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    if snapshot.status != OpStatus.IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="Snapshot is not in progress")
+    await snapshot.finalize(status=OpStatus.COMPLETED)
+    return {"snapshot": (await Snapshot.get(id=snapshot_id)).to_dict()}
+
+
 @app.get("/snapshots")
 async def list_snapshots():
     snapshots = (
@@ -565,13 +656,6 @@ async def delete_snapshot(snapshot_id: int):
     snapshot = await Snapshot.get_or_none(id=snapshot_id)
     if snapshot is None:
         raise HTTPException(status_code=404, detail="Snapshot not found")
-
-    # Prevent deletion of in-flight snapshots to avoid partial state.
-    if snapshot.status == OpStatus.IN_PROGRESS:
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot delete a snapshot while it is in progress",
-        )
 
     await snapshot.delete()
     return {"status": "deleted", "snapshot_id": snapshot_id}
@@ -648,11 +732,11 @@ async def cancel_snapshot(snapshot_id: int):
         raise HTTPException(status_code=404, detail="Snapshot not found")
     run_state = RUNNING_SNAPSHOTS.get(snapshot_id)
     if run_state is None or run_state.done_event.is_set():
-        if snapshot.status != OpStatus.IN_PROGRESS:
-            return {"status": "not_running", "snapshot": snapshot.to_dict()}
-        raise HTTPException(
-            status_code=409, detail="Snapshot is marked in progress but not running"
-        )
+        # Nothing running: finalize as CANCELED
+        await snapshot.finalize(status=OpStatus.CANCELED)
+        latest = await Snapshot.get(id=snapshot_id)
+        await latest.fetch_related("provider")
+        return {"status": "cancelled", "snapshot": latest.to_dict()}
 
     run_state.cancel_event.set()
     for task in list(run_state.snapshot.tasks):
@@ -697,6 +781,17 @@ def _validate_and_normalize_config(
     return config_json
 
 
+async def _ensure_manual_provider() -> Provider:
+    """Return the first Provider configured with the UserEditorSource plugin."""
+    provider = await Provider.get_or_none(plugin_id=UserEditorSource.plugin_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No manual edit provider configured. Create a provider using the UserEditorSource plugin.",
+        )
+    return provider
+
+
 @app.get("/plugins")
 async def list_plugins_endpoint():
     plugins = [p.to_dict() for p in refresh_plugins().values()]
@@ -704,11 +799,17 @@ async def list_plugins_endpoint():
 
 
 def _config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
-    spec: PluginSpec | None = get_plugin_spec(plugin_id) or refresh_plugins().get(plugin_id)
+    spec: PluginSpec | None = get_plugin_spec(plugin_id) or refresh_plugins().get(
+        plugin_id
+    )
     if spec is None:
         raise HTTPException(status_code=404, detail="Plugin not found")
     try:
-        plugin_cls = spec.cls if hasattr(spec, "cls") and spec.cls else get_plugin_class(plugin_id)
+        plugin_cls = (
+            spec.cls
+            if hasattr(spec, "cls") and spec.cls
+            else get_plugin_class(plugin_id)
+        )
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Plugin not found") from exc
     config_model = getattr(plugin_cls, "config_model", None)
@@ -823,3 +924,18 @@ async def sync():
 
 
 # endregion
+@app.get("/metadata/schema/editable")
+async def metadata_schema_editable():
+    """Return JSON schema for editable metadata (non-asset/ keys)."""
+    schema, ui_schema = editable_metadata_schema()
+    return {"schema": schema, "uiSchema": ui_schema}
+
+
+@app.get("/metadata/registry")
+async def metadata_registry():
+    """Return metadata registry keyed by registry id."""
+    return {
+        "registry": {
+            key: value.to_dict() for key, value in METADATA_REGISTRY_BY_ID.items()
+        }
+    }

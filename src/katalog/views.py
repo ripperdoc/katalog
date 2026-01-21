@@ -89,7 +89,7 @@ def _metadata_column(def_key: MetadataKey) -> ColumnSpec:
 def _asset_columns() -> Iterable[ColumnSpec]:
     for key in [
         ASSET_ID,
-        # ASSET_PROVIDER_ID,
+        ASSET_PROVIDER_ID,
         ASSET_EXTERNAL_ID,
         ASSET_CANONICAL_URI,
     ]:

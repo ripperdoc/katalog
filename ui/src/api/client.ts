@@ -7,6 +7,7 @@ import type {
   ProviderResponse,
   ProviderCreateResponse,
   ProviderUpdateResponse,
+  MetadataRegistryResponse,
   Snapshot,
   SnapshotListResponse,
   SnapshotResponse,
@@ -46,7 +47,7 @@ export async function fetchViewAssets(
     sort?: string | undefined;
     filters?: string[] | undefined;
     search?: string | undefined;
-  }
+  },
 ): Promise<ViewAssetsResponse> {
   const params = new URLSearchParams();
   params.set("offset", String(offset));
@@ -97,6 +98,13 @@ export async function fetchPlugins(): Promise<PluginListResponse> {
   return handleResponse(response);
 }
 
+export async function fetchMetadataRegistry(): Promise<MetadataRegistryResponse> {
+  const response = await fetch(`${API_BASE}/metadata/registry`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
 export async function fetchProvider(id: number): Promise<ProviderResponse> {
   const response = await fetch(`${API_BASE}/providers/${id}`, {
     headers: { Accept: "application/json" },
@@ -105,7 +113,7 @@ export async function fetchProvider(id: number): Promise<ProviderResponse> {
 }
 
 export async function fetchProviderConfigSchema(
-  id: number
+  id: number,
 ): Promise<{ schema: Record<string, unknown>; value: Record<string, unknown> }> {
   const response = await fetch(`${API_BASE}/providers/${id}/config/schema`, {
     headers: { Accept: "application/json" },
@@ -114,11 +122,14 @@ export async function fetchProviderConfigSchema(
 }
 
 export async function fetchPluginConfigSchema(
-  pluginId: string
+  pluginId: string,
 ): Promise<{ schema: Record<string, unknown> }> {
-  const response = await fetch(`${API_BASE}/plugins/${encodeURIComponent(pluginId)}/config/schema`, {
-    headers: { Accept: "application/json" },
-  });
+  const response = await fetch(
+    `${API_BASE}/plugins/${encodeURIComponent(pluginId)}/config/schema`,
+    {
+      headers: { Accept: "application/json" },
+    },
+  );
   return handleResponse(response);
 }
 
@@ -152,7 +163,7 @@ export async function updateProvider(
     name?: string;
     config?: Record<string, unknown> | null;
     config_toml?: string;
-  }
+  },
 ): Promise<ProviderUpdateResponse> {
   const response = await fetch(`${API_BASE}/providers/${id}`, {
     method: "PATCH",
@@ -180,7 +191,7 @@ export async function fetchSnapshotChanges(
   }: {
     offset?: number;
     limit?: number;
-  } = {}
+  } = {},
 ): Promise<SnapshotChangesResponse> {
   const params = new URLSearchParams();
   params.set("offset", String(offset));
@@ -189,7 +200,7 @@ export async function fetchSnapshotChanges(
     `${API_BASE}/snapshots/${encodeURIComponent(snapshotId)}/changes?${params.toString()}`,
     {
       headers: { Accept: "application/json" },
-    }
+    },
   );
   return handleResponse(response);
 }
@@ -208,9 +219,7 @@ export async function fetchCollections(): Promise<CollectionListResponse> {
   return handleResponse(response);
 }
 
-export async function fetchCollection(
-  id: number
-): Promise<CollectionResponse> {
+export async function fetchCollection(id: number): Promise<CollectionResponse> {
   const response = await fetch(`${API_BASE}/collections/${id}`, {
     headers: { Accept: "application/json" },
   });
@@ -223,7 +232,7 @@ export async function updateCollection(
     name?: string;
     description?: string | null;
     refresh_mode?: string;
-  }
+  },
 ): Promise<CollectionUpdateResponse> {
   const response = await fetch(`${API_BASE}/collections/${id}`, {
     method: "PATCH",
@@ -270,7 +279,7 @@ export async function fetchCollectionAssets(
     sort?: string | undefined;
     filters?: string[] | undefined;
     search?: string | undefined;
-  }
+  },
 ): Promise<ViewAssetsResponse> {
   const params = new URLSearchParams();
   params.set("offset", String(offset));
@@ -289,7 +298,7 @@ export async function fetchCollectionAssets(
     `${API_BASE}/collections/${encodeURIComponent(collectionId)}/assets?${params}`,
     {
       headers: { Accept: "application/json" },
-    }
+    },
   );
   return handleResponse(response);
 }
@@ -314,6 +323,32 @@ export async function cancelSnapshot(snapshotId: number): Promise<void> {
 export async function deleteSnapshot(snapshotId: number): Promise<DeleteSnapshotResponse> {
   const response = await fetch(`${API_BASE}/snapshots/${snapshotId}`, {
     method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function startManualSnapshot(): Promise<Snapshot> {
+  const response = await fetch(`${API_BASE}/snapshots/manual/start`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function finishSnapshot(snapshotId: number): Promise<SnapshotResponse> {
+  const response = await fetch(`${API_BASE}/snapshots/${snapshotId}/finish`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchEditableMetadataSchema(): Promise<{
+  schema: Record<string, unknown>;
+  uiSchema: Record<string, unknown>;
+}> {
+  const response = await fetch(`${API_BASE}/metadata/schema/editable`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
