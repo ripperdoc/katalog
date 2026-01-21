@@ -342,7 +342,7 @@ def make_metadata(
 
 
 @dataclass(slots=True)
-class MetadataChangeSet:
+class MetadataChanges:
     """Track metadata state for an asset during processing (loaded + staged changes)."""
 
     loaded: Sequence[Metadata]

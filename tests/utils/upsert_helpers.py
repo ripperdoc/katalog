@@ -9,7 +9,7 @@ from katalog.constants.metadata import MetadataKey, get_metadata_id
 from katalog.models import (
     Asset,
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     OpStatus,
     Actor,
     ActorType,
@@ -90,10 +90,10 @@ class UpsertFixture:
             m.changeset = changeset
             m.asset = self.asset
         await self.asset.save_record(changeset=changeset, actor=actor)
-        change_set = MetadataChangeSet(
+        changes = MetadataChanges(
             loaded=await self.asset.load_metadata(), staged=list(metas)
         )
-        return await change_set.persist(asset=self.asset, changeset=changeset)
+        return await changes.persist(asset=self.asset, changeset=changeset)
 
     async def fetch_rows(self, key: MetadataKey) -> list[Metadata]:
         return (

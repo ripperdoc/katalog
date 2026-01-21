@@ -5,7 +5,7 @@ import pytest
 from katalog.constants.metadata import FILE_NAME, FILE_PATH
 from katalog.models import (
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     OpStatus,
     Changeset,
     make_metadata,
@@ -23,7 +23,7 @@ async def test_persist_none_does_not_write_null_row_when_no_prior_value(
     loaded = await fx.asset.load_metadata()
     staged = [make_metadata(FILE_PATH, None, actor_id=fx.actor.id)]
 
-    cs = MetadataChangeSet(loaded=loaded, staged=staged)
+    cs = MetadataChanges(loaded=loaded, staged=staged)
     changed = await cs.persist(asset=fx.asset, changeset=changeset2)
 
     assert changed == set()
@@ -47,7 +47,7 @@ async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
 
     changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_PATH, None, actor_id=fx.actor.id)]
-    cs = MetadataChangeSet(loaded=await fx.asset.load_metadata(), staged=staged)
+    cs = MetadataChanges(loaded=await fx.asset.load_metadata(), staged=staged)
 
     changed = await cs.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_PATH in changed
@@ -74,7 +74,7 @@ async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
     )
 
     # Current state should be empty (value was cleared).
-    current = MetadataChangeSet(await fx.asset.load_metadata()).current(fx.actor.id)
+    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
     assert FILE_PATH not in current or current[FILE_PATH] == []
 
 
@@ -90,7 +90,7 @@ async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None
 
     changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_PATH, None, actor_id=fx.actor.id)]
-    cs = MetadataChangeSet(loaded=await fx.asset.load_metadata(), staged=staged)
+    cs = MetadataChanges(loaded=await fx.asset.load_metadata(), staged=staged)
 
     changed = await cs.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_PATH in changed
@@ -106,7 +106,7 @@ async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None
     removed_rows = [r for r in rows if r.removed]
     assert len(removed_rows) == 2
 
-    current = MetadataChangeSet(await fx.asset.load_metadata()).current(fx.actor.id)
+    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
     assert FILE_PATH not in current or current[FILE_PATH] == []
 
 
@@ -122,13 +122,13 @@ async def test_missing_key_in_staged_keeps_existing_value_unchanged(
 
     changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_NAME, "doc.txt", actor_id=fx.actor.id)]
-    cs = MetadataChangeSet(loaded=await fx.asset.load_metadata(), staged=staged)
+    cs = MetadataChanges(loaded=await fx.asset.load_metadata(), staged=staged)
 
     changed = await cs.persist(asset=fx.asset, changeset=changeset2)
     assert FILE_NAME in changed
     assert FILE_PATH not in changed
 
-    current = MetadataChangeSet(await fx.asset.load_metadata()).current(fx.actor.id)
+    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
     assert current[FILE_PATH][0].value_text == "/tmp/a"
 
 
@@ -142,7 +142,7 @@ async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
 
     # Remove it.
     changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-    cs2 = MetadataChangeSet(
+    cs2 = MetadataChanges(
         loaded=await fx.asset.load_metadata(),
         staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=fx.actor.id, removed=True)],
     )
@@ -151,7 +151,7 @@ async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
 
     # Re-add it (should not be deduped away).
     changeset3 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-    cs3 = MetadataChangeSet(
+    cs3 = MetadataChanges(
         loaded=await fx.asset.load_metadata(),
         staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=fx.actor.id)],
     )
@@ -164,5 +164,5 @@ async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
     ).order_by("id")
     assert len(rows) == 3
 
-    current = MetadataChangeSet(await fx.asset.load_metadata()).current(fx.actor.id)
+    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
     assert current[FILE_PATH][0].value_text == "/tmp/a"

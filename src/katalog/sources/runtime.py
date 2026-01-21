@@ -8,7 +8,7 @@ from tortoise.transactions import in_transaction
 
 from katalog.models import (
     Asset,
-    MetadataChangeSet,
+    MetadataChanges,
     make_metadata,
     Actor,
     ActorType,
@@ -43,8 +43,8 @@ async def _persist_scan_only_item(
     # Mark asset as seen in this changeset for this actor.
     item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
 
-    change_set = MetadataChangeSet(loaded=loaded_metadata, staged=item.metadata)
-    changes = await change_set.persist(asset=item.asset, changeset=changeset)
+    changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
+    changes = await changes.persist(asset=item.asset, changeset=changeset)
     if changes:
         changeset.stats.assets_changed += 1
 
@@ -139,7 +139,7 @@ async def run_sources(
                     loaded_metadata = []
                 else:
                     loaded_metadata = await result.asset.load_metadata()
-                change_set = MetadataChangeSet(
+                changes = MetadataChanges(
                     loaded=loaded_metadata,
                     staged=result.metadata
                     + [make_metadata(ASSET_LOST, None, actor_id=result.actor.id)],
@@ -149,7 +149,7 @@ async def run_sources(
                     asset=result.asset,
                     changeset=changeset,
                     stages=processor_pipeline,
-                    change_set=change_set,
+                    changes=changes,
                 )
                 if result.asset.id is not None:
                     seen_assets.add(int(result.asset.id))

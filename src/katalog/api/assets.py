@@ -9,7 +9,7 @@ from katalog.db import (
     list_grouped_assets,
 )
 from katalog.editors.user_editor import ensure_user_editor
-from katalog.models import Asset, Metadata, MetadataChangeSet, make_metadata
+from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
 from katalog.views import get_view
 
 
@@ -136,8 +136,8 @@ async def manual_edit_asset(asset_id: int, request: Request):
 
     # Apply changes
     loaded = await asset.load_metadata()
-    change_set = MetadataChangeSet(loaded=loaded, staged=metadata_entries)
-    changed_keys = await change_set.persist(asset=asset, changeset=changeset)
+    changes = MetadataChanges(loaded=loaded, staged=metadata_entries)
+    changed_keys = await changes.persist(asset=asset, changeset=changeset)
 
     return {
         "asset_id": asset_id,

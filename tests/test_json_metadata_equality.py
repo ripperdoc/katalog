@@ -7,7 +7,7 @@ import pytest
 from katalog.constants.metadata import FILE_TAGS
 from katalog.models import (
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     OpStatus,
     Changeset,
     make_metadata,
@@ -28,8 +28,8 @@ async def test_changed_keys_json_dict_order_does_not_matter(pipeline_db):
     loaded = [fx.metadata(FILE_TAGS, {"a": 1, "b": 2})]
     staged = [fx.metadata(FILE_TAGS, {"b": 2, "a": 1})]
 
-    change_set = MetadataChangeSet(loaded=loaded, staged=staged)
-    assert change_set.changed_keys() == set()
+    changes = MetadataChanges(loaded=loaded, staged=staged)
+    assert changes.changed_keys() == set()
 
 
 @pytest.mark.asyncio
@@ -38,8 +38,8 @@ async def test_changed_keys_json_list_compares_by_value_not_identity(pipeline_db
     loaded = [fx.metadata(FILE_TAGS, ["a", "b"])]
     staged = [fx.metadata(FILE_TAGS, ["a", "b"])]  # different list instance
 
-    change_set = MetadataChangeSet(loaded=loaded, staged=staged)
-    assert change_set.changed_keys() == set()
+    changes = MetadataChanges(loaded=loaded, staged=staged)
+    assert changes.changed_keys() == set()
 
 
 @pytest.mark.asyncio
@@ -48,8 +48,8 @@ async def test_changed_keys_json_detects_actual_change(pipeline_db):
     loaded = [fx.metadata(FILE_TAGS, {"a": 1, "b": 2})]
     staged = [fx.metadata(FILE_TAGS, {"a": 1, "b": 3})]
 
-    change_set = MetadataChangeSet(loaded=loaded, staged=staged)
-    assert FILE_TAGS in change_set.changed_keys()
+    changes = MetadataChanges(loaded=loaded, staged=staged)
+    assert FILE_TAGS in changes.changed_keys()
 
 
 @pytest.mark.asyncio
@@ -64,9 +64,9 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
 
     loaded = await fx.asset.load_metadata()
     staged = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=fx.actor.id)]
-    change_set = MetadataChangeSet(loaded=loaded, staged=staged)
+    changes = MetadataChanges(loaded=loaded, staged=staged)
 
-    changed = await change_set.persist(asset=fx.asset, changeset=changeset2)
+    changed = await changes.persist(asset=fx.asset, changeset=changeset2)
     assert changed == set()
 
     # Ensure we didn't insert a duplicate row.

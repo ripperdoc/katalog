@@ -19,7 +19,7 @@ from .core import (
 )
 from .metadata import (
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     MetadataRegistry,
     make_metadata,
 )
@@ -35,7 +35,7 @@ __all__ = [
     "DEFAULT_TASK_CONCURRENCY",
     "FileAccessor",
     "Metadata",
-    "MetadataChangeSet",
+    "MetadataChanges",
     "MetadataKey",
     "MetadataRegistry",
     "MetadataScalar",

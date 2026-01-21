@@ -14,7 +14,7 @@ from katalog.models import (
     Actor,
     ActorType,
     Changeset,
-    MetadataChangeSet,
+    MetadataChanges,
 )
 from katalog.processors.base import (
     Processor,
@@ -85,11 +85,11 @@ async def sort_processors() -> list[ProcessorStage]:
 async def _run_processor(
     processor: Processor,
     asset: Asset,
-    change_set,
+    changes,
 ) -> ProcessorResult:
     try:
         logger.debug(f"Running processor {processor} for record {asset.id}")
-        result = await processor.run(asset, change_set)
+        result = await processor.run(asset, changes)
         return result
     except Exception as e:
         msg = f"Processor {processor} failed for record {asset.id}: {e}"
@@ -102,7 +102,7 @@ async def process_asset(
     asset: Asset,
     changeset: Changeset,
     stages: Sequence[ProcessorStage],
-    change_set: MetadataChangeSet,
+    changes: MetadataChanges,
     force_run: bool = False,
 ) -> set[MetadataKey]:
     stats = changeset.stats
@@ -112,9 +112,7 @@ async def process_asset(
         coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
         for processor in stage:
             try:
-                should_run = (
-                    True if force_run else processor.should_run(asset, change_set)
-                )
+                should_run = True if force_run else processor.should_run(asset, changes)
             except Exception:
                 logger.exception(
                     f"Processor {processor}.should_run failed for record {asset.id}"
@@ -122,7 +120,7 @@ async def process_asset(
                 continue
             if not should_run:
                 continue
-            coros.append((processor, _run_processor(processor, asset, change_set)))
+            coros.append((processor, _run_processor(processor, asset, changes)))
             if stats:
                 stats.processings_started += 1
         if not coros:
@@ -152,8 +150,8 @@ async def process_asset(
             for meta in result.metadata:
                 stage_metadata.append(meta)
         # Add all produced metadata to the change set for the next stage.
-        change_set.add(stage_metadata)
-    return await change_set.persist(asset=asset, changeset=changeset)
+        changes.add(stage_metadata)
+    return await changes.persist(asset=asset, changeset=changeset)
 
 
 async def enqueue_asset_processing(
@@ -161,7 +159,7 @@ async def enqueue_asset_processing(
     asset: Asset,
     changeset: Changeset,
     stages: Sequence[ProcessorStage],
-    change_set: MetadataChangeSet,
+    changes: MetadataChanges,
     force_run: bool = False,
 ) -> None:
     """Schedule processor pipeline for an asset with bounded concurrency."""
@@ -176,7 +174,7 @@ async def enqueue_asset_processing(
                 asset=asset,
                 changeset=changeset,
                 stages=stages,
-                change_set=change_set,
+                changes=changes,
                 force_run=force_run,
             )
 
@@ -191,12 +189,12 @@ async def run_processors(*, changeset: Changeset, assets: list[Asset]):
         changeset.stats.assets_seen += 1
         changeset.stats.assets_saved += 1
         loaded_metadata = await asset.load_metadata()
-        change_set = MetadataChangeSet(loaded=loaded_metadata)
+        changes = MetadataChanges(loaded=loaded_metadata)
         await enqueue_asset_processing(
             asset=asset,
             changeset=changeset,
             stages=processor_pipeline,
-            change_set=change_set,
+            changes=changes,
             # Run all processors regardless of should_run because we have no prior info on changes
             force_run=True,
         )

@@ -57,14 +57,14 @@ class NameReadabilityProcessor(Processor):
     def should_run(
         self,
         asset: Asset,
-        change_set,
+        changes,
     ) -> bool:
-        changes = change_set.changed_keys()
-        if FILE_NAME in changes:
+        changed_keys = changes.changed_keys()
+        if FILE_NAME in changed_keys:
             return True
         return False
 
-    async def run(self, asset: Asset, change_set) -> ProcessorResult:
+    async def run(self, asset: Asset, changes) -> ProcessorResult:
         name = self._resolve_file_name(asset)
         if not name:
             return ProcessorResult(status=OpStatus.SKIPPED, message="No filename found")

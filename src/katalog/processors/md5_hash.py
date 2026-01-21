@@ -11,7 +11,7 @@ from katalog.constants.metadata import (
     TIME_MODIFIED,
 )
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.models import Asset, make_metadata, MetadataChangeSet, OpStatus
+from katalog.models import Asset, make_metadata, MetadataChanges, OpStatus
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -45,19 +45,19 @@ class MD5HashProcessor(Processor):
     def outputs(self):
         return self._outputs
 
-    def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
-        changes = change_set.changed_keys()
-        if HASH_MD5 in changes:
+    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
+        changed_keys = changes.changed_keys()
+        if HASH_MD5 in changed_keys:
             return False
-        if DATA_KEY in changes:
+        if DATA_KEY in changed_keys:
             return True
-        if FILE_SIZE in changes or TIME_MODIFIED in changes:
+        if FILE_SIZE in changed_keys or TIME_MODIFIED in changed_keys:
             return True
-        if HASH_MD5 not in change_set.current():
+        if HASH_MD5 not in changes.current():
             return True
         return False
 
-    async def run(self, asset: Asset, change_set: MetadataChangeSet) -> ProcessorResult:
+    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
         d = asset.data
         if d is None:
             return ProcessorResult(

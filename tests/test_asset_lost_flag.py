@@ -10,7 +10,7 @@ from katalog.constants.metadata import ASSET_LOST, METADATA_REGISTRY, get_metada
 from katalog.models import (
     Asset,
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     OpStatus,
     Actor,
     ActorType,
@@ -51,7 +51,7 @@ async def test_clear_lost_flag_when_previous_true(db: None):
     )
 
     loaded = await asset.load_metadata()
-    change_set = MetadataChangeSet(
+    changes = MetadataChanges(
         loaded=loaded,
         staged=[
             Metadata(
@@ -62,8 +62,8 @@ async def test_clear_lost_flag_when_previous_true(db: None):
             )
         ],
     )
-    change_set.staged[0].set_value(None)
-    changed = await change_set.persist(asset=asset, changeset=snap2)
+    changes.staged[0].set_value(None)
+    changed = await changes.persist(asset=asset, changeset=snap2)
 
     # One new row (removed=True) should be written
     all_rows = await Metadata.filter(asset=asset, metadata_key_id=lost_key_id).order_by(
@@ -72,7 +72,7 @@ async def test_clear_lost_flag_when_previous_true(db: None):
     assert len(all_rows) == 2
     assert any(md.removed is True for md in all_rows)
     # Current state should have no lost flag
-    current = MetadataChangeSet._current_metadata(all_rows, actor.id)
+    current = MetadataChanges._current_metadata(all_rows, actor.id)
     assert ASSET_LOST not in current
     assert ASSET_LOST in changed
 
@@ -86,7 +86,7 @@ async def test_clear_lost_noop_when_not_set(db: None):
 
     lost_key_id = get_metadata_id(ASSET_LOST)
     loaded = await asset.load_metadata()
-    change_set = MetadataChangeSet(
+    changes = MetadataChanges(
         loaded=loaded,
         staged=[
             Metadata(
@@ -97,8 +97,8 @@ async def test_clear_lost_noop_when_not_set(db: None):
             )
         ],
     )
-    change_set.staged[0].set_value(None)
-    changed = await change_set.persist(asset=asset, changeset=snap1)
+    changes.staged[0].set_value(None)
+    changed = await changes.persist(asset=asset, changeset=snap1)
 
     # No new rows should be written because nothing to clear
     all_rows = await Metadata.filter(asset=asset, metadata_key_id=lost_key_id)

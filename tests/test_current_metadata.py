@@ -1,7 +1,7 @@
 """Tests for MetadataChangeSet current/changed logic."""
 
 from katalog.constants.metadata import FILE_PATH
-from katalog.models import MetadataChangeSet
+from katalog.models import MetadataChanges
 from tests.utils.metadata_helpers import mem_md, registry_stub
 
 
@@ -11,7 +11,7 @@ def test_current_metadata_dedup_latest_wins(registry_stub):
         mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=2, actor_id=2),
     ]
 
-    cs = MetadataChangeSet(entries)
+    cs = MetadataChanges(entries)
     result = cs.current()
 
     assert list(result.keys()) == [FILE_PATH]
@@ -33,7 +33,7 @@ def test_current_metadata_removed_suppresses_prior(registry_stub):
         ),
     ]
 
-    cs = MetadataChangeSet(entries)
+    cs = MetadataChanges(entries)
     result = cs.current()
 
     assert FILE_PATH not in result or result[FILE_PATH] == []
@@ -52,7 +52,7 @@ def test_current_metadata_removed_only_target_value(registry_stub):
         ),
     ]
 
-    cs = MetadataChangeSet(entries)
+    cs = MetadataChanges(entries)
     result = cs.current()
 
     assert list(result.keys()) == [FILE_PATH]
@@ -67,7 +67,7 @@ def test_current_metadata_keeps_distinct_values_ordered_by_changeset(registry_st
         mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=3, actor_id=1),
     ]
 
-    cs = MetadataChangeSet(entries)
+    cs = MetadataChanges(entries)
     result = cs.current()
 
     vals = result[FILE_PATH]
@@ -80,7 +80,7 @@ def test_current_metadata_merge_actors_same_value_latest_changeset(registry_stub
         mem_md(key=FILE_PATH, value="/tmp/a", changeset_id=6, actor_id=2),
     ]
 
-    cs = MetadataChangeSet(entries)
+    cs = MetadataChanges(entries)
     result = cs.current()
 
     vals = result[FILE_PATH]

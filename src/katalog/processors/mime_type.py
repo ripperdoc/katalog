@@ -10,7 +10,7 @@ from katalog.processors.base import (
     file_data_changed,
     file_data_change_dependencies,
 )
-from katalog.models import Asset, MetadataChangeSet, make_metadata
+from katalog.models import Asset, MetadataChanges, make_metadata
 from katalog.models import OpStatus
 
 # NOTE, useful info about magic detection and licensing:
@@ -48,12 +48,14 @@ class MimeTypeProcessor(Processor):
     def outputs(self):
         return self._outputs
 
-    def should_run(self, asset: Asset, change_set: MetadataChangeSet) -> bool:
+    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
         # TODO, some services report application/octet-stream but there is probably a better mime type to find
         # Is there a logic where we can check for that, without having to recheck every time?
-        return file_data_changed(self, asset, change_set)
+        if FILE_TYPE not in changes.current():
+            return True
+        return file_data_changed(self, asset, changes)
 
-    async def run(self, asset: Asset, change_set: MetadataChangeSet) -> ProcessorResult:
+    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
         if not asset.data:

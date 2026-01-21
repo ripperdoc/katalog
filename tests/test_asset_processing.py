@@ -6,7 +6,7 @@ from katalog.constants.metadata import FILE_PATH
 from katalog.models import (
     Asset,
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     Changeset,
     OpStatus,
 )
@@ -33,10 +33,8 @@ async def test_upsert_reuses_canonical_asset(ctx: UpsertFixture):
     meta.asset = new_asset
 
     await new_asset.save_record(changeset=snap, actor=ctx.actor)
-    change_set = MetadataChangeSet(
-        loaded=await new_asset.load_metadata(), staged=[meta]
-    )
-    changes = await change_set.persist(asset=new_asset, changeset=snap)
+    changes = MetadataChanges(loaded=await new_asset.load_metadata(), staged=[meta])
+    changes = await changes.persist(asset=new_asset, changeset=snap)
 
     assert new_asset.id == existing.id
     # A new metadata row should have been recorded for the latest changeset.

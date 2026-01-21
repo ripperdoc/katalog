@@ -9,7 +9,7 @@ from katalog.constants.metadata import FILE_NAME, TIME_MODIFIED
 from katalog.models import (
     Asset,
     Metadata,
-    MetadataChangeSet,
+    MetadataChanges,
     OpStatus,
     Actor,
     ActorType,
@@ -112,7 +112,7 @@ async def test_changeset_persist_handles_removals_and_noops() -> None:
             ),
         ]
 
-        cs = MetadataChangeSet(loaded=await asset.load_metadata(), staged=staged)
+        cs = MetadataChanges(loaded=await asset.load_metadata(), staged=staged)
         changed = await cs.persist(asset=asset, changeset=next_changeset)
 
         # Should record changes for FILE_NAME and TIME_MODIFIED
