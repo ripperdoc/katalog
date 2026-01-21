@@ -253,10 +253,12 @@ class Metadata(Model):
     @classmethod
     async def for_asset(
         cls,
-        asset: "Asset" | int,
+        asset: Asset | int,
         *,
         include_removed: bool = False,
     ) -> Sequence["Metadata"]:
+        from .assets import Asset
+
         asset_id = asset.id if isinstance(asset, Asset) else int(asset)
         query = cls.filter(asset_id=asset_id)
         if not include_removed:
@@ -271,9 +273,9 @@ def make_metadata(
     removed: bool = False,
     confidence: float | None = None,
     *,
-    asset: "Asset" | None = None,
+    asset: Asset | None = None,
     asset_id: int | None = None,
-    changeset: "Changeset" | None = None,
+    changeset: Changeset | None = None,
     changeset_id: int | None = None,
     metadata_id: int | None = None,  # Only used for testing or bypassing
 ) -> Metadata:

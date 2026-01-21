@@ -16,7 +16,7 @@ from katalog.models import (
     ActorType,
     Changeset,
 )
-from katalog.queries import setup_db, sync_metadata_registry
+from katalog.db import setup_db, sync_metadata_registry
 
 
 @pytest_asyncio.fixture

@@ -26,7 +26,7 @@ from katalog.constants.metadata import (
     TIME_CREATED,
     TIME_MODIFIED,
 )
-from katalog.queries import setup_db
+from katalog.db import setup_db
 
 
 def _pick_weighted(rng: Random, items: list[tuple[str, float]]) -> str:

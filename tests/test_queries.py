@@ -8,7 +8,7 @@ from tortoise import Tortoise
 
 from katalog.constants.metadata import FILE_PATH, METADATA_REGISTRY, get_metadata_id
 from katalog.models import Asset, Metadata, OpStatus, Actor, ActorType, Changeset
-from katalog.queries import list_assets_for_view, setup_db, sync_metadata_registry
+from katalog.db import list_assets_for_view, setup_db, sync_metadata_registry
 from katalog.views import default_view
 
 

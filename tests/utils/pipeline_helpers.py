@@ -15,7 +15,7 @@ from katalog.models import (
     Changeset,
     make_metadata,
 )
-from katalog.queries import sync_metadata_registry
+from katalog.db import sync_metadata_registry
 
 
 async def init_db() -> None:

@@ -52,7 +52,7 @@ class Asset(Model):
     async def save_record(
         self,
         changeset: "Changeset",
-        actor: "Actor" | None = None,
+        actor: Actor | None = None,
     ) -> bool:
         """Persist the asset row, reusing an existing canonical asset when present.
 
