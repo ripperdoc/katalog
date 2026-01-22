@@ -2,8 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import ActorForm from "../components/ActorForm";
-import { fetchActor, startScan, updateActor, fetchActorConfigSchema } from "../api/client";
+import {
+  fetchActor,
+  runSources,
+  runProcessors,
+  runProcessor,
+  runAnalyzer,
+  updateActor,
+  fetchActorConfigSchema,
+} from "../api/client";
 import type { Actor, Changeset } from "../types/api";
+import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
 
 function ActorDetailRoute() {
   const { actorId } = useParams();
@@ -18,6 +27,7 @@ function ActorDetailRoute() {
   const [formName, setFormName] = useState<string>("");
   const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
+  const { startTracking } = useChangesetProgress();
 
   const actorIdNum = actorId ? Number(actorId) : NaN;
 
@@ -64,8 +74,17 @@ function ActorDetailRoute() {
     setScanning(true);
     setError(null);
     try {
-      const changeset = await startScan(actorIdNum);
-      navigate(`/changesets/${changeset.id}`);
+      if (actor?.type === "SOURCE") {
+        const changeset = await runSources(actorIdNum);
+        startTracking(changeset);
+        navigate(`/changesets/${changeset.id}`);
+      } else if (actor?.type === "PROCESSOR") {
+        const changeset = await runProcessor(actorIdNum);
+        startTracking(changeset);
+        navigate(`/changesets/${changeset.id}`);
+      } else if (actor?.type === "ANALYZER") {
+        await runAnalyzer(actorIdNum);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);

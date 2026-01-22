@@ -1,8 +1,4 @@
 from __future__ import annotations
-
-import asyncio
-from typing import Awaitable, Callable
-
 from loguru import logger
 from tortoise.transactions import in_transaction
 
@@ -14,7 +10,7 @@ from katalog.models import (
     ActorType,
     Changeset,
 )
-from katalog.processors.runtime import enqueue_asset_processing, sort_processors
+from katalog.processors.runtime import process_asset, sort_processors
 
 from katalog.sources.base import AssetScanResult, SourcePlugin, make_source_instance
 from katalog.constants.metadata import ASSET_LOST
@@ -27,9 +23,7 @@ async def _persist_scan_only_item(
     seen_assets: set[int],
 ) -> None:
     # Ensure asset row exists and changeset markers are updated.
-    was_created = await item.asset.save_record(
-        changeset=changeset, actor=changeset.actor
-    )
+    was_created = await item.asset.save_record(changeset=changeset, actor=item.actor)
     if item.asset.id is not None:
         seen_assets.add(int(item.asset.id))
     if was_created:
@@ -78,29 +72,16 @@ async def run_sources(
     *,
     sources: list[Actor],
     changeset: Changeset,
-    is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
     """Run a scan + processor pipeline for a single source and finalize its changeset."""
 
-    processor_pipeline = await sort_processors()
+    processor_pipeline, processor_actors = await sort_processors()
     has_processors = bool(processor_pipeline)
 
     # For scan-only runs (no processors), we can safely batch persistence into fewer commits.
     # This tends to be a big speed-up with SQLite/aiosqlite.
     tx_chunk_size = 500
     log_every_assets = 5000
-
-    async def _should_cancel() -> bool:
-        if is_cancelled is None:
-            return False
-        try:
-            result = is_cancelled()
-            if asyncio.iscoroutine(result):
-                return await result
-            return bool(result)
-        except Exception:
-            logger.exception("Cancellation predicate failed; continuing scan")
-            return False
 
     for source in sources:
         if source.type != ActorType.SOURCE:
@@ -113,8 +94,7 @@ async def run_sources(
                 actor_name=source.name,
             )
             continue
-        if await _should_cancel():
-            raise asyncio.CancelledError()
+
         source_plugin = make_source_instance(source)
         scan_result = await source_plugin.scan()
 
@@ -124,14 +104,12 @@ async def run_sources(
         pending: list[AssetScanResult] = []
 
         async for result in scan_result.iterator:
-            if await _should_cancel():
-                raise asyncio.CancelledError()
             changeset.stats.assets_seen += 1
             changeset.stats.assets_saved += 1
 
             if has_processors:
                 was_created = await result.asset.save_record(
-                    changeset=changeset, actor=changeset.actor or source
+                    changeset=changeset, actor=source
                 )
                 if was_created:
                     changeset.stats.assets_added += 1
@@ -145,11 +123,13 @@ async def run_sources(
                     + [make_metadata(ASSET_LOST, None, actor_id=result.actor.id)],
                 )
                 # Enqueue asset for processing, which will also persist the metadata
-                await enqueue_asset_processing(
-                    asset=result.asset,
-                    changeset=changeset,
-                    stages=processor_pipeline,
-                    changes=changes,
+                changeset.enqueue(
+                    process_asset(
+                        asset=result.asset,
+                        changeset=changeset,
+                        pipeline=processor_pipeline,
+                        changes=changes,
+                    )
                 )
                 if result.asset.id is not None:
                     seen_assets.add(int(result.asset.id))

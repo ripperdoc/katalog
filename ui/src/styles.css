@@ -98,6 +98,55 @@ header h1 {
   flex-wrap: wrap;
 }
 
+.changeset-progress {
+  margin-top: -0.25rem;
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+}
+
+.changeset-progress__label {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.changeset-progress__bar {
+  position: relative;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.changeset-progress__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+  transition: width 220ms ease;
+}
+
+.changeset-progress__fill.indeterminate {
+  width: 50%;
+}
+
+.changeset-progress__meta {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
 .collection-header-fields {
   display: flex;
   flex-direction: column;

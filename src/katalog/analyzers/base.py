@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar, FrozenSet, cast
 
 from katalog.models import Metadata, MetadataKey, Actor, Changeset
@@ -51,6 +51,14 @@ class AnalyzerResult:
     relationships: list[RelationshipRecord] = field(default_factory=list)
     groups: list[FileGroupFinding] = field(default_factory=list)
     issues: list[AnalyzerIssue] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "metadata": [asdict(m) for m in self.metadata],
+            "relationships": [asdict(r) for r in self.relationships],
+            "groups": [asdict(g) for g in self.groups],
+            "issues": [asdict(i) for i in self.issues],
+        }
 
 
 class Analyzer(PluginBase, ABC):

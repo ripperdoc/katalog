@@ -17,6 +17,7 @@ import {
 import MetadataTable from "../components/MetadataTable";
 import type { AssetDetailResponse, EditableMetadataSchemaResponse, Changeset } from "../types/api";
 import { SimpleTable } from "simple-table-core";
+import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
 
 function AssetDetailRoute() {
   const { assetId } = useParams();
@@ -29,6 +30,7 @@ function AssetDetailRoute() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { startTracking } = useChangesetProgress();
 
   const load = useCallback(async () => {
     if (!assetIdNum || Number.isNaN(assetIdNum)) {
@@ -75,6 +77,7 @@ function AssetDetailRoute() {
     try {
       const snap = await startManualChangeset();
       setActiveChangeset(snap);
+      startTracking(snap);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -109,7 +112,7 @@ function AssetDetailRoute() {
   const canEdit = useMemo(() => Boolean(schema && activeChangeset), [schema, activeChangeset]);
 
   const handleSubmit = useCallback(
-    async ({ formData: data }) => {
+    async ({ formData: data }: { formData: Record<string, unknown> }) => {
       if (!activeChangeset) {
         setError("Start a manual edit changeset first");
         return;

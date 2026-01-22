@@ -46,23 +46,10 @@ async def lifespan(app):
         yield
     finally:
         # Best-effort cancel running changeset tasks on shutdown to avoid reload hangs.
-        cancel_waits: list[asyncio.Task] = []
-        for state in list(RUNNING_CHANGESETS.values()):
-            try:
-                state.cancel_event.set()
-                state.task.cancel()
-                cancel_waits.append(asyncio.create_task(state.done_event.wait()))
-            except Exception:
-                logger.exception("Failed to cancel changeset task on shutdown")
-        if cancel_waits:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*cancel_waits, return_exceptions=True), timeout=5
-                )
-            except Exception:
-                logger.warning(
-                    "Timeout while waiting for changeset tasks to cancel during shutdown"
-                )
+        for snap in list(RUNNING_CHANGESETS.values()):
+            snap.cancel()
+        for snap in list(RUNNING_CHANGESETS.values()):
+            await snap.wait_cancelled(timeout=5)
         # run shutdown logic
         await Tortoise.close_connections()
 

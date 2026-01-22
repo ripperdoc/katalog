@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Awaitable, Sequence
+from typing import Awaitable, Optional, Sequence
 
 from loguru import logger
 
@@ -16,11 +16,7 @@ from katalog.models import (
     Changeset,
     MetadataChanges,
 )
-from katalog.processors.base import (
-    Processor,
-    ProcessorResult,
-    make_processor_instance,
-)
+from katalog.processors.base import Processor, ProcessorResult, make_processor_instance
 
 
 DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
@@ -29,13 +25,18 @@ DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
 ProcessorStage = list[Processor]
 
 
-async def sort_processors() -> list[ProcessorStage]:
-    """Return processors layered via Kahn topological sorting."""
+async def sort_processors(
+    actor_ids: list[int] | None = None,
+) -> tuple[list[ProcessorStage], list[Actor]]:
+    """Return processors layered via Kahn topological sorting, plus actor records."""
 
-    actors = await Actor.filter(type=ActorType.PROCESSOR, disabled=False).order_by("id")
+    query = Actor.filter(type=ActorType.PROCESSOR, disabled=False)
+    if actor_ids:
+        query = query.filter(id__in=sorted(set(actor_ids)))
+    actors = await query.order_by("id")
     if not actors:
         logger.warning("No processor actors found")
-        return []
+        return [], []
 
     processors_by_name: dict[str, Processor] = {}
     order_by_name: dict[str, tuple[int, int]] = {}
@@ -79,7 +80,7 @@ async def sort_processors() -> list[ProcessorStage]:
             remaining.pop(name, None)
         for deps in remaining.values():
             deps.difference_update(ready)
-    return stages
+    return stages, actors
 
 
 async def _run_processor(
@@ -101,14 +102,15 @@ async def process_asset(
     *,
     asset: Asset,
     changeset: Changeset,
-    stages: Sequence[ProcessorStage],
+    pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
     force_run: bool = False,
 ) -> set[MetadataKey]:
     stats = changeset.stats
     failed_runs = 0
+    changeset.stats.assets_processed += 1
 
-    for stage in stages:
+    for stage in pipeline:
         coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
         for processor in stage:
             try:
@@ -154,47 +156,25 @@ async def process_asset(
     return await changes.persist(asset=asset, changeset=changeset)
 
 
-async def enqueue_asset_processing(
+async def run_processors(
     *,
-    asset: Asset,
     changeset: Changeset,
-    stages: Sequence[ProcessorStage],
-    changes: MetadataChanges,
-    force_run: bool = False,
-) -> None:
-    """Schedule processor pipeline for an asset with bounded concurrency."""
-
-    if not stages:
-        return
-
-    async def runner() -> set[MetadataKey]:
-        async with changeset.semaphore:
-            changeset.stats.assets_processed += 1
-            return await process_asset(
-                asset=asset,
-                changeset=changeset,
-                stages=stages,
-                changes=changes,
-                force_run=force_run,
-            )
-
-    changeset.tasks.append(asyncio.create_task(runner()))
-
-
-async def run_processors(*, changeset: Changeset, assets: list[Asset]):
+    assets: list[Asset],
+    pipeline: Sequence[ProcessorStage],
+):
     """Run processors for a list of assets belonging to one actor."""
-    processor_pipeline = await sort_processors()
 
     for asset in assets:
         changeset.stats.assets_seen += 1
         changeset.stats.assets_saved += 1
         loaded_metadata = await asset.load_metadata()
         changes = MetadataChanges(loaded=loaded_metadata)
-        await enqueue_asset_processing(
-            asset=asset,
-            changeset=changeset,
-            stages=processor_pipeline,
-            changes=changes,
-            # Run all processors regardless of should_run because we have no prior info on changes
-            force_run=True,
+        changeset.enqueue(
+            process_asset(
+                asset=asset,
+                changeset=changeset,
+                pipeline=pipeline,
+                changes=changes,
+                force_run=True,
+            )
         )

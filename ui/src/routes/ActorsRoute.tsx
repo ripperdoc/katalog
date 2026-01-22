@@ -4,21 +4,26 @@ import AppHeader from "../components/AppHeader";
 import {
   fetchPlugins,
   fetchActors,
-  startScan,
+  runSources,
+  runProcessors,
+  runProcessor,
+  runAnalyzer,
   runAllProcessors,
   runAllAnalyzers,
   updateActor,
 } from "../api/client";
 import type { Actor, PluginSpec } from "../types/api";
+import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
 
 function ActorsRoute() {
   const [actors, setActors] = useState<Actor[]>([]);
   const [plugins, setPlugins] = useState<PluginSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scanningId, setScanningId] = useState<number | null>(null);
+  const [scanningId, setRunningId] = useState<number | null>(null);
   const navigate = useNavigate();
   const didInit = useRef(false);
+  const { startTracking } = useChangesetProgress();
 
   const loadActors = useCallback(async () => {
     setLoading(true);
@@ -55,17 +60,42 @@ function ActorsRoute() {
     void loadPlugins();
   }, [loadActors, loadPlugins]);
 
-  const triggerScan = async (actorId?: number) => {
-    setScanningId(actorId ?? 0);
+  const triggerRun = async (actor?: Actor, groupKey?: "sources" | "processors" | "analyzers") => {
+    const runningId = actor?.id ?? 0;
+    setRunningId(runningId);
     setError(null);
     try {
-      const changeset = await startScan(actorId);
-      navigate(`/changesets/${changeset.id}`);
+      if (groupKey === "sources") {
+        const changeset = await runSources(actor?.id);
+        startTracking(changeset);
+        navigate(`/changesets/${changeset.id}`);
+        return;
+      }
+      if (groupKey === "processors") {
+        if (actor?.id) {
+          const changeset = await runProcessor(actor.id);
+          startTracking(changeset);
+          navigate(`/changesets/${changeset.id}`);
+          return;
+        }
+        const changeset = await runProcessors();
+        startTracking(changeset);
+        navigate(`/changesets/${changeset.id}`);
+        return;
+      }
+      if (groupKey === "analyzers") {
+        if (actor?.id) {
+          await runAnalyzer(actor.id);
+        } else {
+          await runAllAnalyzers();
+        }
+        return;
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
     } finally {
-      setScanningId(null);
+      setRunningId(null);
     }
   };
 
@@ -144,20 +174,21 @@ function ActorsRoute() {
                           setError(null);
                           try {
                             if (groupKey === "sources") {
-                              await triggerScan(undefined);
+                              await triggerRun(undefined, "sources");
                             } else if (groupKey === "processors") {
-                              setScanningId(0);
+                              setRunningId(0);
                               const snap = await runAllProcessors();
+                              startTracking(snap);
                               navigate(`/changesets/${snap.id}`);
                             } else if (groupKey === "analyzers") {
-                              setScanningId(0);
+                              setRunningId(0);
                               await runAllAnalyzers();
                             }
                           } catch (err) {
                             const message = err instanceof Error ? err.message : String(err);
                             setError(message);
                           } finally {
-                            setScanningId(null);
+                            setRunningId(null);
                           }
                         }}
                         disabled={scanningId !== null || loading || (requiresActors && !hasActors)}
@@ -234,10 +265,10 @@ function ActorsRoute() {
                           <button
                             type="button"
                             className="app-btn btn-primary"
-                            onClick={() => triggerScan(actor.id)}
+                            onClick={() => triggerRun(actor, groupKey)}
                             disabled={scanningId !== null || actor.disabled}
                           >
-                            {scanningId === actor.id ? "Starting..." : "Scan"}
+                            {scanningId === actor.id ? "Starting..." : "Run"}
                           </button>
                         )}
                       </div>

@@ -11,6 +11,7 @@ from .assets import (
 from .core import (
     Actor,
     ActorType,
+    ChangesetActor,
     Changeset,
     ChangesetStats,
     DEFAULT_TASK_CONCURRENCY,
@@ -29,6 +30,7 @@ __all__ = [
     "ActorType",
     "Asset",
     "AssetCollection",
+    "ChangesetActor",
     "Changeset",
     "ChangesetStats",
     "CollectionRefreshMode",

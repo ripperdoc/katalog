@@ -302,6 +302,47 @@ is the current assumption:
     - Relations removed
     - Relations changed
 
+### Operations, e.g. running changesets
+
+Whenever we begin a changeset, we are starting a long-running operation, and we treat the Changeset
+class as also representing an ongoing or completed operation. These operations can be:
+
+- Scanning one or more sources, and also processing them
+- Running a list of processors against a list of assets
+- Running an analyzer on a list of assets
+- Starting a series of manual edits and then marking as done
+
+There are some important requirements to list for these operations.
+
+- Changesets are identified with an integer ID that is the current timestamp in milliseconds since
+  epoch (1970)
+- A Changeset can have a message that describes the change to humans (e.g. commit message)
+- A Changeset has a 1-to-many relationship with Actors, e.g. one Changeset can include changes from
+  one or many Actors
+- A Changeset can contain unstructured data such a stats or side-effect outputs
+- Most other entities have a relation to a Changeset to allow us to delete those changes along with
+  the Changeset, and to be able to show all data changed by a Changeset
+- Whenever we start an operation, we should return the in-progress Changeset ID and object to the
+  client / UI, rather than wait for the Changeset to complete.
+- In general, a Changeset operation includes many smaller running tasks that are sequential or
+  paralell. These tasks should wherever possible persist their state to the database as they finish.
+  There should be a simple interface for plugins to add tasks to the Changeset.
+- The changeset should track planned, ongoing and finished tasks (e.g. asyncio.Task). Regularly the
+  Changeset can emit an event that contains updated counts for these, so that a client can show a
+  progress bar (Note all tasks may not be known upfront, so it would be a moving progress target)
+- The client can call a streaming endpoint based on the Changeset ID to receive events in the shape
+  of log lines and/or progress updates
+- A Changeset cannot be started if the previous one is still in-progress, e.g. there is a global
+  lock of just one operation at a time.
+- A Changeset cannot be created if the previous one has the same ID, e.g. same timestamp
+- Any other requirements that the operation requires should if possible be validated before starting
+  the Changeset, so that we can return an error without creating a new Changeset
+- An in-progress Changeset can be cancelled by calling that endpoint from the client. This should
+  attempt to stop all work as soon as possible, while still allowing for smaller ongoing tasks to
+  complete and allowing for cleanup. Any changes already persisted remain and are still associated
+  with the changeset.
+- A Changeset can also be discarded, this completely removes it and all data associated with it.
+
 ### Data views
 
 Changesetting deals with how we add data, but an even more important activity is to allow the local

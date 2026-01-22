@@ -12,6 +12,7 @@ import type {
   ChangesetListResponse,
   ChangesetResponse,
   DeleteChangesetResponse,
+  CancelChangesetResponse,
   ChangesetChangesResponse,
   AssetDetailResponse,
   AssetCollection,
@@ -138,6 +139,14 @@ export async function fetchChangesets(): Promise<ChangesetListResponse> {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);
+}
+
+export async function fetchActiveChangesets(): Promise<ChangesetListResponse> {
+  // Simple client-side filter for now.
+  const all = await fetchChangesets();
+  return {
+    changesets: (all.changesets ?? []).filter((c) => c.status === "in_progress"),
+  };
 }
 
 export async function createActor(payload: {
@@ -305,7 +314,7 @@ export async function fetchCollectionAssets(
   return handleResponse(response);
 }
 
-export async function startScan(actorId?: number): Promise<Changeset> {
+export async function runSources(actorId?: number): Promise<Changeset> {
   const search = actorId !== undefined ? `?ids=${encodeURIComponent(actorId)}` : "";
   const response = await fetch(`${API_BASE}/sources/run${search}`, {
     method: "POST",
@@ -314,12 +323,41 @@ export async function startScan(actorId?: number): Promise<Changeset> {
   return handleResponse(response);
 }
 
-export async function cancelChangeset(changesetId: number): Promise<void> {
+export async function runProcessors(): Promise<Changeset> {
+  const response = await fetch(`${API_BASE}/processors/run`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function runProcessor(actorId: number): Promise<Changeset> {
+  const response = await fetch(
+    `${API_BASE}/processors/run?processor_ids=${encodeURIComponent(actorId)}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
+  );
+  return handleResponse(response);
+}
+
+export async function runAnalyzer(actorId: number): Promise<Record<string, unknown>> {
+  const response = await fetch(`${API_BASE}/analyzers/${encodeURIComponent(actorId)}/run`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function cancelChangeset(
+  changesetId: number,
+): Promise<CancelChangesetResponse> {
   const response = await fetch(`${API_BASE}/changesets/${changesetId}/cancel`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
-  await handleResponse(response);
+  return handleResponse(response);
 }
 
 export async function deleteChangeset(changesetId: number): Promise<DeleteChangesetResponse> {
@@ -331,7 +369,7 @@ export async function deleteChangeset(changesetId: number): Promise<DeleteChange
 }
 
 export async function startManualChangeset(): Promise<Changeset> {
-  const response = await fetch(`${API_BASE}/changesets/manual/start`, {
+  const response = await fetch(`${API_BASE}/changesets`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
@@ -357,11 +395,7 @@ export async function fetchEditableMetadataSchema(): Promise<{
 }
 
 export async function runAllProcessors(): Promise<Changeset> {
-  const response = await fetch(`${API_BASE}/processors/run`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
-  return handleResponse(response);
+  return runProcessors();
 }
 
 export async function runAllAnalyzers(): Promise<Record<string, unknown>> {

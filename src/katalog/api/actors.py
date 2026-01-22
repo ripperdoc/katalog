@@ -75,9 +75,11 @@ async def get_actor(actor_id: int):
     actor = await Actor.get_or_none(id=actor_id)
     if actor is None:
         raise HTTPException(status_code=404, detail="Actor not found")
-    changesets = await Changeset.filter(actor=actor).order_by("-started_at")
-    for changeset in changesets:
-        await changeset.fetch_related("actor")
+    changesets = (
+        await Changeset.filter(actor_links__actor=actor)
+        .order_by("-id")
+        .prefetch_related("actor_links__actor")
+    )
     return {
         "actor": actor.to_dict(),
         "changesets": [s.to_dict() for s in changesets],

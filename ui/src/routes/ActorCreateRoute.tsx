@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { createActor, fetchPlugins, fetchPluginConfigSchema, type PluginSpec } from "../api/client";
+import { createActor, fetchPlugins, fetchPluginConfigSchema } from "../api/client";
+import type { PluginSpec } from "../types/api";
 import ActorForm from "../components/ActorForm";
 
 const USER_EDITOR_PLUGIN_ID = "katalog.editors.user_editor.UserEditor";

@@ -83,7 +83,7 @@ async def test_stage_dependency_triggers_following_stage(pipeline_db):
     changed_keys = await process_asset(
         asset=ctx.asset,
         changeset=ctx.changeset,
-        stages=[stage1, stage2],
+        pipeline=[stage1, stage2],
         changes=changes,
     )
 
@@ -107,7 +107,7 @@ async def test_processor_skipped_when_dependency_not_changed(pipeline_db):
 
     changes = MetadataChanges(await ctx.asset.load_metadata())
     changed_keys = await process_asset(
-        asset=ctx.asset, changeset=ctx.changeset, stages=[[proc]], changes=changes
+        asset=ctx.asset, changeset=ctx.changeset, pipeline=[[proc]], changes=changes
     )
 
     assert proc.runs == 0
@@ -153,7 +153,7 @@ async def test_stage_processors_run_concurrently(pipeline_db):
         process_asset(
             asset=ctx.asset,
             changeset=ctx.changeset,
-            stages=[[proc_a, proc_b]],
+            pipeline=[[proc_a, proc_b]],
             changes=changes,
         ),
         timeout=3,
@@ -182,7 +182,7 @@ async def test_md5_skips_when_hash_already_present(pipeline_db):
     changed_keys = await process_asset(
         asset=ctx.asset,
         changeset=ctx.changeset,
-        stages=[[md5_processor]],
+        pipeline=[[md5_processor]],
         changes=changes,
     )
 

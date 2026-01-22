@@ -1,10 +1,6 @@
 import asyncio
 from collections import deque
-from dataclasses import dataclass
-
 from loguru import logger
-
-from katalog.models import Changeset
 
 
 def sse_event(event: str, data: str) -> str:
@@ -67,11 +63,3 @@ class ChangesetEventManager:
 
     def get_buffer(self, changeset_id: int) -> list[str]:
         return list(self.buffers.get(changeset_id, []))
-
-
-@dataclass
-class ChangesetRunState:
-    changeset: Changeset
-    task: asyncio.Task
-    cancel_event: asyncio.Event
-    done_event: asyncio.Event

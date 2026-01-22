@@ -40,10 +40,9 @@ function ChangesetsRoute() {
         cellRenderer: ChangesetCell,
       },
       { accessor: "status", label: "Status", width: 140, type: "string" },
-      { accessor: "actor_label", label: "Actor", width: "1fr", type: "string" },
-      { accessor: "note", label: "Note", width: "1.5fr", type: "string" },
-      { accessor: "started_at", label: "Started", width: 200, type: "date" },
-      { accessor: "completed_at", label: "Completed", width: 200, type: "date" },
+      { accessor: "actor_label", label: "Actors", width: "1fr", type: "string" },
+      { accessor: "message", label: "Message", width: "1.5fr", type: "string" },
+      { accessor: "running_time_ms", label: "Runtime (ms)", width: 160, type: "number" },
     ],
     [],
   );
@@ -52,7 +51,7 @@ function ChangesetsRoute() {
     () =>
       changesets.map((snap) => ({
         ...snap,
-        actor_label: snap.actor_name ?? snap.actor_id ?? "n/a",
+        actor_label: Array.isArray(snap.actor_ids) ? snap.actor_ids.join(", ") : "n/a",
       })),
     [changesets],
   );

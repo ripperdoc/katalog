@@ -16,14 +16,11 @@ router = APIRouter()
 
 @router.post("/changesets")
 async def create_changeset():
-    raise NotImplementedError("Not supported to create changesets directly")
-
-
-@router.post("/changesets/manual/start")
-async def start_manual_changeset():
     actor = await ensure_user_editor()
     try:
-        changeset = await Changeset.begin(actor=actor, status=OpStatus.IN_PROGRESS)
+        changeset = await Changeset.begin(
+            actors=[actor], message="Manual edit", status=OpStatus.IN_PROGRESS
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return changeset.to_dict()
@@ -42,19 +39,20 @@ async def finish_changeset(changeset_id: int):
 
 @router.get("/changesets")
 async def list_changesets():
-    changesets = await Changeset.all().order_by("-started_at").prefetch_related("actor")
+    changesets = (
+        await Changeset.all().order_by("-id").prefetch_related("actor_links__actor")
+    )
     return {"changesets": [s.to_dict() for s in changesets]}
 
 
 @router.get("/changesets/{changeset_id}")
 async def get_changeset(changeset_id: int, stream: bool = Query(False)):
-    changeset = await Changeset.get_or_none(id=changeset_id)
+    changeset = await Changeset.get_or_none(id=changeset_id).prefetch_related(
+        "actor_links__actor"
+    )
     if changeset is None:
         raise HTTPException(status_code=404, detail="Changeset not found")
-    await changeset.fetch_related("actor")
 
-    if stream:
-        return await stream_changeset_events(changeset_id)
     return {
         "changeset": changeset.to_dict(),
         "logs": event_manager.get_buffer(changeset_id),
@@ -102,10 +100,11 @@ async def stream_changeset_events(changeset_id: int):
     if changeset is None:
         raise HTTPException(status_code=404, detail="Changeset not found")
 
-    await changeset.fetch_related("actor")
     history, queue = event_manager.subscribe(changeset_id)
     run_state = RUNNING_CHANGESETS.get(changeset_id)
-    done_event = run_state.done_event if run_state else asyncio.Event()
+    done_event = (
+        run_state.done_event if run_state and run_state.done_event else asyncio.Event()
+    )
     if run_state is None and changeset.status != OpStatus.IN_PROGRESS:
         done_event.set()
 
@@ -128,7 +127,6 @@ async def stream_changeset_events(changeset_id: int):
                     log_waiter.cancel()
                 if done_waiter in done:
                     latest = await Changeset.get(id=changeset_id)
-                    await latest.fetch_related("actor")
                     yield sse_event("changeset", json.dumps(latest.to_dict()))
                     break
         finally:
@@ -142,17 +140,24 @@ async def cancel_changeset(changeset_id: int):
     changeset = await Changeset.get_or_none(id=changeset_id)
     if changeset is None:
         raise HTTPException(status_code=404, detail="Changeset not found")
-    run_state = RUNNING_CHANGESETS.get(changeset_id)
-    if run_state is None or run_state.done_event.is_set():
-        # Nothing running: finalize as CANCELED
-        await changeset.finalize(status=OpStatus.CANCELED)
-        latest = await Changeset.get(id=changeset_id)
-        await latest.fetch_related("actor")
-        return {"status": "cancelled", "changeset": latest.to_dict()}
+    running_changeset = RUNNING_CHANGESETS.get(changeset_id)
+    if running_changeset is None or (
+        running_changeset.done_event and running_changeset.done_event.is_set()
+    ):
+        # Nothing running (maybe after restart). If still in progress, finalize as canceled.
+        if changeset.status == OpStatus.IN_PROGRESS:
+            await changeset.finalize(status=OpStatus.CANCELED)
+            changeset = await Changeset.get(id=changeset_id)
+            await changeset.fetch_related("actor_links__actor")
+        return {"status": "cancelled", "changeset": changeset.to_dict()}
 
-    run_state.cancel_event.set()
-    for task in list(run_state.changeset.tasks):
-        task.cancel()
-    run_state.task.cancel()
+    # Signal cancellation and wait briefly
+    running_changeset.cancel()
+    try:
+        await running_changeset.wait_cancelled(timeout=10)
+    except asyncio.TimeoutError:
+        return {"status": "cancellation_requested"}
 
-    return {"status": "cancellation_requested"}
+    latest = await Changeset.get(id=changeset_id)
+    await latest.fetch_related("actor_links__actor")
+    return {"status": "cancelled", "changeset": latest.to_dict()}

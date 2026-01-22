@@ -10,17 +10,14 @@ On the other hand, users will be encouraged to purge changesets regularly.
 """
 
 from __future__ import annotations
-from asyncio import Task
 import asyncio
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict
-from datetime import datetime, UTC
 from enum import Enum, IntEnum
 from time import time
-from typing import Any, Mapping
+import traceback
+from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
 
 from loguru import logger
-from tortoise.transactions import in_transaction
 from tortoise.fields import (
     CASCADE,
     IntEnumField,
@@ -71,8 +68,8 @@ class Actor(Model):
             "type": self.type.name if isinstance(self.type, ActorType) else self.type,
             "plugin_id": self.plugin_id,
             "config": self.config,
-            "config_toml": getattr(self, "config_toml", None),
-            "disabled": bool(getattr(self, "disabled", False)),
+            "config_toml": self.config_toml,
+            "disabled": bool(self.disabled),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -115,23 +112,23 @@ DEFAULT_TASK_CONCURRENCY = 10
 
 
 class Changeset(Model):
+    # The int timestamp in ms since epoch when the changeset was started
     id = IntField(pk=True)
-    actor = ForeignKeyField(
-        "models.Actor", related_name="changesets", on_delete=CASCADE, null=True
-    )
-    note = CharField(max_length=512, null=True)
-    started_at = DatetimeField(default=lambda: datetime.now(UTC))
-    completed_at = DatetimeField(null=True)
+    message = CharField(max_length=512, null=True)
+    running_time_ms = IntField(null=True)
     status = CharEnumField(OpStatus, max_length=32)
-    metadata = JSONField(null=True)
+    data = JSONField(null=True)
 
-    # Local fields not persisted to DB
+    # Local fields not persisted to DB, used for operations
     stats: ChangesetStats
-    tasks: list[Task]
-    # Control concurrency of changeset (processor) tasks
+    tasks: list[asyncio.Task]
     semaphore: asyncio.Semaphore
-    # Just for type checking
-    actor_id: int
+    _tasks_queued: int
+    _tasks_running: int
+    _tasks_finished: int
+    task: asyncio.Task | None
+    cancel_event: asyncio.Event | None
+    done_event: asyncio.Event | None
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -139,28 +136,30 @@ class Changeset(Model):
 
     def _init_runtime_state(self) -> None:
         # Safe defaults so instances materialized from the ORM always have runtime fields.
-        self.stats = getattr(self, "stats", ChangesetStats())
-        self.tasks = getattr(self, "tasks", [])
-        self.semaphore = getattr(
-            self, "semaphore", asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
-        )
+        self.stats = ChangesetStats()
+        self.tasks = []
+        self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+        self._tasks_queued = 0
+        self._tasks_running = 0
+        self._tasks_finished = 0
+        self.task = None
+        self.cancel_event = None
+        self.done_event = None
 
     def to_dict(self) -> dict:
-        # Note needs to have been fetched related 'actor' beforehand
-        actor = getattr(self, "actor", None)
+        actor_ids: Sequence[int] | None = None
+        cache = getattr(self, "_prefetched_objects_cache", None)
+        if cache and "actor_links" in cache:
+            actor_ids = [int(link.actor_id) for link in cache["actor_links"]]
         return {
             "id": self.id,
-            "actor_id": self.actor_id,
-            "actor_name": actor.name if actor else None,
-            "note": self.note,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat()
-            if self.completed_at
-            else None,
+            "actor_ids": actor_ids,
+            "message": self.message,
+            "running_time_ms": self.running_time_ms,
             "status": self.status.value
             if isinstance(self.status, OpStatus)
             else str(self.status),
-            "metadata": self.metadata,
+            "data": self.data,
         }
 
     @classmethod
@@ -170,9 +169,7 @@ class Changeset(Model):
         COMPLETED changeset for this actor. If no COMPLETED changeset exists,
         return None (treat as full scan).
         """
-        changesets = list(
-            await cls.filter(actor=actor).order_by("-completed_at", "-started_at")
-        )
+        changesets = list(await cls.filter(actor_links__actor=actor).order_by("-id"))
         last_full = None
         last_partial = None
         for s in reversed(changesets):
@@ -195,10 +192,9 @@ class Changeset(Model):
         cls,
         *,
         status: OpStatus = OpStatus.IN_PROGRESS,
-        metadata: Mapping[str, Any] | None = None,
-        actor: Actor | None = None,
-        changeset_id: int | None = None,
-        note: str | None = None,
+        data: Mapping[str, Any] | None = None,
+        actors: Iterable[Actor] | None = None,
+        message: str | None = None,
     ) -> "Changeset":
         # Prevent concurrent in-progress changesets (scans or edits).
         existing_in_progress = await cls.get_or_none(status=OpStatus.IN_PROGRESS)
@@ -206,24 +202,156 @@ class Changeset(Model):
             raise ValueError(
                 f"Changeset {existing_in_progress.id} is already in progress; finish or cancel it first"
             )
-        changeset_id = changeset_id or int(time())
+        changeset_id = int(time() * 1000)
         if await cls.get_or_none(id=changeset_id):
             raise ValueError(f"Changeset with id {changeset_id} already exists")
-        return await cls.create(
+        changeset = await cls.create(
             id=changeset_id,
-            actor=actor,
             status=status,
-            note=note,
-            metadata=dict(metadata) if metadata else None,
+            message=message,
+            data=dict(data) if data else None,
         )
+        await changeset.add_actors(actors or [])
+        return changeset
+
+    async def add_actors(self, actors: Iterable[Actor]) -> None:
+        actor_list = list(actors)
+        if not actor_list:
+            return
+        existing = {
+            row["actor_id"]
+            for row in await ChangesetActor.filter(changeset=self).values("actor_id")
+        }
+        payload = [
+            ChangesetActor(changeset=self, actor=actor)
+            for actor in actor_list
+            if actor.id not in existing
+        ]
+        if payload:
+            await ChangesetActor.bulk_create(payload)
+
+    def log_task_progress(self) -> None:
+        """
+        Emit a structured log message that can be turned into SSE progress events.
+        """
+        logger.bind(changeset_id=self.id).info(
+            "tasks_progress queued={queued} running={running} finished={finished}",
+            queued=self._tasks_queued,
+            running=self._tasks_running,
+            finished=self._tasks_finished,
+        )
+
+    def start_operation(
+        self,
+        coro_factory: Callable[[], Awaitable[Any]],
+        *,
+        on_status_error: OpStatus = OpStatus.ERROR,
+    ) -> asyncio.Task:
+        """
+        Start an operation coroutine for this changeset with shared finalize/error handling.
+
+        - `coro_factory` must be a zero-arg callable returning an awaitable.
+        """
+
+        if self.task and not self.task.done():
+            raise RuntimeError(
+                f"Changeset {self.id} already has a running operation task"
+            )
+        if self.cancel_event is None:
+            self.cancel_event = asyncio.Event()
+        if self.done_event is None:
+            self.done_event = asyncio.Event()
+
+        context_cm = logger.contextualize(changeset_id=self.id)
+
+        async def runner():
+            try:
+                with context_cm:
+                    await coro_factory()
+                await self.finalize(status=OpStatus.COMPLETED)
+            except asyncio.CancelledError:
+                await self.finalize(status=OpStatus.CANCELED)
+                raise
+            except Exception as exc:  # noqa: BLE001
+                data = dict(self.data or {})
+                data["error_message"] = str(exc)
+                data["error_traceback"] = traceback.format_exc()
+                self.data = data
+                await self.finalize(status=on_status_error)
+                raise
+            finally:
+                if self.done_event:
+                    self.done_event.set()
+
+        self.task = asyncio.create_task(runner())
+        self.task.add_done_callback(lambda _: self.done_event.set())
+        return self.task
+
+    def cancel(self) -> None:
+        """Signal cancellation and cancel the main task."""
+        if self.cancel_event:
+            self.cancel_event.set()
+        if self.task and not self.task.done():
+            self.task.cancel()
+
+    def is_cancelled(self) -> bool:
+        """Check if cancellation has been signaled."""
+        return self.cancel_event.is_set() if self.cancel_event else False
+
+    async def wait_cancelled(self, timeout: float | None = None) -> None:
+        """Best-effort wait for this changeset to finish after cancellation."""
+        if not self.done_event:
+            return
+        try:
+            await asyncio.wait_for(self.done_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timeout waiting for changeset {changeset_id} to finish after cancellation",
+                changeset_id=self.id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.opt(exception=exc).warning(
+                "Error while waiting for changeset {changeset_id} to finish after cancellation",
+                changeset_id=self.id,
+            )
+
+    def enqueue(
+        self, coro_or_factory: Callable[[], Awaitable[Any]] | Awaitable[Any]
+    ) -> asyncio.Task:
+        """
+        Enqueue a sub-task under this changeset with shared cancellation/concurrency and progress.
+        """
+        if self.semaphore is None:
+            self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+        self._tasks_queued += 1
+        self.log_task_progress()
+
+        async def runner():
+            async with self.semaphore:
+                self._tasks_queued -= 1
+                self._tasks_running += 1
+                self.log_task_progress()
+                try:
+                    if self.cancel_event and self.cancel_event.is_set():
+                        raise asyncio.CancelledError()
+                    if asyncio.iscoroutine(coro_or_factory):
+                        coro = coro_or_factory
+                    else:
+                        coro = coro_or_factory()
+                    return await coro
+                finally:
+                    self._tasks_running -= 1
+                    self._tasks_finished += 1
+                    self.log_task_progress()
+
+        task = asyncio.create_task(runner())
+        self.tasks.append(task)
+        return task
 
     async def finalize(self, *, status: OpStatus) -> None:
         # Ensure runtime fields exist even if object was loaded from DB outside __init__ context.
         if not hasattr(self, "tasks"):
             self._init_runtime_state()
-
-        completed_at = datetime.now(UTC)
-        metadata_payload: dict[str, Any] | None = None
 
         if self.tasks:
             logger.info(
@@ -239,88 +367,40 @@ class Changeset(Model):
                 failures=failures,
             )
 
-        if self.stats is not None or self.metadata is not None:
-            metadata_payload = dict(self.metadata or {})
+        data_payload: dict[str, Any] | None = None
+        if self.stats is not None or self.data is not None:
+            data_payload = dict(self.data or {})
             if self.stats is not None:
-                metadata_payload["stats"] = self.stats.to_dict()
-            self.metadata = metadata_payload
+                data_payload["stats"] = self.stats.to_dict()
+            self.data = data_payload
 
-        async with in_transaction():
-            update_fields = ["completed_at", "status"]
-            if self.note is not None:
-                update_fields.append("note")
-            if metadata_payload is not None:
-                update_fields.append("metadata")
-            self.status = status
-            self.completed_at = completed_at
-            await self.save(update_fields=update_fields)
+        if self.running_time_ms is None:
+            now_ts = time()
+            self.running_time_ms = int(now_ts * 1000) - int(self.id)
 
-    @classmethod
-    @asynccontextmanager
-    async def context(
-        cls,
-        *,
-        status: OpStatus = OpStatus.IN_PROGRESS,
-        metadata: Mapping[str, Any] | None = None,
-        actor: Actor | None = None,
-        changeset_id: int | None = None,
-        note: str | None = None,
-        success_status: OpStatus = OpStatus.COMPLETED,
-        error_status: OpStatus = OpStatus.ERROR,
-    ):
-        """
-        Async context manager for Changeset lifecycle.
-
-        Usage:
-            async with Changeset.context(actor=..., metadata=...) as snap:
-                # do work, snap is a Changeset instance
-        On normal exit -> finalize with success_status.
-        On CancelledError -> finalize with CANCELED and re-raise.
-        On other exceptions -> finalize with error_status and re-raise.
-        """
-        changeset = await cls.begin(
-            status=status,
-            metadata=metadata,
-            actor=actor,
-            changeset_id=changeset_id,
-            note=note,
-        )
-        try:
-            yield changeset
-        except asyncio.CancelledError:
-            # best-effort finalize as cancelled, then re-raise
-            try:
-                await changeset.finalize(status=OpStatus.CANCELED)
-            except Exception as exc:  # keep exception simple and log
-                logger.opt(exception=exc).error(
-                    "Failed to finalize changeset after cancellation"
-                )
-            raise
-        except Exception:
-            # error path: finalize as error (or custom error_status), then re-raise
-            try:
-                await changeset.finalize(status=error_status)
-            except Exception as exc:
-                logger.opt(exception=exc).error(
-                    "Failed to finalize changeset after error"
-                )
-            raise
-        else:
-            # normal completion
-            try:
-                await changeset.finalize(status=success_status)
-            except Exception as exc:
-                # If finalization fails on success, log and re-raise so caller is aware
-                logger.opt(exception=exc).error(
-                    "Failed to finalize changeset after success"
-                )
-                raise
+        update_fields = ["status", "running_time_ms"]
+        if data_payload is not None:
+            update_fields.append("data")
+        self.status = status
+        await self.save(update_fields=update_fields)
 
     class Meta(Model.Meta):
-        indexes = (
-            # Used by server.list_changesets(), server.get_actor(), and Changeset.find_partial_resume_point().
-            ("actor", "started_at"),
-        )
+        indexes = ()
+
+
+class ChangesetActor(Model):
+    """Join table for changeset -> actors involved."""
+
+    id = IntField(pk=True)
+    changeset = ForeignKeyField(
+        "models.Changeset", related_name="actor_links", on_delete=CASCADE
+    )
+    actor = ForeignKeyField(
+        "models.Actor", related_name="changeset_links", on_delete=CASCADE
+    )
+
+    class Meta(Model.Meta):
+        unique_together = (("changeset", "actor"),)
 
 
 async def drain_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:

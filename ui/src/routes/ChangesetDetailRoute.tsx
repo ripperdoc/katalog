@@ -145,7 +145,12 @@ function ChangesetDetailRoute() {
     setCancelling(true);
     setError(null);
     try {
-      await cancelChangeset(changesetIdNum);
+      const res = await cancelChangeset(changesetIdNum);
+      if (res.changeset) {
+        setChangeset(res.changeset);
+      } else {
+        await loadChangeset();
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -274,9 +279,6 @@ function ChangesetDetailRoute() {
                   </div>
                 </div>
                 {changesError && <p className="error">{changesError}</p>}
-                {!changesError && !changesLoading && changes.length === 0 && (
-                  <div className="empty-state">No changes in this changeset.</div>
-                )}
                 <SimpleTable
                   defaultHeaders={changeHeaders}
                   rows={changes as unknown as Record<string, any>[]}

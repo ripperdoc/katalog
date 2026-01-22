@@ -60,7 +60,6 @@ class Asset(Model):
             True if the asset was newly created in the DB, otherwise False.
         """
 
-        actor = actor or getattr(changeset, "actor", None)
         if actor is None:
             raise ValueError("actor must be supplied to save_record")
 

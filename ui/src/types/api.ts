@@ -92,13 +92,12 @@ export type ChangesetStatus =
 
 export interface Changeset {
   id: number;
-  actor_id: number | null;
-  actor_name: string | null;
-  note: string | null;
-  started_at: string | null;
-  completed_at: string | null;
+  actor_ids: number[] | null;
+  message: string | null;
+  running_time_ms: number | null;
   status: ChangesetStatus;
-  metadata: Record<string, unknown> | null;
+  data: Record<string, unknown> | null;
+  running?: boolean;
 }
 
 export interface ActorListResponse {
@@ -131,6 +130,11 @@ export interface ChangesetResponse {
 export interface DeleteChangesetResponse {
   status: string;
   changeset_id: number;
+}
+
+export interface CancelChangesetResponse {
+  status: string;
+  changeset?: Changeset;
 }
 
 export interface AssetCollection {

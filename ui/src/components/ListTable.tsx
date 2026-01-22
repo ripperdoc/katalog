@@ -49,8 +49,12 @@ function ListTable<T>({
                 <td key={col.accessor}>
                   {col.render
                     ? col.render(item)
-                    : // @ts-expect-error generic index
-                      (item as any)[col.accessor] ?? ""}
+                    : (() => {
+                        const raw = (item as Record<string, unknown>)[col.accessor];
+                        if (raw === null || raw === undefined) return "";
+                        if (typeof raw === "object") return JSON.stringify(raw);
+                        return raw as ReactNode;
+                      })()}
                 </td>
               ))}
             </tr>
