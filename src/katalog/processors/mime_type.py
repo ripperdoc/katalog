@@ -3,7 +3,7 @@ from __future__ import annotations
 import magic
 from pydantic import BaseModel, ConfigDict, Field
 
-from katalog.constants.metadata import FILE_TYPE
+from katalog.constants.metadata import FILE_TYPE, DATA_FILE_READER
 from katalog.processors.base import (
     Processor,
     ProcessorResult,
@@ -58,11 +58,12 @@ class MimeTypeProcessor(Processor):
     async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
-        if not asset.data:
+        reader = await asset.get_data_reader(DATA_FILE_READER, changes)
+        if not reader:
             return ProcessorResult(
                 status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
             )
         m = magic.Magic(mime=True)
-        buf = await asset.data.read(0, self.config.probe_length, no_cache=True)
+        buf = await reader.read(0, self.config.probe_length, no_cache=True)
         mt = m.from_buffer(buf)
         return ProcessorResult(metadata=[make_metadata(FILE_TYPE, mt, self.actor.id)])

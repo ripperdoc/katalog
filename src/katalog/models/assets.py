@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Sequence, TYPE_CHECKING
+from typing import Any, Sequence, TYPE_CHECKING, cast
 
 from tortoise import Tortoise
 from tortoise.fields import (
@@ -17,10 +17,15 @@ from tortoise.fields import (
 )
 from tortoise.models import Model
 
-from katalog.constants.metadata import ASSET_LOST, MetadataType, get_metadata_id
+from katalog.constants.metadata import (
+    ASSET_LOST,
+    MetadataType,
+    get_metadata_id,
+    MetadataKey,
+)
 
 
-class FileAccessor(ABC):
+class DataReader(ABC):
     @abstractmethod
     async def read(
         self, offset: int = 0, length: int | None = None, no_cache: bool = False
@@ -32,15 +37,7 @@ class Asset(Model):
     id = IntField(pk=True)
     external_id = CharField(max_length=255, unique=True)
     canonical_uri = CharField(max_length=1024, unique=False)
-    _data_accessor: FileAccessor | None = None
     _metadata_cache: list["Metadata"] | None = None
-
-    @property
-    def data(self) -> FileAccessor | None:
-        return self._data_accessor
-
-    def attach_accessor(self, accessor: FileAccessor | None) -> None:
-        self._data_accessor = accessor
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +80,57 @@ class Asset(Model):
         await self.fetch_related("metadata")
         self._metadata_cache = list(getattr(self, "metadata", []))
         return self._metadata_cache
+
+    async def get_data_reader(
+        self, key: MetadataKey, changes: "MetadataChanges"
+    ) -> DataReader | None:
+        """
+        Resolve a FileReader for this asset using current metadata for the given key.
+        """
+        from loguru import logger
+
+        from katalog.plugins.registry import get_actor_instance
+        from katalog.sources.base import SourcePlugin
+
+        current = changes.current()
+        entries = current.get(key, [])
+        if not entries:
+            return None
+        if len(entries) > 1:
+            logger.warning(
+                "Multiple metadata entries for {key} on asset {asset_id}; using newest",
+                key=key,
+                asset_id=self.id,
+            )
+        entry = entries[0]
+        actor_id = entry.actor_id
+        if actor_id is None:
+            return None
+
+        try:
+            plugin = await get_actor_instance(actor_id)
+        except Exception:
+            logger.exception(
+                "Failed to resolve plugin for actor {actor_id}", actor_id=actor_id
+            )
+            return None
+
+        if not isinstance(plugin, SourcePlugin):
+            logger.warning(
+                "Actor {actor_id} is not a SourcePlugin; cannot read data",
+                actor_id=actor_id,
+            )
+            return None
+
+        params = entry.value if isinstance(entry.value, dict) else None
+        try:
+            return cast(DataReader | None, plugin.get_data_reader(self, params=params))
+        except Exception:
+            logger.exception(
+                "Source plugin {actor_id} failed to provide file reader",
+                actor_id=actor_id,
+            )
+            return None
 
     @classmethod
     async def mark_unseen_as_lost(
@@ -192,4 +240,4 @@ class AssetCollection(Model):
 # Type-checking imports
 if TYPE_CHECKING:
     from .core import Actor, Changeset
-    from .metadata import Metadata
+    from .metadata import Metadata, MetadataChanges

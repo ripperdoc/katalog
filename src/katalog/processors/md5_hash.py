@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 
 from katalog.constants.metadata import (
+    DATA_FILE_READER,
     DATA_KEY,
     FILE_SIZE,
     HASH_MD5,
@@ -58,19 +59,19 @@ class MD5HashProcessor(Processor):
         return False
 
     async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
-        d = asset.data
-        if d is None:
+        reader = await asset.get_data_reader(DATA_FILE_READER, changes)
+        if reader is None:
             return ProcessorResult(
                 status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
             )
 
         # If the accessor exposes a local path, hash it in a thread to leverage GIL release.
-        if hasattr(d, "path"):
+        if hasattr(reader, "path"):
             digest = await asyncio.to_thread(
-                _hash_file_path, Path(d.path), self.config.chunk_size
+                _hash_file_path, Path(reader.path), self.config.chunk_size
             )  # type: ignore[arg-type]
         else:
-            digest = await _hash_stream_async(d, self.config.chunk_size)
+            digest = await _hash_stream_async(reader, self.config.chunk_size)
 
         return ProcessorResult(
             metadata=[make_metadata(HASH_MD5, digest, self.actor.id)]

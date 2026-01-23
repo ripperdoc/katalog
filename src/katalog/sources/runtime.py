@@ -1,5 +1,6 @@
 from __future__ import annotations
 from loguru import logger
+from typing import cast
 from tortoise.transactions import in_transaction
 
 from katalog.models import (
@@ -12,8 +13,10 @@ from katalog.models import (
 )
 from katalog.processors.runtime import process_asset, sort_processors
 
-from katalog.sources.base import AssetScanResult, SourcePlugin, make_source_instance
+from katalog.sources.base import AssetScanResult, SourcePlugin
+from katalog.plugins.registry import get_actor_instance
 from katalog.constants.metadata import ASSET_LOST
+from katalog.constants.metadata import DATA_FILE_READER
 
 
 async def _persist_scan_only_item(
@@ -36,6 +39,7 @@ async def _persist_scan_only_item(
 
     # Mark asset as seen in this changeset for this actor.
     item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
+    item.metadata.append(make_metadata(DATA_FILE_READER, {}, actor_id=item.actor.id))
 
     changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
     changes = await changes.persist(asset=item.asset, changeset=changeset)
@@ -95,7 +99,7 @@ async def run_sources(
             )
             continue
 
-        source_plugin = make_source_instance(source)
+        source_plugin = cast(SourcePlugin, await get_actor_instance(source))
         scan_result = await source_plugin.scan()
 
         persisted_assets = 0
@@ -120,7 +124,10 @@ async def run_sources(
                 changes = MetadataChanges(
                     loaded=loaded_metadata,
                     staged=result.metadata
-                    + [make_metadata(ASSET_LOST, None, actor_id=result.actor.id)],
+                    + [
+                        make_metadata(ASSET_LOST, None, actor_id=result.actor.id),
+                        make_metadata(DATA_FILE_READER, {}, actor_id=result.actor.id),
+                    ],
                 )
                 # Enqueue asset for processing, which will also persist the metadata
                 changeset.enqueue(

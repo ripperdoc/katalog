@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from katalog.models import FileAccessor
+from katalog.models import DataReader
 
 
-class MemoryAccessor(FileAccessor):
-    """In-memory FileAccessor implementation for deterministic hashing tests."""
+class MemoryAccessor(DataReader):
+    """In-memory FileReader implementation for deterministic hashing tests."""
 
     def __init__(self, payload: bytes) -> None:
         self._payload = payload

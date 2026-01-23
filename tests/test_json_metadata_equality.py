@@ -77,3 +77,22 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
         metadata_key_id=key_id,
     ).count()
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_persist_json_empty_object_is_saved(pipeline_db):
+    fx = await PipelineFixture.create()
+    loaded = await fx.asset.load_metadata()
+    staged = [fx.metadata(FILE_TAGS, {})]
+
+    changes = MetadataChanges(loaded=loaded, staged=staged)
+    changed_keys = await changes.persist(asset=fx.asset, changeset=fx.changeset)
+
+    assert FILE_TAGS in changed_keys
+    row = await Metadata.get(
+        asset=fx.asset,
+        actor=fx.actor,
+        metadata_key_id=staged[0].metadata_key_id,
+        removed=False,
+    )
+    assert row.value_json == {}

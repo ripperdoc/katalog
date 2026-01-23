@@ -228,7 +228,7 @@ class GoogleDriveClient(SourcePlugin):
             "version": "0.1",
         }
 
-    def get_accessor(self, asset: Asset) -> Any:
+    def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
 
@@ -248,7 +248,6 @@ class GoogleDriveClient(SourcePlugin):
             canonical_uri=canonical_uri,
         )
 
-        asset.attach_accessor(self.get_accessor(asset))
         result = AssetScanResult(asset=asset, actor=self.actor)
 
         result.set_metadata_list(FILE_ID_PATH, id_paths)

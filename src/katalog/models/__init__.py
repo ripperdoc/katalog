@@ -6,7 +6,7 @@ from .assets import (
     Asset,
     AssetCollection,
     CollectionRefreshMode,
-    FileAccessor,
+    DataReader,
 )
 from .core import (
     Actor,
@@ -35,7 +35,7 @@ __all__ = [
     "ChangesetStats",
     "CollectionRefreshMode",
     "DEFAULT_TASK_CONCURRENCY",
-    "FileAccessor",
+    "DataReader",
     "Metadata",
     "MetadataChanges",
     "MetadataKey",

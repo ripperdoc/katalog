@@ -12,7 +12,7 @@ from katalog.models import (
     make_metadata,
 )
 from katalog.plugins.base import PluginBase
-from katalog.plugins.registry import get_plugin_class
+from katalog.plugins.registry import get_actor_instance
 
 
 @dataclass(slots=True)
@@ -61,11 +61,10 @@ class SourcePlugin(PluginBase):
         """
         raise NotImplementedError()
 
-    def get_accessor(self, asset: Asset) -> Any:
-        """
-        Returns an accessor for the file data represented by the Asset.
-        This is used to read file data.
-        """
+    def get_data_reader(
+        self, asset: Asset, params: dict[str, Any] | None = None
+    ) -> Any:
+        """Return a FileReader for the given asset (or None if not available)."""
         raise NotImplementedError()
 
     def can_connect(self, uri: str) -> bool:
@@ -81,6 +80,5 @@ class SourcePlugin(PluginBase):
         raise NotImplementedError()
 
 
-def make_source_instance(source_record: Actor) -> SourcePlugin:
-    SourceClass = cast(type[SourcePlugin], get_plugin_class(source_record.plugin_id))
-    return SourceClass(actor=source_record, **(source_record.config or {}))
+async def make_source_instance(source_record: Actor) -> SourcePlugin:
+    return cast(SourcePlugin, await get_actor_instance(source_record))

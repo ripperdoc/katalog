@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
-from typing import Iterable
+from typing import Iterable, TypeVar, cast, overload
 
 from loguru import logger
 
-from katalog.models import ActorType
+from katalog.models import Actor, ActorType
+from katalog.plugins.base import PluginBase
 from katalog.utils.utils import import_plugin_class
 
 
@@ -114,6 +115,39 @@ def get_plugin_class(plugin_id: str) -> type:
         return spec.cls
     # Fallback for legacy/local usage: import by dotted path
     return import_plugin_class(plugin_id)
+
+
+_InstanceT = TypeVar("_InstanceT", bound="PluginBase")
+_INSTANCE_CACHE: dict[int, PluginBase] = {}
+
+
+@overload
+async def get_actor_instance(actor: Actor) -> PluginBase: ...
+
+
+@overload
+async def get_actor_instance(actor: int) -> PluginBase: ...
+
+
+async def get_actor_instance(actor) -> PluginBase:
+    """
+    Return a cached plugin instance for the given actor (id or Actor), creating it if needed.
+    """
+    actor_obj: Actor | None
+    if isinstance(actor, Actor):
+        actor_obj = actor
+    else:
+        actor_obj = await Actor.get_or_none(id=int(actor))
+    if actor_obj is None:
+        raise ValueError(f"Actor {actor!r} not found")
+
+    cached = _INSTANCE_CACHE.get(actor_obj.id)
+    if cached is not None:
+        return cached
+    PluginClass = cast(type[PluginBase], get_plugin_class(actor_obj.plugin_id))
+    instance = PluginClass(actor=actor_obj, **(actor_obj.config or {}))
+    _INSTANCE_CACHE[actor_obj.id] = instance
+    return instance
 
 
 def plugins_for_type(actor_type: ActorType) -> list[PluginSpec]:

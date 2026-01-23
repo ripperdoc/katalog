@@ -208,6 +208,12 @@ ASSET_LOST = define_metadata(
     "1 when asset missing from latest scan for actor, 0 when seen",
     width=80,
 )
+DATA_FILE_READER = define_metadata(
+    "data/file_reader",
+    MetadataType.JSON,
+    "File reader",
+    "JSON config for fetching binary data from a specific actor",
+)
 
 
 ACCESS_OWNER = define_metadata("access/owner", MetadataType.STRING, "Owner")

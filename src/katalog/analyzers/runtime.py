@@ -13,7 +13,7 @@ async def run_analyzer(
     if actor.disabled:
         raise ValueError("Analyzer actor disabled")
 
-    analyzer = make_analyzer_instance(actor)
+    analyzer = await make_analyzer_instance(actor)
     result: AnalyzerResult
     if not analyzer.should_run(changeset=changeset):
         # TODO mark as skipped

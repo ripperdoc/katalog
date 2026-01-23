@@ -13,7 +13,7 @@ from katalog.models import (
 from katalog.constants.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.plugins.base import PluginBase
 
-from katalog.plugins.registry import get_plugin_class
+from katalog.plugins.registry import get_actor_instance
 
 
 @dataclass(slots=True)
@@ -78,6 +78,5 @@ def file_data_changed(
 file_data_change_dependencies = frozenset({DATA_KEY, HASH_MD5, TIME_MODIFIED})
 
 
-def make_processor_instance(processor_record: Actor) -> Processor:
-    ProcessorClass = cast(type[Processor], get_plugin_class(processor_record.plugin_id))
-    return ProcessorClass(actor=processor_record, **(processor_record.config or {}))
+async def make_processor_instance(processor_record: Actor) -> Processor:
+    return cast(Processor, await get_actor_instance(processor_record))

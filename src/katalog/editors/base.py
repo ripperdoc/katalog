@@ -16,21 +16,3 @@ class EditorPlugin(PluginBase):
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the plugin."""
         raise NotImplementedError()
-
-    def authorize(self, **kwargs) -> str:
-        """
-        Perform any authentication steps or callback required for this editor.
-        Returns an authorization URL to redirect the user to, if applicable.
-        """
-        raise NotImplementedError()
-
-    def get_accessor(self, asset):
-        """
-        Returns an accessor for the file data represented by the Asset.
-        This is used to read file data.
-        """
-        raise NotImplementedError()
-
-    def can_connect(self, uri: str) -> bool:
-        """Check if the editor can connect to the given URI."""
-        raise NotImplementedError()

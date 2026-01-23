@@ -12,7 +12,7 @@ from loguru import logger
 
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.models import (
-    FileAccessor,
+    DataReader,
     Asset,
     Actor,
 )
@@ -27,9 +27,9 @@ from katalog.constants.metadata import (
 from katalog.utils.utils import timestamp_to_utc
 
 
-class FilesystemAccessor(FileAccessor):
+class FilesystemReader(DataReader):
     """
-    Accessor for reading files from the local file system.
+    Object for reading files from the local file system.
     """
 
     def __init__(self, path: str):
@@ -79,11 +79,11 @@ class FilesystemClient(SourcePlugin):
             "version": "0.1",
         }
 
-    def get_accessor(self, asset: Asset) -> Any:
+    def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
         """Return an accessor keyed off the canonical absolute path."""
         if not asset.canonical_uri:
             return None
-        return FilesystemAccessor(_canonical_uri_to_path(asset.canonical_uri))
+        return FilesystemReader(_canonical_uri_to_path(asset.canonical_uri))
 
     def can_connect(self, uri: str) -> bool:
         return os.path.exists(uri) and os.path.isdir(uri)
@@ -128,8 +128,6 @@ class FilesystemClient(SourcePlugin):
                             canonical_uri=abs_path.as_uri(),
                             actor_id=self.actor.id,
                         )
-
-                        asset.attach_accessor(self.get_accessor(asset))
 
                         result = AssetScanResult(asset=asset, actor=self.actor)
                         result.set_metadata(FILE_PATH, str(abs_path))

@@ -114,7 +114,11 @@ async def test_run_computes_expected_hash():
     processor = MD5HashProcessor(actor=make_actor())
     record = make_record()
     payload = b"hello world"
-    record.attach_accessor(MemoryAccessor(payload))
+
+    async def fake_get_data_reader(key, changes):
+        return MemoryAccessor(payload)
+
+    record.get_data_reader = fake_get_data_reader  # type: ignore[attr-defined]
 
     cs = MetadataChanges([])
     result = await processor.run(record, cs)

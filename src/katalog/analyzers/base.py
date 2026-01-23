@@ -6,7 +6,7 @@ from typing import Any, ClassVar, FrozenSet, cast
 
 from katalog.models import Metadata, MetadataKey, Actor, Changeset
 from katalog.plugins.base import PluginBase
-from katalog.plugins.registry import get_plugin_class
+from katalog.plugins.registry import get_actor_instance
 
 
 @dataclass(slots=True)
@@ -89,6 +89,5 @@ class Analyzer(PluginBase, ABC):
         """Execute the analyzer and return the metadata mutations to persist."""
 
 
-def make_analyzer_instance(analyzer_record: Actor) -> Analyzer:
-    AnalyzerClass = cast(type[Analyzer], get_plugin_class(analyzer_record.plugin_id))
-    return AnalyzerClass(actor=analyzer_record, **(analyzer_record.config or {}))
+async def make_analyzer_instance(analyzer_record: Actor) -> Analyzer:
+    return cast(Analyzer, await get_actor_instance(analyzer_record))

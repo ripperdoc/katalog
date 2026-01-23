@@ -2,22 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Awaitable, Optional, Sequence
+from typing import Awaitable, Sequence, cast
 
 from loguru import logger
 
 from katalog.models import (
     Asset,
     Metadata,
-    MetadataKey,
     OpStatus,
     Actor,
     ActorType,
     Changeset,
     MetadataChanges,
 )
-from katalog.processors.base import Processor, ProcessorResult, make_processor_instance
-
+from katalog.processors.base import Processor, ProcessorResult
+from katalog.plugins.registry import get_actor_instance
 
 DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
 
@@ -44,7 +43,7 @@ async def sort_processors(
     outputs_by_name: dict[str, frozenset[MetadataKey]] = {}
 
     for actor in actors:
-        processor = make_processor_instance(actor)
+        processor = cast(Processor, await get_actor_instance(actor))
         # Used when persisting produced metadata.
         name = actor.name
         processors_by_name[name] = processor
@@ -169,6 +168,7 @@ async def run_processors(
         changeset.stats.assets_saved += 1
         loaded_metadata = await asset.load_metadata()
         changes = MetadataChanges(loaded=loaded_metadata)
+
         changeset.enqueue(
             process_asset(
                 asset=asset,
