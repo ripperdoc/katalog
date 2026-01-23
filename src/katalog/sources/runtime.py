@@ -39,7 +39,6 @@ async def _persist_scan_only_item(
 
     # Mark asset as seen in this changeset for this actor.
     item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
-    item.metadata.append(make_metadata(DATA_FILE_READER, {}, actor_id=item.actor.id))
 
     changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
     changes = await changes.persist(asset=item.asset, changeset=changeset)

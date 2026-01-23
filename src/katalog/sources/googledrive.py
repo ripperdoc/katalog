@@ -20,6 +20,7 @@ from katalog.constants.metadata import (
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
     ACCESS_SHARING_USER,
+    DATA_FILE_READER,
     FILE_DESCRIPTION,
     FILE_ID_PATH,
     FILE_NAME,
@@ -253,6 +254,9 @@ class GoogleDriveClient(SourcePlugin):
 
         result.set_metadata_list(FILE_ID_PATH, id_paths)
         result.set_metadata_list(FILE_PATH, name_paths)
+
+        # Store the fact that we can read file data, no special arguments needed.
+        result.set_metadata(DATA_FILE_READER, {})
 
         result.set_metadata(
             FILE_NAME, file.get("originalFilename", file.get("name", ""))

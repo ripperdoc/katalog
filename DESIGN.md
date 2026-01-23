@@ -522,6 +522,9 @@ plugin code.
 - Sources are not currently meant to know anything about the Asset and it's metadat from earlier
   scans. We also assume any metadata set from a scan are intended to replace any previous value from
   the same actor id.
+- Should set the `data/file_reader` metadata key to signal that the file data can be read (through
+  the Source). Value should be an empty object, or special arguments needed to find/locate the file
+  data.
 
 ## Processors
 
