@@ -220,6 +220,7 @@ class GoogleDriveClient(SourcePlugin):
         self.token_path = actor_path(self.actor.id) / "token.json"
         self.client_secret_path = actor_path(self.actor.id) / "client_secret.json"
         self.folder_cache_path = actor_path(self.actor.id) / "folder_cache.json"
+        self.start_page_token_path = actor_path(self.actor.id) / "start_page_token.json"
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -327,6 +328,7 @@ class GoogleDriveClient(SourcePlugin):
     async def scan(self) -> ScanResult:
         """Scan Google Drive using HttpCrawler with simple nextPageToken pagination."""
         await self._load_credentials()
+        await self._store_start_page_token()
         await self._load_folder_cache()
 
         scan_status = OpStatus.IN_PROGRESS
@@ -779,6 +781,38 @@ class GoogleDriveClient(SourcePlugin):
         response.raise_for_status()
         payload = response.json()
         return payload.get("name")
+
+    async def _store_start_page_token(self) -> None:
+        try:
+            payload = await self._fetch_start_page_token()
+            token = payload.get("startPageToken")
+            if not token:
+                logger.warning("Missing startPageToken in Google Drive response")
+                return
+            data = {
+                "startPageToken": token,
+                "kind": payload.get("kind"),
+                "driveId": self.drive_id,
+                "corpora": self.corpora,
+                "fetchedAt": datetime.now(tz=UTC).isoformat(),
+            }
+            self.start_page_token_path.write_text(json.dumps(data))
+        except Exception as exc:
+            logger.warning(f"Failed to store startPageToken: {exc}")
+
+    async def _fetch_start_page_token(self) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "supportsAllDrives": self.supports_all_drives,
+        }
+        if self.drive_id:
+            params["driveId"] = self.drive_id
+        response = await self.http.get(
+            "/drive/v3/changes/startPageToken",
+            params=params,
+            headers=self._auth_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def _resolve_paths(self, file: Dict[str, Any]) -> tuple[list[str], list[str]]:
         file_name = file.get("name", file.get("originalFilename", ""))
