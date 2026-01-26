@@ -10,7 +10,7 @@ from katalog.db import (
 )
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
-from katalog.views import get_view
+from katalog.models.views import get_view
 
 
 router = APIRouter()

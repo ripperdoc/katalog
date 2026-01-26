@@ -12,7 +12,7 @@ from katalog.constants.metadata import (
 )
 from katalog.constants.metadata import MetadataKey as MK
 from katalog.models import Asset, Metadata
-from katalog.views import ViewSpec
+from katalog.models.views import ViewSpec
 
 from katalog.db.query_fields import asset_filter_fields
 from katalog.db.query_filters import filter_conditions

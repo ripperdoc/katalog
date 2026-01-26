@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from katalog.db import list_assets_for_view
-from katalog.views import get_view, list_views
+from katalog.models.views import get_view, list_views
 
 router = APIRouter()
 

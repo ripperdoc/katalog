@@ -1,5 +1,5 @@
 from katalog.constants.metadata import ASSET_ACTOR_ID, ASSET_ID
-from katalog.views import ViewSpec
+from katalog.models.views import ViewSpec
 
 from katalog.db.query_fields import asset_sort_fields
 

@@ -13,7 +13,7 @@ from katalog.models import (
     OpStatus,
     make_metadata,
 )
-from katalog.views import get_view
+from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
 
 router = APIRouter()
