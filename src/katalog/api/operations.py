@@ -10,25 +10,21 @@ from katalog.api.state import RUNNING_CHANGESETS
 router = APIRouter()
 
 
-@router.post("/sources/run")
-async def do_run_sources(ids: list[int] | None = Query(None)):
-    """Scan selected or all sources and run processors for changed assets."""
-    target_ids = set(ids or [])
+@router.post("/sources/{source_id}/run")
+async def do_run_sources(source_id: int):
+    """Scan a single source and run processors for changed assets."""
 
-    if target_ids:
-        sources = await Actor.filter(
-            type=ActorType.SOURCE, id__in=sorted(target_ids)
-        ).order_by("id")
-        if len(sources) != len(target_ids):
-            raise HTTPException(status_code=404, detail="One or more sources not found")
-    else:
-        sources = await Actor.filter(type=ActorType.SOURCE).order_by("id")
+    source = await Actor.get_or_none(id=source_id, type=ActorType.SOURCE)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if source.disabled:
+        raise HTTPException(status_code=409, detail="Source is disabled")
 
-    if not sources:
-        raise HTTPException(status_code=404, detail="No sources configured")
-    enabled_sources = [s for s in sources if not getattr(s, "disabled", False)]
+    # Single-source scans map 1:1 to a changeset. Processor actors may still participate downstream.
+    sources = [source]
+
     changeset = await Changeset.begin(
-        message="Source scan", actors=enabled_sources, status=OpStatus.IN_PROGRESS
+        message="Source scan", actors=sources, status=OpStatus.IN_PROGRESS
     )
 
     RUNNING_CHANGESETS[changeset.id] = changeset

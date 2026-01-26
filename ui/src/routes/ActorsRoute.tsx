@@ -66,7 +66,10 @@ function ActorsRoute() {
     setError(null);
     try {
       if (groupKey === "sources") {
-        const changeset = await runSources(actor?.id);
+        if (!actor) {
+          throw new Error("Select a source to run");
+        }
+        const changeset = await runSources(actor.id);
         startTracking(changeset);
         navigate(`/changesets/${changeset.id}`);
         return;
@@ -155,8 +158,7 @@ function ActorsRoute() {
             const availablePlugins = filteredPlugins(
               typeConst as "SOURCE" | "PROCESSOR" | "ANALYZER" | "EDITOR",
             );
-            const runAllEnabled =
-              groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
+            const runAllEnabled = groupKey === "processors" || groupKey === "analyzers";
             const hasActors = list.length > 0;
             const requiresActors =
               groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";

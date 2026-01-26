@@ -11,6 +11,7 @@ from katalog.models import (
     ActorType,
     Changeset,
 )
+from katalog.models.core import OpStatus
 from katalog.processors.runtime import process_asset, sort_processors
 
 from katalog.sources.base import AssetScanResult, SourcePlugin
@@ -75,7 +76,7 @@ async def run_sources(
     *,
     sources: list[Actor],
     changeset: Changeset,
-) -> None:
+) -> OpStatus:
     """Run a scan + processor pipeline for a single source and finalize its changeset."""
 
     processor_pipeline, processor_actors = await sort_processors()
@@ -85,6 +86,8 @@ async def run_sources(
     # This tends to be a big speed-up with SQLite/aiosqlite.
     tx_chunk_size = 500
     log_every_assets = 5000
+
+    final_status = OpStatus.COMPLETED
 
     for source in sources:
         if source.type != ActorType.SOURCE:
@@ -192,5 +195,6 @@ async def run_sources(
             changeset.stats.assets_ignored += ignored
         if len(sources) == 1:
             # Assume the changeset status is that of the single source
-            # TODO this is currently overwritten by Changeset.finalize
-            changeset.status = scan_result.status
+            final_status = scan_result.status
+
+    return final_status

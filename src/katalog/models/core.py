@@ -246,11 +246,14 @@ class Changeset(Model):
         coro_factory: Callable[[], Awaitable[Any]],
         *,
         on_status_error: OpStatus = OpStatus.ERROR,
+        success_status: OpStatus = OpStatus.COMPLETED,
     ) -> asyncio.Task:
         """
         Start an operation coroutine for this changeset with shared finalize/error handling.
 
         - `coro_factory` must be a zero-arg callable returning an awaitable.
+        - If the coroutine returns an `OpStatus`, it will be used to finalize the changeset;
+          otherwise `success_status` is used.
         """
 
         if self.task and not self.task.done():
@@ -267,8 +270,11 @@ class Changeset(Model):
         async def runner():
             try:
                 with context_cm:
-                    await coro_factory()
-                await self.finalize(status=OpStatus.COMPLETED)
+                    result = await coro_factory()
+                final_status = (
+                    result if isinstance(result, OpStatus) else success_status
+                )
+                await self.finalize(status=final_status)
             except asyncio.CancelledError:
                 await self.finalize(status=OpStatus.CANCELED)
                 raise

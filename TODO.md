@@ -2,8 +2,6 @@
 
 # Next up
 
-- [ ] As changesets can contain multiple actors, how do we map ScanResult.status to the changeset
-      status? Also, currently the cutoff logic assumes there is always one scan per changeset.
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
@@ -12,7 +10,7 @@
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
 - [ ] (Niklas) Should limited metadata types, e.g. file types, map to some enum table instead of
-      saving the actual value over and over?
+      saving the actual value over and over? We get an index for free plus less storage space?
 
 # Backlog
 

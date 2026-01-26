@@ -314,9 +314,8 @@ export async function fetchCollectionAssets(
   return handleResponse(response);
 }
 
-export async function runSources(actorId?: number): Promise<Changeset> {
-  const search = actorId !== undefined ? `?ids=${encodeURIComponent(actorId)}` : "";
-  const response = await fetch(`${API_BASE}/sources/run${search}`, {
+export async function runSources(actorId: number): Promise<Changeset> {
+  const response = await fetch(`${API_BASE}/sources/${encodeURIComponent(actorId)}/run`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });
@@ -350,9 +349,7 @@ export async function runAnalyzer(actorId: number): Promise<Record<string, unkno
   return handleResponse(response);
 }
 
-export async function cancelChangeset(
-  changesetId: number,
-): Promise<CancelChangesetResponse> {
+export async function cancelChangeset(changesetId: number): Promise<CancelChangesetResponse> {
   const response = await fetch(`${API_BASE}/changesets/${changesetId}/cancel`, {
     method: "POST",
     headers: { Accept: "application/json" },
