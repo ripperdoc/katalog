@@ -1,6 +1,5 @@
 from typing import Any
 
-from fastapi import HTTPException
 from pydantic import ValidationError
 
 from katalog.plugins.registry import (
@@ -9,6 +8,21 @@ from katalog.plugins.registry import (
     get_plugin_spec,
     refresh_plugins,
 )
+
+
+class ApiError(Exception):
+    """API-level error carrying HTTP-compatible fields."""
+
+    def __init__(
+        self,
+        status_code: int,
+        detail: Any,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+        self.headers = headers
 
 
 def validate_and_normalize_config(
@@ -22,7 +36,7 @@ def validate_and_normalize_config(
         model = config_model.model_validate(config or {})
     except ValidationError as exc:
         # Use JSON-serializable error payload for REST clients.
-        raise HTTPException(
+        raise ApiError(
             status_code=400,
             detail={"message": "Invalid config", "errors": exc.errors()},
         ) from exc
@@ -35,7 +49,7 @@ def config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
         plugin_id
     )
     if spec is None:
-        raise HTTPException(status_code=404, detail="Plugin not found")
+        raise ApiError(status_code=404, detail="Plugin not found")
     try:
         plugin_cls = (
             spec.cls
@@ -43,7 +57,7 @@ def config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
             else get_plugin_class(plugin_id)
         )
     except Exception as exc:
-        raise HTTPException(status_code=404, detail="Plugin not found") from exc
+        raise ApiError(status_code=404, detail="Plugin not found") from exc
     config_model = getattr(plugin_cls, "config_model", None)
     if config_model is None:
         return {"schema": {"type": "object", "properties": {}}}

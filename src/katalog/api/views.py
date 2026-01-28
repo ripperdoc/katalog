@@ -1,25 +1,64 @@
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from katalog.db import list_assets_for_view
 from katalog.models.views import get_view, list_views
+from katalog.api.helpers import ApiError
 
 router = APIRouter()
 
 
+async def list_views_api() -> dict:
+    return {"views": [v.to_dict() for v in list_views()]}
+
+
+async def get_view_api(view_id: str) -> dict:
+    try:
+        view = get_view(view_id)
+    except KeyError:
+        raise ApiError(status_code=404, detail="View not found")
+    return {"view": view.to_dict()}
+
+
+async def list_assets_for_view_api(
+    view_id: str,
+    actor_id: Optional[int],
+    offset: int,
+    limit: int,
+    sort: Optional[tuple[str, str]],
+    columns: list[str] | None,
+    search: Optional[str],
+    filters: list[str] | None,
+) -> dict:
+    try:
+        view = get_view(view_id)
+    except KeyError:
+        raise ApiError(status_code=404, detail="View not found")
+
+    try:
+        return await list_assets_for_view(
+            view,
+            actor_id=actor_id,
+            offset=offset,
+            limit=limit,
+            sort=sort,
+            filters=filters,
+            columns=set(columns) if columns else None,
+            search=search,
+        )
+    except ValueError as exc:
+        raise ApiError(status_code=400, detail=str(exc))
+
+
 @router.get("/views")
 async def list_views_endpoint():
-    return {"views": [v.to_dict() for v in list_views()]}
+    return await list_views_api()
 
 
 @router.get("/views/{view_id}")
 async def get_view_endpoint(view_id: str):
-    try:
-        view = get_view(view_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="View not found")
-    return {"view": view.to_dict()}
+    return await get_view_api(view_id)
 
 
 @router.get("/views/{view_id}/assets")
@@ -33,11 +72,6 @@ async def list_assets_for_view_endpoint(
     search: Optional[str] = Query(None),
     filters: list[str] | None = Query(None),
 ):
-    try:
-        view = get_view(view_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="View not found")
-
     sort_tuple: tuple[str, str] | None = None
     if sort:
         if ":" in sort:
@@ -46,16 +80,13 @@ async def list_assets_for_view_endpoint(
             col, direction = sort, "asc"
         sort_tuple = (col, direction)
 
-    try:
-        return await list_assets_for_view(
-            view,
-            actor_id=actor_id,
-            offset=offset,
-            limit=limit,
-            sort=sort_tuple,
-            filters=filters,
-            columns=set(columns) if columns else None,
-            search=search,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    return await list_assets_for_view_api(
+        view_id=view_id,
+        actor_id=actor_id,
+        offset=offset,
+        limit=limit,
+        sort=sort_tuple,
+        columns=columns,
+        search=search,
+        filters=filters,
+    )

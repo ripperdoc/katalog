@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from katalog.constants.metadata import COLLECTION_MEMBER, get_metadata_id
@@ -15,6 +15,7 @@ from katalog.models import (
 )
 from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
+from katalog.api.helpers import ApiError
 
 router = APIRouter()
 
@@ -33,8 +34,7 @@ class CollectionUpdate(BaseModel):
     refresh_mode: str | CollectionRefreshMode | None = None
 
 
-@router.get("/collections")
-async def list_collections():
+async def list_collections_api() -> dict[str, Any]:
     collections = await AssetCollection.all().order_by("-created_at")
     result = []
     for col in collections:
@@ -42,27 +42,24 @@ async def list_collections():
     return {"collections": result}
 
 
-@router.post("/collections")
-async def create_collection(request: Request):
-    payload = CollectionCreate.model_validate(await request.json())
-
+async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
     try:
         asset_ids = [int(a) for a in payload.asset_ids]
     except Exception:
-        raise HTTPException(status_code=400, detail="asset_ids must be integers")
+        raise ApiError(status_code=400, detail="asset_ids must be integers")
 
     unique_asset_ids = sorted(set(asset_ids))
 
     existing = await AssetCollection.get_or_none(name=payload.name)
     if existing:
-        raise HTTPException(status_code=400, detail="Collection name already exists")
+        raise ApiError(status_code=400, detail="Collection name already exists")
 
     refresh_mode = payload.refresh_mode or CollectionRefreshMode.ON_DEMAND
     if isinstance(refresh_mode, str):
         try:
             refresh_mode = CollectionRefreshMode(refresh_mode)
         except Exception:
-            raise HTTPException(
+            raise ApiError(
                 status_code=400,
                 detail="refresh_mode must be 'live' or 'on_demand'",
             )
@@ -98,28 +95,24 @@ async def create_collection(request: Request):
     return {"collection": collection.to_dict()}
 
 
-@router.get("/collections/{collection_id}")
-async def get_collection(collection_id: int):
+async def get_collection_api(collection_id: int) -> dict[str, Any]:
     collection = await AssetCollection.get_or_none(id=collection_id)
     if collection is None:
-        raise HTTPException(status_code=404, detail="Collection not found")
+        raise ApiError(status_code=404, detail="Collection not found")
     return {"collection": collection.to_dict()}
 
 
-@router.patch("/collections/{collection_id}")
-async def update_collection(collection_id: int, request: Request):
+async def update_collection_api(
+    collection_id: int, payload: CollectionUpdate
+) -> dict[str, Any]:
     collection = await AssetCollection.get_or_none(id=collection_id)
     if collection is None:
-        raise HTTPException(status_code=404, detail="Collection not found")
-
-    payload = CollectionUpdate.model_validate(await request.json())
+        raise ApiError(status_code=404, detail="Collection not found")
 
     if payload.name:
         existing = await AssetCollection.get_or_none(name=payload.name)
         if existing and existing.id != collection.id:
-            raise HTTPException(
-                status_code=400, detail="Collection name already exists"
-            )
+            raise ApiError(status_code=400, detail="Collection name already exists")
         collection.name = payload.name
 
     if payload.description is not None:
@@ -133,7 +126,7 @@ async def update_collection(collection_id: int, request: Request):
                 else payload.refresh_mode
             )
         except Exception:
-            raise HTTPException(
+            raise ApiError(
                 status_code=400, detail="refresh_mode must be 'live' or 'on_demand'"
             )
 
@@ -141,33 +134,24 @@ async def update_collection(collection_id: int, request: Request):
     return {"collection": collection.to_dict()}
 
 
-@router.get("/collections/{collection_id}/assets")
-async def list_collection_assets(
+async def list_collection_assets_api(
     collection_id: int,
-    view_id: str = Query("default"),
-    offset: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    sort: Optional[str] = Query(None),
-    columns: list[str] | None = Query(None),
-    search: Optional[str] = Query(None),
-    filters: list[str] | None = Query(None),
-):
+    view_id: str,
+    offset: int,
+    limit: int,
+    sort: Optional[tuple[str, str]],
+    columns: list[str] | None,
+    search: Optional[str],
+    filters: list[str] | None,
+) -> dict[str, Any]:
     collection = await AssetCollection.get_or_none(id=collection_id)
     if collection is None:
-        raise HTTPException(status_code=404, detail="Collection not found")
+        raise ApiError(status_code=404, detail="Collection not found")
 
     try:
         view = get_view(view_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="View not found")
-
-    sort_tuple: tuple[str, str] | None = None
-    if sort:
-        if ":" in sort:
-            col, direction = sort.split(":", 1)
-        else:
-            col, direction = sort, "asc"
-        sort_tuple = (col, direction)
+        raise ApiError(status_code=404, detail="View not found")
 
     metadata_table = Metadata._meta.db_table
     membership_key_id = get_metadata_id(COLLECTION_MEMBER)
@@ -195,7 +179,7 @@ async def list_collection_assets(
             view,
             offset=offset,
             limit=limit,
-            sort=sort_tuple,
+            sort=sort,
             filters=filters,
             columns=set(columns) if columns else None,
             search=search,
@@ -203,4 +187,56 @@ async def list_collection_assets(
             extra_where=extra_where,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ApiError(status_code=400, detail=str(exc))
+
+
+@router.get("/collections")
+async def list_collections():
+    return await list_collections_api()
+
+
+@router.post("/collections")
+async def create_collection(request: Request):
+    payload = CollectionCreate.model_validate(await request.json())
+    return await create_collection_api(payload)
+
+
+@router.get("/collections/{collection_id}")
+async def get_collection(collection_id: int):
+    return await get_collection_api(collection_id)
+
+
+@router.patch("/collections/{collection_id}")
+async def update_collection(collection_id: int, request: Request):
+    payload = CollectionUpdate.model_validate(await request.json())
+    return await update_collection_api(collection_id, payload)
+
+
+@router.get("/collections/{collection_id}/assets")
+async def list_collection_assets(
+    collection_id: int,
+    view_id: str = Query("default"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    sort: Optional[str] = Query(None),
+    columns: list[str] | None = Query(None),
+    search: Optional[str] = Query(None),
+    filters: list[str] | None = Query(None),
+):
+    sort_tuple: tuple[str, str] | None = None
+    if sort:
+        if ":" in sort:
+            col, direction = sort.split(":", 1)
+        else:
+            col, direction = sort, "asc"
+        sort_tuple = (col, direction)
+    return await list_collection_assets_api(
+        collection_id=collection_id,
+        view_id=view_id,
+        offset=offset,
+        limit=limit,
+        sort=sort_tuple,
+        columns=columns,
+        search=search,
+        filters=filters,
+    )

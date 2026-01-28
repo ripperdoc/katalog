@@ -1,7 +1,7 @@
 from typing import Any
 import tomllib
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from katalog.models import Actor, Changeset
@@ -12,7 +12,11 @@ from katalog.plugins.registry import (
     refresh_plugins,
 )
 
-from katalog.api.helpers import config_schema_for_plugin, validate_and_normalize_config
+from katalog.api.helpers import (
+    ApiError,
+    config_schema_for_plugin,
+    validate_and_normalize_config,
+)
 
 router = APIRouter()
 
@@ -32,14 +36,12 @@ class ActorUpdate(BaseModel):
     disabled: bool | None = None
 
 
-@router.post("/actors")
-async def create_actor(request: Request):
-    payload = ActorCreate.model_validate(await request.json())
+async def create_actor_api(payload: ActorCreate) -> dict[str, Any]:
     spec: PluginSpec | None = get_plugin_spec(payload.plugin_id)
     if spec is None:
         spec = refresh_plugins().get(payload.plugin_id)
     if spec is None:
-        raise HTTPException(status_code=404, detail="Plugin not found")
+        raise ApiError(status_code=404, detail="Plugin not found")
     try:
         plugin_cls = (
             spec.cls
@@ -47,18 +49,18 @@ async def create_actor(request: Request):
             else get_plugin_class(payload.plugin_id)
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=404, detail="Plugin not found") from exc
+        raise ApiError(status_code=404, detail="Plugin not found") from exc
 
     existing = await Actor.get_or_none(name=payload.name)
     if existing:
-        raise HTTPException(status_code=400, detail="Actor name already exists")
+        raise ApiError(status_code=400, detail="Actor name already exists")
 
     # Handle TOML vs config conflict
     config_toml = payload.config_toml.strip() if payload.config_toml else None
     raw_config: dict[str, Any] | None = payload.config
 
     if config_toml and raw_config:
-        raise HTTPException(
+        raise ApiError(
             status_code=400,
             detail="Cannot provide both config and config_toml. Use one or the other.",
         )
@@ -68,7 +70,7 @@ async def create_actor(request: Request):
         try:
             raw_config = tomllib.loads(config_toml)
         except tomllib.TOMLDecodeError as exc:
-            raise HTTPException(
+            raise ApiError(
                 status_code=400, detail=f"Invalid TOML syntax: {exc}"
             ) from exc
 
@@ -85,17 +87,15 @@ async def create_actor(request: Request):
     return {"actor": actor.to_dict()}
 
 
-@router.get("/actors")
-async def list_actors():
+async def list_actors_api() -> dict[str, Any]:
     actors = await Actor.all().order_by("id")
     return {"actors": [p.to_dict() for p in actors]}
 
 
-@router.get("/actors/{actor_id}")
-async def get_actor(actor_id: int):
+async def get_actor_api(actor_id: int) -> dict[str, Any]:
     actor = await Actor.get_or_none(id=actor_id)
     if actor is None:
-        raise HTTPException(status_code=404, detail="Actor not found")
+        raise ApiError(status_code=404, detail="Actor not found")
     changesets = (
         await Changeset.filter(actor_links__actor=actor)
         .order_by("-id")
@@ -107,21 +107,18 @@ async def get_actor(actor_id: int):
     }
 
 
-@router.get("/actors/{actor_id}/config/schema")
-async def get_actor_config_schema(actor_id: int):
+async def get_actor_config_schema_api(actor_id: int) -> dict[str, Any]:
     actor = await Actor.get_or_none(id=actor_id)
     if actor is None:
-        raise HTTPException(status_code=404, detail="Actor not found")
+        raise ApiError(status_code=404, detail="Actor not found")
     schema_payload = config_schema_for_plugin(actor.plugin_id)
     return {**schema_payload, "value": actor.config or {}}
 
 
-@router.patch("/actors/{actor_id}")
-async def update_actor(actor_id: int, request: Request):
+async def update_actor_api(actor_id: int, payload: ActorUpdate) -> dict[str, Any]:
     actor = await Actor.get_or_none(id=actor_id)
     if actor is None:
-        raise HTTPException(status_code=404, detail="Actor not found")
-    payload = ActorUpdate.model_validate(await request.json())
+        raise ApiError(status_code=404, detail="Actor not found")
 
     if payload.name:
         actor.name = payload.name
@@ -132,14 +129,14 @@ async def update_actor(actor_id: int, request: Request):
 
     # Check for TOML/config conflict
     if config_toml and raw_config:
-        raise HTTPException(
+        raise ApiError(
             status_code=400,
             detail="Cannot provide both config and config_toml. Use one or the other.",
         )
 
     # If actor already has TOML and we're trying to update config (not TOML), reject
     if actor.config_toml and raw_config is not None and config_toml is None:
-        raise HTTPException(
+        raise ApiError(
             status_code=400,
             detail="Actor is using TOML configuration. Clear config_toml first or provide config_toml to update.",
         )
@@ -149,7 +146,7 @@ async def update_actor(actor_id: int, request: Request):
         try:
             plugin_cls = get_plugin_class(actor.plugin_id)
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=404, detail="Plugin not found") from exc
+            raise ApiError(status_code=404, detail="Plugin not found") from exc
 
         # Handle TOML update (including clearing with empty string)
         if config_toml is not None:
@@ -162,7 +159,7 @@ async def update_actor(actor_id: int, request: Request):
                 try:
                     parsed_config = tomllib.loads(config_toml)
                 except tomllib.TOMLDecodeError as exc:
-                    raise HTTPException(
+                    raise ApiError(
                         status_code=400, detail=f"Invalid TOML syntax: {exc}"
                     ) from exc
                 normalized = validate_and_normalize_config(plugin_cls, parsed_config)
@@ -177,3 +174,30 @@ async def update_actor(actor_id: int, request: Request):
 
     await actor.save()
     return {"actor": actor.to_dict()}
+
+
+@router.post("/actors")
+async def create_actor(request: Request):
+    payload = ActorCreate.model_validate(await request.json())
+    return await create_actor_api(payload)
+
+
+@router.get("/actors")
+async def list_actors():
+    return await list_actors_api()
+
+
+@router.get("/actors/{actor_id}")
+async def get_actor(actor_id: int):
+    return await get_actor_api(actor_id)
+
+
+@router.get("/actors/{actor_id}/config/schema")
+async def get_actor_config_schema(actor_id: int):
+    return await get_actor_config_schema_api(actor_id)
+
+
+@router.patch("/actors/{actor_id}")
+async def update_actor(actor_id: int, request: Request):
+    payload = ActorUpdate.model_validate(await request.json())
+    return await update_actor_api(actor_id, payload)

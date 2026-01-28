@@ -2,7 +2,8 @@ import asyncio
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from loguru import logger
 from tortoise import Tortoise
 
@@ -17,6 +18,7 @@ from katalog.api import (
     system,
     views,
 )
+from katalog.api.helpers import ApiError
 from katalog.api.state import RUNNING_CHANGESETS, event_manager
 from katalog.config import DB_URL, WORKSPACE
 from katalog.db import sync_config
@@ -55,6 +57,17 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(ApiError)
+async def api_error_handler(request: Request, exc: ApiError):
+    _ = request
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
+
 
 app.include_router(assets.router)
 app.include_router(views.router)
