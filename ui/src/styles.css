@@ -213,7 +213,7 @@ footer {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   border-top: 1px solid #e2e8f0;
 }
 
@@ -507,3 +507,93 @@ button {
 .error {
   color: #b91c1c;
 }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tab-list {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e2e8f0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tab-button {
+  background: transparent;
+  border: none;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 150ms ease;
+}
+
+.tab-button:hover {
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.tab-button.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.tab-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tab-panel {
+  padding: 1rem 0;
+}
+
+.tab-panel.hidden {
+  display: none;
+}
+
+.toml-textarea {
+  width: 100%;
+  min-height: 300px;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 0.9rem;
+  padding: 0.75rem;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  resize: vertical;
+}
+
+.toml-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  align-items: center;
+}
+
+.info-message {
+  padding: 0.75rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.5rem;
+  color: #1e40af;
+  font-size: 0.9rem;
+}
+
+.warning-message {
+  padding: 0.75rem;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 0.5rem;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+

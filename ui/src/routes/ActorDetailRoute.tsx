@@ -27,6 +27,7 @@ function ActorDetailRoute() {
   const [formName, setFormName] = useState<string>("");
   const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
+  const [configToml, setConfigToml] = useState<string>("");
   const { startTracking } = useChangesetProgress();
 
   const actorIdNum = actorId ? Number(actorId) : NaN;
@@ -44,6 +45,7 @@ function ActorDetailRoute() {
       setChangesets(response.changesets ?? []);
       setFormName(response.actor?.name ?? "");
       setConfigData(response.actor?.config ?? {});
+      setConfigToml(response.actor?.config_toml ?? "");
       try {
         const schemaRes = await fetchActorConfigSchema(actorIdNum);
         setConfigSchema(schemaRes.schema ?? null);
@@ -103,7 +105,20 @@ function ActorDetailRoute() {
     setSaving(true);
     setError(null);
     try {
-      await updateActor(actorIdNum, { name: formName, config: configData });
+      const payload: {
+        name: string;
+        config?: Record<string, unknown>;
+        config_toml?: string;
+      } = { name: formName };
+
+      // Only send the relevant field based on which mode is active
+      if (configToml.trim()) {
+        payload.config_toml = configToml;
+      } else {
+        payload.config = configData;
+      }
+
+      await updateActor(actorIdNum, payload);
       await loadActor();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -183,6 +198,8 @@ function ActorDetailRoute() {
                   schema={configSchema}
                   configData={configData}
                   onConfigChange={setConfigData}
+                  configToml={configToml}
+                  onConfigTomlChange={setConfigToml}
                   onSubmit={() => void handleSave()}
                   canSubmit={canSave}
                   submitting={saving}

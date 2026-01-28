@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createActor, fetchPlugins, fetchPluginConfigSchema } from "../api/client";
 import type { PluginSpec } from "../types/api";
 import ActorForm from "../components/ActorForm";
+import AppHeader from "../components/AppHeader";
 
 const USER_EDITOR_PLUGIN_ID = "katalog.editors.user_editor.UserEditor";
 
@@ -14,6 +15,7 @@ function ActorCreateRoute() {
   const [name, setName] = useState<string>("");
   const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
+  const [configToml, setConfigToml] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +75,7 @@ function ActorCreateRoute() {
 
   useEffect(() => {
     setConfigData({});
+    setConfigToml("");
   }, [pluginId]);
 
   const handleSubmit = async () => {
@@ -83,11 +86,24 @@ function ActorCreateRoute() {
     setLoading(true);
     setError(null);
     try {
-      const res = await createActor({
+      const payload: {
+        name: string;
+        plugin_id: string;
+        config?: Record<string, unknown>;
+        config_toml?: string;
+      } = {
         name: name || pluginId,
         plugin_id: pluginId,
-        config: configData,
-      });
+      };
+
+      // Only send the relevant field based on which mode is active
+      if (configToml.trim()) {
+        payload.config_toml = configToml;
+      } else {
+        payload.config = configData;
+      }
+
+      const res = await createActor(payload);
       navigate(`/actors/${res.actor.id}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -98,8 +114,8 @@ function ActorCreateRoute() {
   };
 
   return (
-    <section className="panel">
-      <header className="panel-header">
+    <>
+      <AppHeader>
         <div>
           <h2>Create actor</h2>
           <p>Select a plugin and configure it.</p>
@@ -109,27 +125,33 @@ function ActorCreateRoute() {
             Back
           </Link>
         </div>
-      </header>
-      {error && <p className="error">{error}</p>}
-      <div className="file-card">
-        <ActorForm
-          isCreating
-          plugins={plugins}
-          pluginId={pluginId}
-          onPluginChange={setPluginId}
-          name={name}
-          onNameChange={setName}
-          schema={schema}
-          configData={configData}
-          onConfigChange={setConfigData}
-          onSubmit={() => void handleSubmit()}
-          canSubmit={Boolean(pluginId)}
-          submitting={loading}
-          submitLabel="Create"
-          submittingLabel="Saving..."
-        />
-      </div>
-    </section>
+      </AppHeader>
+      <main className="app-main">
+        <section className="panel">
+          {error && <p className="error">{error}</p>}
+          <div className="file-card">
+            <ActorForm
+              isCreating
+              plugins={plugins}
+              pluginId={pluginId}
+              onPluginChange={setPluginId}
+              name={name}
+              onNameChange={setName}
+              schema={schema}
+              configData={configData}
+              onConfigChange={setConfigData}
+              configToml={configToml}
+              onConfigTomlChange={setConfigToml}
+              onSubmit={() => void handleSubmit()}
+              canSubmit={Boolean(pluginId)}
+              submitting={loading}
+              submitLabel="Create"
+              submittingLabel="Saving..."
+            />
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
 

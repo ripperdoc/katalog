@@ -64,6 +64,7 @@ export interface Actor {
   type: string;
   plugin_id: string | null;
   config: Record<string, unknown> | null;
+  config_toml: string | null;
   disabled?: boolean;
   created_at: string | null;
   updated_at: string | null;

@@ -2,6 +2,8 @@
 
 # Next up
 
+- [ ] Test harness with "real" Actors, Processors
+- [ ] Google drive actor isn't sending progress updates
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
