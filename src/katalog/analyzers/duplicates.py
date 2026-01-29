@@ -10,9 +10,11 @@ from katalog.analyzers.base import (
     Analyzer,
     AnalyzerIssue,
     AnalyzerResult,
+    AnalyzerScope,
     FileGroupFinding,
 )
-from katalog.models import Metadata, Actor, Changeset
+from katalog.analyzers.utils import build_scoped_assets_cte
+from katalog.models import Asset, Metadata, Actor, Changeset
 from katalog.constants.metadata import HASH_MD5, get_metadata_id
 
 
@@ -45,25 +47,36 @@ class ExactDuplicateAnalyzer(Analyzer):
 
         return True
 
-    async def run(self, *, changeset: Changeset) -> AnalyzerResult:
+    async def run(
+        self, *, changeset: Changeset, scope: AnalyzerScope
+    ) -> AnalyzerResult:
         """Find duplicate assets by MD5 using SQL-only grouping."""
 
         md5_registry_id = get_metadata_id(HASH_MD5)
         max_groups = int(self.config.max_groups)
         conn = Tortoise.get_connection("default")
+        metadata_table = Metadata._meta.db_table
+        asset_table = Asset._meta.db_table
+        scoped_cte, scoped_params = build_scoped_assets_cte(
+            scope,
+            asset_table=asset_table,
+            metadata_table=metadata_table,
+        )
 
         # Step 1: detect assets with conflicting current MD5 values (different actors disagree).
-        conflict_sql = """
-        WITH latest_md5 AS (
+        conflict_sql = f"""
+        WITH {scoped_cte},
+        latest_md5 AS (
             SELECT
                 m.asset_id,
                 m.actor_id,
                 lower(trim(m.value_text)) AS md5,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.asset_id, m.actor_id
-                    ORDER BY m.changeset_id DESC
+                    ORDER BY m.changeset_id DESC, m.id DESC
                 ) AS rn
-            FROM metadata AS m
+            FROM {metadata_table} AS m
+            JOIN scoped_assets s ON s.asset_id = m.asset_id
             WHERE m.metadata_key_id = ?
               AND m.removed = 0
               AND m.value_text IS NOT NULL
@@ -79,7 +92,9 @@ class ExactDuplicateAnalyzer(Analyzer):
         HAVING COUNT(DISTINCT md5) > 1
         """
 
-        conflict_rows = await conn.execute_query_dict(conflict_sql, [md5_registry_id])
+        conflict_rows = await conn.execute_query_dict(
+            conflict_sql, scoped_params + [md5_registry_id]
+        )
 
         issues: list[AnalyzerIssue] = []
         for row in conflict_rows:
@@ -99,17 +114,19 @@ class ExactDuplicateAnalyzer(Analyzer):
             )
 
         # Step 2: group remaining assets by MD5 entirely in SQL, returning only duplicate sets.
-        group_sql = """
-        WITH latest_md5 AS (
+        group_sql = f"""
+        WITH {scoped_cte},
+        latest_md5 AS (
             SELECT
                 m.asset_id,
                 m.actor_id,
                 lower(trim(m.value_text)) AS md5,
                 ROW_NUMBER() OVER (
                     PARTITION BY m.asset_id, m.actor_id
-                    ORDER BY m.changeset_id DESC
+                    ORDER BY m.changeset_id DESC, m.id DESC
                 ) AS rn
-            FROM metadata AS m
+            FROM {metadata_table} AS m
+            JOIN scoped_assets s ON s.asset_id = m.asset_id
             WHERE m.metadata_key_id = ?
               AND m.removed = 0
               AND m.value_text IS NOT NULL
@@ -143,7 +160,9 @@ class ExactDuplicateAnalyzer(Analyzer):
         LIMIT ?
         """
 
-        rows = await conn.execute_query_dict(group_sql, [md5_registry_id, max_groups])
+        rows = await conn.execute_query_dict(
+            group_sql, scoped_params + [md5_registry_id, max_groups]
+        )
 
         groups: list[FileGroupFinding] = []
         for row in rows:

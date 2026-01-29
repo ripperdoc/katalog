@@ -45,6 +45,7 @@ name_readability = "katalog.processors.name_readability:NameReadabilityProcessor
 
 [project.entry-points."katalog.analyzer"]
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"
+stats = "katalog.analyzers.stats:StatsAnalyzer"
 
 [project.entry-points."katalog.editor"]
 user_editor = "katalog.editors.user_editor:UserEditor"

@@ -51,6 +51,7 @@ class AnalyzerResult:
     relationships: list[RelationshipRecord] = field(default_factory=list)
     groups: list[FileGroupFinding] = field(default_factory=list)
     issues: list[AnalyzerIssue] = field(default_factory=list)
+    output: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -58,7 +59,40 @@ class AnalyzerResult:
             "relationships": [asdict(r) for r in self.relationships],
             "groups": [asdict(g) for g in self.groups],
             "issues": [asdict(i) for i in self.issues],
+            "output": self.output,
         }
+
+
+@dataclass(slots=True)
+class AnalyzerScope:
+    """Scope for analyzer operations."""
+
+    kind: str
+    asset_id: int | None = None
+    collection_id: int | None = None
+    collection_key_id: int | None = None
+
+    @classmethod
+    def all(cls) -> "AnalyzerScope":
+        return cls(kind="all")
+
+    @classmethod
+    def asset(cls, asset_id: int) -> "AnalyzerScope":
+        return cls(kind="asset", asset_id=asset_id)
+
+    @classmethod
+    def collection(cls, collection_id: int, *, key_id: int) -> "AnalyzerScope":
+        return cls(
+            kind="collection", collection_id=collection_id, collection_key_id=key_id
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"kind": self.kind}
+        if self.asset_id is not None:
+            payload["asset_id"] = self.asset_id
+        if self.collection_id is not None:
+            payload["collection_id"] = self.collection_id
+        return payload
 
 
 class Analyzer(PluginBase, ABC):
@@ -69,6 +103,13 @@ class Analyzer(PluginBase, ABC):
 
     # Metadata keys that this analyzer may write or update
     outputs: ClassVar[FrozenSet[MetadataKey]] = frozenset()
+
+    # Output classification for changeset payloads
+    output_kind: ClassVar[str | None] = None
+
+    supports_all: ClassVar[bool] = True
+    supports_single_asset: ClassVar[bool] = True
+    supports_collection: ClassVar[bool] = True
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -85,7 +126,9 @@ class Analyzer(PluginBase, ABC):
         """Return True if the analyzer needs to execute for the given changeset."""
 
     @abstractmethod
-    async def run(self, *, changeset: Changeset) -> AnalyzerResult:
+    async def run(
+        self, *, changeset: Changeset, scope: AnalyzerScope
+    ) -> AnalyzerResult:
         """Execute the analyzer and return the metadata mutations to persist."""
 
 
