@@ -30,40 +30,49 @@ async def setup_db(db_path: Path) -> Path:
 
     if needs_init:
         await Tortoise.init(
-            db_url=db_url,
-            modules={
-                "models": [
-                    "katalog.models.core",
-                    "katalog.models.assets",
-                    "katalog.models.metadata",
-                ]
-            },
-            use_tz=False,  # Preserve whatever tzinfo we hand in; no UTC normalization.
+            config={
+                "connections": {
+                    "default": db_url,
+                    "analysis": db_url,
+                },
+                "apps": {
+                    "models": {
+                        "models": [
+                            "katalog.models.core",
+                            "katalog.models.assets",
+                            "katalog.models.metadata",
+                        ],
+                        "default_connection": "default",
+                    }
+                },
+                "use_tz": False,  # Preserve whatever tzinfo we hand in; no UTC normalization.
+            }
         )
 
     await Tortoise.generate_schemas()
 
     # Ensure composite index for fast latest-metadata lookups.
-    conn = Tortoise.get_connection("default")
-    await conn.execute_script(
-        """
-        -- SQLite tuning for high-volume ingest.
-        -- WAL + NORMAL synchronous is typically a large speed-up for write-heavy workloads.
-        PRAGMA foreign_keys = ON;
-        PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = NORMAL;
-        PRAGMA temp_store = MEMORY;
-        PRAGMA cache_size = -65536; -- KiB; ~64 MiB
-        PRAGMA busy_timeout = 5000;
-        PRAGMA wal_autocheckpoint = 1000;
+    for conn_name in ("default", "analysis"):
+        conn = Tortoise.get_connection(conn_name)
+        await conn.execute_script(
+            """
+            -- SQLite tuning for high-volume ingest.
+            -- WAL + NORMAL synchronous is typically a large speed-up for write-heavy workloads.
+            PRAGMA foreign_keys = ON;
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA cache_size = -65536; -- KiB; ~64 MiB
+            PRAGMA busy_timeout = 5000;
+            PRAGMA wal_autocheckpoint = 1000;
 
 
-        -- Full-text search index for current metadata (one row per asset_id).
-        -- Keep it minimal: one column, no positional detail.
-        CREATE VIRTUAL TABLE IF NOT EXISTS asset_search
-        USING fts5(doc, tokenize='unicode61', detail='none');
-        """
-    )
+            -- Full-text search index for current metadata (one row per asset_id).
+            -- Keep it minimal: one column, no positional detail.
+            CREATE VIRTUAL TABLE IF NOT EXISTS asset_search
+            USING fts5(doc, tokenize='unicode61', detail='none');
+            """
+        )
     return db_path
 
 

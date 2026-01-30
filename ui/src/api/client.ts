@@ -341,7 +341,7 @@ export async function runProcessor(actorId: number): Promise<Changeset> {
   return handleResponse(response);
 }
 
-export async function runAnalyzer(actorId: number): Promise<Record<string, unknown>> {
+export async function runAnalyzer(actorId: number): Promise<Changeset> {
   const response = await fetch(`${API_BASE}/analyzers/${encodeURIComponent(actorId)}/run`, {
     method: "POST",
     headers: { Accept: "application/json" },
@@ -393,14 +393,6 @@ export async function fetchEditableMetadataSchema(): Promise<{
 
 export async function runAllProcessors(): Promise<Changeset> {
   return runProcessors();
-}
-
-export async function runAllAnalyzers(): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE}/analyzers/all/run`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
-  return handleResponse(response);
 }
 
 export async function syncConfig(): Promise<void> {

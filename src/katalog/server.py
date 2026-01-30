@@ -1,4 +1,7 @@
 import asyncio
+import logging
+import sys
+from time import perf_counter
 
 from contextlib import asynccontextmanager
 
@@ -23,6 +26,13 @@ from katalog.api.state import RUNNING_CHANGESETS, event_manager
 from katalog.config import DB_URL, WORKSPACE
 from katalog.db import sync_config
 from katalog.plugins.registry import refresh_plugins
+
+logging.getLogger("uvicorn.access").disabled = True
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss.SSS}</green> | <level>{level:<8}</level> | {message}",
+)
 
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DB_URL}")
@@ -57,6 +67,28 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    started_at = perf_counter()
+    response = await call_next(request)
+    duration_ms = int((perf_counter() - started_at) * 1000)
+    client = request.client.host if request.client else "-"
+    http_version = request.scope.get("http_version", "1.1")
+    path = request.url.path
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+    logger.info(
+        '"{method} {path} HTTP/{http_version}" {status} {duration_ms}ms',
+        client=client,
+        method=request.method,
+        path=path,
+        http_version=http_version,
+        status=response.status_code,
+        duration_ms=duration_ms,
+    )
+    return response
 
 
 @app.exception_handler(ApiError)

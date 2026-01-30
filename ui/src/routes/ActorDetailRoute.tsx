@@ -85,7 +85,9 @@ function ActorDetailRoute() {
         startTracking(changeset);
         navigate(`/changesets/${changeset.id}`);
       } else if (actor?.type === "ANALYZER") {
-        await runAnalyzer(actorIdNum);
+        const changeset = await runAnalyzer(actorIdNum);
+        startTracking(changeset);
+        navigate(`/changesets/${changeset.id}`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

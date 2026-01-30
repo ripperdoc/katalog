@@ -2,8 +2,9 @@
 
 # Next up
 
+- [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
+      a flatter table for easier querying. E.g. a generated asset_current.
 - [ ] Test harness with "real" Actors, Processors
-- [ ] Google drive actor isn't sending progress updates
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
@@ -11,41 +12,34 @@
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
-- [ ] (Niklas) Should limited metadata types, e.g. file types, map to some enum table instead of
-      saving the actual value over and over? We get an index for free plus less storage space?
+- [ ] Fix partly broken `react-jsonschema-form`s that render the current config form for plugins.
 
 # Backlog
 
+- [ ] Re-process files reported as application/octet-stream (e.g. from Google Drive) for better mime
+      detection. However, how to avoid doing it over and over?
 - [ ] Plugin system for **views**. A view is defined as a set of columns, computed columns (?) and
       the visualization e.g. web frontend component for them?
-- [ ] Dynamic concurrency strategy for GDrive fetches - split the search space dynamically over time
-      to always be able to work with concurrent fetchers.
+- [ ] (Niklas) Should limited metadata types, e.g. file types, map to some enum table instead of
+      saving the actual value over and over? We get an index for free plus less storage space?
 - [ ] Store parent/child relationships from Google drive as relationship metadata. But how can we do
       that if we want the source scanner to not touch the DB?
 - [ ] Speed up time to save to DB after scan, can we batch more writes?
-- [ ] Use `react-jsonschema-form` to directly render a UI from Pydantic Config model for each
-      plugin, instead taking in TOML
-  - [ ] However, that removes the simplicity of commenting and commenting out parts of a config
-- [ ] Add deletion of changesets for quick undo.
 - [ ] Google Canonical URI to folders should be different than files
+- [ ] Google drive actor isn't sending progress updates
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.
 - [ ] Replace TortoiseORM with [SQLSpec](https://sqlspec.dev/usage/data_flow.html) for more
       efficient, decoupled database p usage
-- [ ] Show detailed progress stats during scan/process, e.g. events and progress per file, but
-      streamed to UI?
 - [ ] Show in errors which actor, asset and/or metadata that was being processed
 - [ ] If folders or shared drives are renamed the Google Drive cache will still use old names. We
       could detect name changes using our metadata system, and update the cache, but at that time we
       might still have some incorrect paths stored in metadata.
-- [ ] UI to run analysis
 - [ ] Icons for UI
 - [ ] Use Google Drive Changes API to more efficiently (or is it?) fetch changes
 - [ ] Path and filename Unicode normalization
 - [ ] Read permissions for files in Google Shared Drives
 - [ ] Handle remote file data access with caching
-- [ ] Log excluded files just as assets, in order to still keep awareness in case we start to
-      include them later?
 - [ ] Search through some basic archive files e.g. zip files, and create virtual File Records
 - [ ] Save more filesystem metadata, like extended attributes, if we can get to that
 

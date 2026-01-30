@@ -20,7 +20,10 @@ async def list_changeset_metadata_changes(
 
     started_at = time.perf_counter()
     metadata_table = Metadata._meta.db_table
-    conn = Tortoise.get_connection("default")
+    try:
+        conn = Tortoise.get_connection("analysis")
+    except Exception:
+        conn = Tortoise.get_connection("default")
 
     if limit < 0 or offset < 0:
         raise ValueError("offset and limit must be non-negative")

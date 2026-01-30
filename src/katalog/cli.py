@@ -53,6 +53,7 @@ def main():
             host="127.0.0.1",
             port=PORT,
             reload=False,
+            access_log=False,
         )
     except KeyboardInterrupt:  # pragma: no cover - user initiated shutdown
         logger.info("Received interrupt signal, shutting down")

@@ -9,7 +9,6 @@ import {
   runProcessor,
   runAnalyzer,
   runAllProcessors,
-  runAllAnalyzers,
   updateActor,
 } from "../api/client";
 import type { Actor, PluginSpec } from "../types/api";
@@ -88,9 +87,10 @@ function ActorsRoute() {
       }
       if (groupKey === "analyzers") {
         if (actor?.id) {
-          await runAnalyzer(actor.id);
+          const changeset = await runAnalyzer(actor.id);
+          startTracking(changeset);
         } else {
-          await runAllAnalyzers();
+          throw new Error("Select an analyzer to run");
         }
         return;
       }
@@ -175,16 +175,11 @@ function ActorsRoute() {
                         onClick={async () => {
                           setError(null);
                           try {
-                            if (groupKey === "sources") {
-                              await triggerRun(undefined, "sources");
-                            } else if (groupKey === "processors") {
+                            if (groupKey === "processors") {
                               setRunningId(0);
                               const snap = await runAllProcessors();
                               startTracking(snap);
                               navigate(`/changesets/${snap.id}`);
-                            } else if (groupKey === "analyzers") {
-                              setRunningId(0);
-                              await runAllAnalyzers();
                             }
                           } catch (err) {
                             const message = err instanceof Error ? err.message : String(err);
@@ -196,15 +191,13 @@ function ActorsRoute() {
                         disabled={scanningId !== null || loading || (requiresActors && !hasActors)}
                         title={
                           hasActors || !requiresActors
-                            ? groupKey === "sources"
-                              ? "Scan all sources"
-                              : groupKey === "processors"
-                                ? "Run all processors on assets"
-                                : "Run all analyzers"
+                            ? groupKey === "processors"
+                              ? "Run all processors on assets"
+                              : "Run all analyzers"
                             : "Add an actor to enable this action"
                         }
                       >
-                        {groupKey === "sources" && scanningId !== null ? "Starting..." : "Run all"}
+                        {scanningId !== null ? "Starting..." : "Run all"}
                       </button>
                     )}
                     <button

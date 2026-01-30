@@ -4,8 +4,6 @@ from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from tortoise import Tortoise
-
 from katalog.analyzers.base import (
     Analyzer,
     AnalyzerIssue,
@@ -13,7 +11,7 @@ from katalog.analyzers.base import (
     AnalyzerScope,
     FileGroupFinding,
 )
-from katalog.analyzers.utils import build_scoped_assets_cte
+from katalog.analyzers.utils import build_scoped_assets_cte, get_analysis_connection
 from katalog.models import Asset, Metadata, Actor, Changeset
 from katalog.constants.metadata import HASH_MD5, get_metadata_id
 
@@ -54,7 +52,7 @@ class ExactDuplicateAnalyzer(Analyzer):
 
         md5_registry_id = get_metadata_id(HASH_MD5)
         max_groups = int(self.config.max_groups)
-        conn = Tortoise.get_connection("default")
+        conn = get_analysis_connection()
         metadata_table = Metadata._meta.db_table
         asset_table = Asset._meta.db_table
         scoped_cte, scoped_params = build_scoped_assets_cte(

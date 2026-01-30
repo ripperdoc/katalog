@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from tortoise import Tortoise
+
 from katalog.analyzers.base import AnalyzerScope
 
 
@@ -51,3 +53,12 @@ def build_scoped_assets_cte(
         return cte_sql, [int(scope.collection_key_id), int(scope.collection_id)]
 
     raise ValueError(f"Unknown analyzer scope kind: {scope.kind}")
+
+
+def get_analysis_connection():
+    """Prefer the dedicated analysis connection if configured."""
+
+    try:
+        return Tortoise.get_connection("analysis")
+    except Exception:
+        return Tortoise.get_connection("default")

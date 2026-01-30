@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   CellClickProps,
   ColumnType,
@@ -145,6 +145,7 @@ const AssetTable = ({
   const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
   const [filters, setFilters] = useState<TableFilterState>({});
   const [durationMs, setDurationMs] = useState<number | null>(null);
+  const skipDebounceRef = useRef(true);
 
   const loadPage = useCallback(
     async (
@@ -158,24 +159,24 @@ const AssetTable = ({
       const effectiveSort = sortOverride ?? sort;
       const effectiveFilters = filtersOverride ?? filters;
       const effectiveSearch = (searchOverride ?? searchQuery).trim();
+      const sortParam =
+        effectiveSort && effectiveSort.accessor && effectiveSort.direction
+          ? `${effectiveSort.accessor}:${effectiveSort.direction}`
+          : undefined;
+      const filterParams = new URLSearchParams();
+      Object.values(effectiveFilters || {}).forEach((filter) => {
+        filterParams.append("filters", JSON.stringify(filter));
+      });
+      const searchParam = effectiveSearch.length > 0 ? effectiveSearch : undefined;
       setLoading(true);
       setError(null);
       try {
-        const offset = (page - 1) * limit;
-        const sortParam =
-          effectiveSort && effectiveSort.accessor && effectiveSort.direction
-            ? `${effectiveSort.accessor}:${effectiveSort.direction}`
-            : undefined;
-        const filterParams = new URLSearchParams();
-        Object.values(effectiveFilters || {}).forEach((filter) => {
-          filterParams.append("filters", JSON.stringify(filter));
-        });
         const response = await fetchPage({
-          offset,
+          offset: (page - 1) * limit,
           limit,
           sort: sortParam,
           filters: filterParams.getAll("filters"),
-          search: effectiveSearch.length > 0 ? effectiveSearch : undefined,
+          search: searchParam,
         });
         const fetchedRecords = response.items ?? [];
         setRecords(fetchedRecords);
@@ -189,7 +190,7 @@ const AssetTable = ({
         onLoadComplete?.({
           response,
           params: {
-            offset,
+            offset: (page - 1) * limit,
             limit,
             sort: sortParam,
             filters: filterParams.getAll("filters"),
@@ -212,6 +213,10 @@ const AssetTable = ({
   }, [loadPage]);
 
   useEffect(() => {
+    if (skipDebounceRef.current) {
+      skipDebounceRef.current = false;
+      return;
+    }
     const handle = window.setTimeout(() => {
       void loadPage(1, undefined, sort, filters, searchQuery);
     }, 250);

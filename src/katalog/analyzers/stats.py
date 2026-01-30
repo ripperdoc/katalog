@@ -3,10 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
-from tortoise import Tortoise
-
 from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
-from katalog.analyzers.utils import build_scoped_assets_cte
+from katalog.analyzers.utils import build_scoped_assets_cte, get_analysis_connection
 from katalog.constants.metadata import (
     FILE_EXTENSION,
     FILE_SIZE,
@@ -16,6 +14,8 @@ from katalog.constants.metadata import (
     get_metadata_id,
 )
 from katalog.models import Asset, Changeset, Metadata
+from katalog.utils.exports import build_tables_from_stats, write_csv_tables
+from katalog.config import WORKSPACE
 
 
 class StatsAnalyzer(Analyzer):
@@ -40,7 +40,7 @@ class StatsAnalyzer(Analyzer):
             raise ValueError("Stats analyzer does not support single-asset scope")
 
         logger.info("Stats analyzer starting ({kind})", kind=scope.kind)
-        conn = Tortoise.get_connection("default")
+        conn = get_analysis_connection()
         metadata_table = Metadata._meta.db_table
         asset_table = Asset._meta.db_table
         scoped_cte, scoped_params = build_scoped_assets_cte(
@@ -102,6 +102,19 @@ class StatsAnalyzer(Analyzer):
             "duplicates": duplicates,
             "largest_assets": largest_assets,
         }
+
+        tables = build_tables_from_stats(output)
+        prefix = f"changeset-{changeset.id}_actor-{self.actor.id}_stats"
+        csv_paths = write_csv_tables(tables, prefix=prefix)
+        if csv_paths:
+            output["exports"] = {
+                "csv": [
+                    str(path.relative_to(WORKSPACE))
+                    if path.is_relative_to(WORKSPACE)
+                    else str(path)
+                    for path in csv_paths
+                ]
+            }
 
         return AnalyzerResult(output=output)
 

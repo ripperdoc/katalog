@@ -32,13 +32,11 @@ if (typeof window !== "undefined" && typeof (window as any).global === "undefine
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <BrowserRouter basename={import.meta.env.BASE_URL}>
-      <ChangesetProgressProvider>
-        <SeedActiveChangesets>
-          <App />
-        </SeedActiveChangesets>
-      </ChangesetProgressProvider>
-    </BrowserRouter>
-  </React.StrictMode>
+  <BrowserRouter basename={import.meta.env.BASE_URL}>
+    <ChangesetProgressProvider>
+      <SeedActiveChangesets>
+        <App />
+      </SeedActiveChangesets>
+    </ChangesetProgressProvider>
+  </BrowserRouter>,
 );
