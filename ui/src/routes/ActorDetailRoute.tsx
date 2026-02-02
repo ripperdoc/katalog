@@ -150,15 +150,10 @@ function ActorDetailRoute() {
 
   return (
     <>
-      <AppHeader>
-        <div>
-          <h2>{formName ? formName : `Actor #${actorId}`}</h2>
-          <p>Inspect actor details and changesets.</p>
-        </div>
+      <AppHeader
+        breadcrumbLabel={formName || actor?.name || (actorId ? `Actor ${actorId}` : null)}
+      >
         <div className="button-row">
-          <Link to="/actors" className="link-button">
-            Back
-          </Link>
           {actor && (
             <button
               className="app-btn btn-primary"

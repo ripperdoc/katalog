@@ -129,12 +129,7 @@ function ActorsRoute() {
 
   return (
     <>
-      <AppHeader>
-        <div>
-          <h2>Actors</h2>
-          <p>Configured source, processor, analyzer, and editor actors.</p>
-        </div>
-      </AppHeader>
+      <AppHeader />
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}

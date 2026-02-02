@@ -59,10 +59,6 @@ function ChangesetsRoute() {
   return (
     <>
       <AppHeader>
-        <div>
-          <h2>History</h2>
-          <p>Changes made to the data.</p>
-        </div>
         <div className="panel-actions">
           <button
             type="button"

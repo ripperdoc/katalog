@@ -182,7 +182,7 @@ FILE_TYPE = define_metadata("file/type", MetadataType.STRING, "MIME Type")
 FILE_EXTENSION = define_metadata(
     "file/extension", MetadataType.STRING, "File extension"
 )
-FILE_SIZE = define_metadata("file/size", MetadataType.INT, "Size (bytes)", width=120)
+FILE_SIZE = define_metadata("file/size", MetadataType.INT, "Size", width=120)
 FILE_VERSION = define_metadata("file/version", MetadataType.INT, "Version")
 FILE_DOWNLOAD_URI = define_metadata(
     "file/download_uri", MetadataType.STRING, "Download URI"
@@ -296,7 +296,7 @@ FLAG_TRASHED = define_metadata("flag/trashed", MetadataType.INT, "Trashed", widt
 
 # Content fingerprints (used for similarity / deduplication)
 # Hashes often represented as strings; some fingerprints are lists/maps
-HASH_MD5 = define_metadata("hash/md5", MetadataType.STRING, "MD5 Hash")
+HASH_MD5 = define_metadata("hash/md5", MetadataType.STRING, "MD5 Hash", width=200)
 HASH_SHA1 = define_metadata("hash/sha1", MetadataType.STRING, "SHA1 Hash")
 HASH_MINHASH = define_metadata(
     "fingerprint/minhash", MetadataType.JSON, "MinHash fingerprint"

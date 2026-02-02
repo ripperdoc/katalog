@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import Form from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
@@ -142,17 +142,16 @@ function AssetDetailRoute() {
     [activeChangeset, assetIdNum, load],
   );
 
+  const assetLabel = asset?.asset?.external_id
+    ? String(asset.asset.external_id)
+    : assetId
+      ? `Asset ${assetId}`
+      : null;
+
   return (
     <>
-      <AppHeader>
-        <div>
-          <h2>Asset #{assetId}</h2>
-          <p>View and edit metadata via manual changesets.</p>
-        </div>
+      <AppHeader breadcrumbLabel={assetLabel}>
         <div className="button-row">
-          <Link to="/assets" className="link-button">
-            Back
-          </Link>
           {!activeChangeset && (
             <button
               className="btn-primary"

@@ -14,6 +14,7 @@ export interface ColumnDefinition {
   title: string;
   description: string;
   width: number | null;
+  hidden?: boolean;
   sortable: boolean;
   filterable: boolean;
   searchable: boolean;

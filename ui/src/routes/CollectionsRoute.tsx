@@ -58,10 +58,6 @@ function CollectionsRoute() {
   return (
     <>
       <AppHeader>
-        <div>
-          <h2>Collections</h2>
-          <p>All saved collections. Click one to open details.</p>
-        </div>
         <div className="panel-actions">
           <button
             className="btn-primary"

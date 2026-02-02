@@ -11,20 +11,18 @@ import CollectionDetailRoute from "./routes/CollectionDetailRoute";
 
 function App() {
   return (
-    <div className="app-shell">
-      <Routes>
-        <Route path="/actors" element={<ActorsRoute />} />
-        <Route path="/actors/new" element={<ActorCreateRoute />} />
-        <Route path="/actors/:actorId" element={<ActorDetailRoute />} />
-        <Route path="/changesets" element={<ChangesetsRoute />} />
-        <Route path="/changesets/:changesetId" element={<ChangesetDetailRoute />} />
-        <Route path="/assets" element={<AssetsRoute />} />
-        <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
-        <Route path="/collections" element={<CollectionsRoute />} />
-        <Route path="/collections/:collectionId" element={<CollectionDetailRoute />} />
-        <Route path="*" element={<Navigate to="/actors" replace />} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route path="/actors" element={<ActorsRoute />} />
+      <Route path="/actors/new" element={<ActorCreateRoute />} />
+      <Route path="/actors/:actorId" element={<ActorDetailRoute />} />
+      <Route path="/changesets" element={<ChangesetsRoute />} />
+      <Route path="/changesets/:changesetId" element={<ChangesetDetailRoute />} />
+      <Route path="/assets" element={<AssetsRoute />} />
+      <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
+      <Route path="/collections" element={<CollectionsRoute />} />
+      <Route path="/collections/:collectionId" element={<CollectionDetailRoute />} />
+      <Route path="*" element={<Navigate to="/actors" replace />} />
+    </Routes>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { createActor, fetchPlugins, fetchPluginConfigSchema } from "../api/client";
 import type { PluginSpec } from "../types/api";
 import ActorForm from "../components/ActorForm";
@@ -115,16 +115,7 @@ function ActorCreateRoute() {
 
   return (
     <>
-      <AppHeader>
-        <div>
-          <h2>Create actor</h2>
-          <p>Select a plugin and configure it.</p>
-        </div>
-        <div className="button-row">
-          <Link to="/actors" className="link-button">
-            Back
-          </Link>
-        </div>
+      <AppHeader breadcrumbLabel="New Actor">
       </AppHeader>
       <main className="app-main">
         <section className="panel">

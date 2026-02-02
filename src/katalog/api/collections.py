@@ -100,11 +100,15 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
 
         filters = query_payload.get("filters")
         if filters is not None and not isinstance(filters, list):
-            raise ApiError(status_code=400, detail="source.query.filters must be a list")
+            raise ApiError(
+                status_code=400, detail="source.query.filters must be a list"
+            )
 
         search = query_payload.get("search")
         if search is not None and not isinstance(search, str):
-            raise ApiError(status_code=400, detail="source.query.search must be a string")
+            raise ApiError(
+                status_code=400, detail="source.query.search must be a string"
+            )
 
         actor_id = query_payload.get("actor_id")
         if actor_id is not None:
@@ -139,7 +143,9 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
         description=payload.description,
         source=payload.source,
         membership_key_id=membership_key_id,
-        item_count=query_total_count if query_total_count is not None else len(unique_asset_ids),
+        item_count=query_total_count
+        if query_total_count is not None
+        else len(unique_asset_ids),
         refresh_mode=refresh_mode,
     )
 
@@ -148,7 +154,7 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
         changeset = await Changeset.create(
             actor=actor,
             status=OpStatus.COMPLETED,
-            note=f"collection:{collection.id} membership",
+            message=f"Created collection {collection.id}",
         )
         asset_table = Asset._meta.db_table
         metadata_table = Metadata._meta.db_table
@@ -197,7 +203,7 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
         changeset = await Changeset.create(
             actor=actor,
             status=OpStatus.COMPLETED,
-            note=f"collection:{collection.id} membership",
+            note=f"Created collection {collection.id}",
         )
         membership_entries = []
         for asset_id in unique_asset_ids:

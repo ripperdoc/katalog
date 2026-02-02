@@ -180,7 +180,7 @@ function CollectionDetailRoute() {
   if (error) {
     return (
       <>
-        <AppHeader>
+        <AppHeader breadcrumbLabel={collectionId ? `Collection ${collectionId}` : null}>
           <div>
             <h2>Collections</h2>
             <p>Collection detail.</p>
@@ -198,7 +198,7 @@ function CollectionDetailRoute() {
   if (!collection) {
     return (
       <>
-        <AppHeader>
+        <AppHeader breadcrumbLabel={collectionId ? `Collection ${collectionId}` : null}>
           <div>
             <h2>Collections</h2>
             <p>Loading collection…</p>
@@ -215,7 +215,9 @@ function CollectionDetailRoute() {
 
   return (
     <>
-      <AppHeader>
+      <AppHeader
+        breadcrumbLabel={collection?.name || (collectionId ? `Collection ${collectionId}` : null)}
+      >
         <div className="collection-header-fields">
           <input
             className="collection-title-input"
@@ -235,9 +237,6 @@ function CollectionDetailRoute() {
           />
         </div>
         <div className="panel-actions">
-          <button className="btn-primary" type="button" onClick={() => navigate("/collections")}>
-            Back to collections
-          </button>
           <button
             className="btn-primary"
             type="button"

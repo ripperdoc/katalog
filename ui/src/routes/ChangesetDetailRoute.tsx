@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   cancelChangeset,
   fetchChangeset,
@@ -217,15 +217,8 @@ function ChangesetDetailRoute() {
 
   return (
     <>
-      <AppHeader>
-        <div>
-          <h2>Changeset #{changesetId}</h2>
-          <p>Live view of scan progress and logs.</p>
-        </div>
+      <AppHeader breadcrumbLabel={changesetId ? `Changeset ${changesetId}` : null}>
         <div className="button-row">
-          <Link to="/changesets" className="link-button">
-            Back
-          </Link>
           {isRunning && (
             <button
               className="app-btn btn-primary"

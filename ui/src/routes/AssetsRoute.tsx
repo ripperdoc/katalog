@@ -18,6 +18,7 @@ function AssetsRoute() {
     search?: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
 
   const fetchPage = useCallback(
     ({
@@ -60,16 +61,17 @@ function AssetsRoute() {
 
   const handleSaveCollection = useCallback(async () => {
     const totalCount = lastResponse?.stats?.total ?? lastResponse?.items?.length ?? 0;
-    if (totalCount === 0) {
+    const selectedIds = Array.from(selectedAssetIds);
+    if (totalCount === 0 && selectedIds.length === 0) {
       window.alert("Nothing to save. Run a query first.");
       return;
     }
+    const savingSelected = selectedIds.length > 0;
+    const saveCount = savingSelected ? selectedIds.length : totalCount;
     const defaultName = `Collection ${new Date().toISOString().slice(0, 19)}`;
     if (
-      totalCount > 1000 &&
-      !window.confirm(
-        `Are you sure you want to save a new collection with ${totalCount} assets?`,
-      )
+      saveCount > 1000 &&
+      !window.confirm(`Are you sure you want to save a new collection with ${saveCount} assets?`)
     ) {
       return;
     }
@@ -80,6 +82,16 @@ function AssetsRoute() {
 
     setSaving(true);
     try {
+      if (savingSelected) {
+        const response = await createCollection({
+          name,
+          asset_ids: selectedIds,
+          source: null,
+        });
+        navigate(`/collections/${response.collection.id}`);
+        return;
+      }
+
       const queryParams = {
         sort: lastParams?.sort,
         filters: lastParams?.filters,
@@ -93,6 +105,7 @@ function AssetsRoute() {
       };
       const response = await createCollection({
         name,
+        asset_ids: [],
         source,
       });
       navigate(`/collections/${response.collection.id}`);
@@ -102,7 +115,13 @@ function AssetsRoute() {
     } finally {
       setSaving(false);
     }
-  }, [lastParams, lastResponse, navigate]);
+  }, [lastParams, lastResponse, navigate, selectedAssetIds]);
+
+  const selectedCount = selectedAssetIds.size;
+  const saveLabel =
+    selectedCount > 0
+      ? `Save ${selectedCount.toLocaleString()} to collection`
+      : "Save all to collection";
 
   return (
     <>
@@ -113,6 +132,7 @@ function AssetsRoute() {
           fetchPage={fetchPage}
           onRowClick={handleRowClick}
           onLoadComplete={handleLoadComplete}
+          onSelectionChange={setSelectedAssetIds}
           searchPlaceholder="Search all assets…"
           actions={
             <button
@@ -121,7 +141,7 @@ function AssetsRoute() {
               onClick={() => void handleSaveCollection()}
               disabled={saving}
             >
-              {saving ? "Saving…" : "Save as collection"}
+              {saving ? "Saving…" : saveLabel}
             </button>
           }
         />

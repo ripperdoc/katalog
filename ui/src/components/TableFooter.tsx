@@ -2,6 +2,7 @@ import { FooterRendererProps } from "simple-table-core";
 
 type TableFooterProps = FooterRendererProps & {
   queryTimeMs?: number | null;
+  selectedCount?: number;
 };
 
 const TableFooter = ({
@@ -17,6 +18,7 @@ const TableFooter = ({
   onNextPage,
   onPageChange,
   queryTimeMs,
+  selectedCount = 0,
 }: TableFooterProps) => {
   const isPrevDisabled = !hasPrevPage;
   const isNextDisabled = !hasNextPage;
@@ -100,6 +102,9 @@ const TableFooter = ({
       <div className="st-footer-info">
         <span className="st-footer-results-text">
           Showing {startRow} to {endRow} of {totalRows.toLocaleString()} results
+          <span className="st-footer-selected" style={{ marginLeft: "0.5rem" }}>
+            · selected {selectedCount.toLocaleString()}
+          </span>
           {Number.isFinite(queryTimeMs ?? NaN) && (
             <span className="st-footer-duration" style={{ marginLeft: "0.5rem" }}>
               · query time {(queryTimeMs as number).toFixed(0)} ms

@@ -10,6 +10,8 @@ import {
 } from "simple-table-core";
 import { Asset, ColumnDefinition, MetadataValueEntry, ViewAssetsResponse } from "../types/api";
 import "simple-table-core/styles.css";
+import AssetCell from "./AssetCell";
+import ExternalIdCell from "./ExternalIdCell";
 import TableFooter from "./TableFooter";
 
 const valueGetter = (props: ValueGetterProps) => {
@@ -45,6 +47,28 @@ const valueFormatter = (props: ValueFormatterProps) => {
   return `${raw}`;
 };
 
+const formatBytes = (value: unknown): string => {
+  const numericValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return value === null || value === undefined ? "" : String(value);
+  }
+  if (numericValue === 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  const absValue = Math.abs(numericValue);
+  const unitIndex = Math.min(
+    Math.floor(Math.log(absValue) / Math.log(1024)),
+    units.length - 1,
+  );
+  const scaled = numericValue / 1024 ** unitIndex;
+  const formatter = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: scaled >= 10 || unitIndex === 0 ? 0 : 1,
+  });
+  return `${formatter.format(scaled)} ${units[unitIndex]}`;
+};
+
 const getSimpleTableType = (metadataType?: number): ColumnType => {
   if (metadataType === 1 || metadataType === 2) {
     return "number";
@@ -56,6 +80,7 @@ const getSimpleTableType = (metadataType?: number): ColumnType => {
 
 const normalizeWidth = (width: number | null): string | number => {
   if (width === null || width === undefined) {
+    return 200;
     return "1fr";
   } else {
     return width;
@@ -88,17 +113,33 @@ const normalizeSort = (
   return { accessor, direction: "asc" };
 };
 
-const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
-  return schema.map((column) => ({
-    accessor: column.id,
-    label: column.title || column.id,
-    width: normalizeWidth(column.width),
-    type: getSimpleTableType(column.value_type),
-    isSortable: Boolean(column.sortable),
-    filterable: Boolean(column.filterable),
-    valueGetter,
-    valueFormatter,
-  }));
+export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
+  const assetIdKey = "asset/id";
+  const externalIdKey = "asset/external_id";
+
+  const rv = schema
+    .filter((column) => !column.hidden)
+    .map((column, index) => ({
+      accessor: column.id,
+      label: column.title || column.id,
+      // pinned: index < 2 ? "left" : undefined,
+      width: normalizeWidth(column.width),
+      type: getSimpleTableType(column.value_type),
+      isSortable: Boolean(column.sortable),
+      filterable: Boolean(column.filterable),
+      valueGetter,
+      valueFormatter:
+        column.id === "file/size"
+          ? (props: ValueFormatterProps) => formatBytes(valueGetter(props))
+          : valueFormatter,
+      cellRenderer:
+        column.id === externalIdKey
+          ? ExternalIdCell
+          : column.id === assetIdKey
+            ? AssetCell
+            : undefined,
+    }));
+  return rv;
 };
 
 type FetchArgs = {
@@ -118,6 +159,7 @@ interface AssetTableProps {
   defaultLimit?: number;
   onRowClick?: (assetId: number) => void;
   onLoadComplete?: (payload: { response: ViewAssetsResponse; params: FetchArgs }) => void;
+  onSelectionChange?: (selectedAssetIds: Set<number>) => void;
   actions?: ReactNode;
   searchPlaceholder?: string;
 }
@@ -129,6 +171,7 @@ const AssetTable = ({
   defaultLimit = 200,
   onRowClick,
   onLoadComplete,
+  onSelectionChange,
   actions,
   searchPlaceholder = "Search…",
 }: AssetTableProps) => {
@@ -145,6 +188,7 @@ const AssetTable = ({
   const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
   const [filters, setFilters] = useState<TableFilterState>({});
   const [durationMs, setDurationMs] = useState<number | null>(null);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
   const searchRef = useRef("");
   const lastRequestRef = useRef<string | null>(null);
 
@@ -195,7 +239,10 @@ const AssetTable = ({
           filters: filterParams.getAll("filters"),
           search: searchParam,
         });
-        const fetchedRecords = response.items ?? [];
+        const fetchedRecords = (response.items ?? []).map((item) => ({
+          ...item,
+          id: item["asset/id"] ?? item.id,
+        }));
         setRecords(fetchedRecords);
         setHeaders(buildHeadersFromSchema(response.schema ?? []));
         setPagination({
@@ -238,7 +285,7 @@ const AssetTable = ({
 
   return (
     <section className="panel">
-      <header className="panel-header">
+      {/* <header className="panel-header">
         <div>
           <h2>{title}</h2>
           {subtitle && <p>{subtitle}</p>}
@@ -265,20 +312,28 @@ const AssetTable = ({
           aria-label="Search"
         />
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{error}</p>} */}
 
       <div className="table-container">
         <SimpleTable
           defaultHeaders={headers}
           rows={records}
           height="100%"
+          autoExpandColumns={false}
           selectableCells={true}
           columnResizing={true}
           shouldPaginate={true}
           rowsPerPage={pagination.limit}
           serverSidePagination={true}
+          enableRowSelection={true}
           totalRowCount={total ?? records.length}
-          footerRenderer={(props) => <TableFooter {...props} queryTimeMs={durationMs} />}
+          footerRenderer={(props) => (
+            <TableFooter
+              {...props}
+              queryTimeMs={durationMs}
+              selectedCount={selectedAssetIds.size}
+            />
+          )}
           onPageChange={(page) => {
             if (page === pagination.page) {
               return;
@@ -286,6 +341,17 @@ const AssetTable = ({
             void loadPage(page, undefined, sort, filters, searchQuery);
           }}
           isLoading={loading}
+          onRowSelectionChange={({ selectedRows }) => {
+            const nextSelected = new Set<number>();
+            selectedRows.forEach((rowId) => {
+              const assetId = Number(rowId);
+              if (!Number.isNaN(assetId)) {
+                nextSelected.add(assetId);
+              }
+            });
+            setSelectedAssetIds(nextSelected);
+            onSelectionChange?.(nextSelected);
+          }}
           // externalSortHandling={true}
           // externalFilterHandling={true}
           // onSortChange={(sortArg) => {

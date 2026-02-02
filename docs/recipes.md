@@ -69,7 +69,7 @@ Comments:
 ## Display stats for a collection (e.g. top file types, number of files, etc)
 
 1. Start with a query or collection
-2. Run an analyzer to collect stats on it
+2. Run StatsAnalyzer to create stats on it
 3. Save the output as JSON into the changeset
 4. Render it using the frontend code included in the analyzer
 
@@ -104,3 +104,19 @@ Comment
 
 Comment: It's typical to find trash files like `._`, `.DS_Store`, etc. How can we ignore such files
 easily in most queries?
+
+## Organize a set of assets
+
+"Organize" can mean several things. Here is probably what a human would do:
+
+1. Filter out "garbage" files, e.g. starts with dot, etc
+2. Deduplicate to find the unique assets
+3. Apply a naming scheme
+4. Review naming, possibly override or add certain metadata, repeating back to earlier steps
+5. Move OR copy files to their new location
+
+In Katalog, this can be implemented as:
+
+1. Run a processor to mark files as garbage
+   1. Then remove them from the collection in some way?
+2.

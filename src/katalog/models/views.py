@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from katalog.constants.metadata import (
     ASSET_EXTERNAL_ID,
@@ -33,6 +33,7 @@ class ColumnSpec:
     title: str
     description: str = ""
     width: int | None = None
+    hidden: bool = False
     sortable: bool = False
     filterable: bool = False
     searchable: bool = False
@@ -43,6 +44,32 @@ class ColumnSpec:
         payload["value_type"] = int(self.value_type)
         payload["key"] = self.id
         return payload
+
+    @classmethod
+    def from_metadata(
+        cls,
+        def_key: MetadataKey,
+        *,
+        hidden: bool = False,
+        sortable: bool = False,
+        filterable: bool = False,
+        searchable: bool = False,
+        width: int | None = None,
+    ) -> "ColumnSpec":
+        definition = get_metadata_def_by_key(def_key)
+        return cls(
+            id=str(definition.key),
+            value_type=definition.value_type,
+            registry_id=definition.registry_id,
+            title=definition.title or str(definition.key),
+            description=definition.description,
+            width=width or definition.width,
+            hidden=hidden,
+            sortable=sortable,
+            filterable=filterable,
+            searchable=searchable,
+            plugin_id=definition.plugin_id,
+        )
 
 
 @dataclass(frozen=True)
@@ -70,69 +97,26 @@ class ViewSpec:
         }
 
 
-def _metadata_column(def_key: MetadataKey) -> ColumnSpec:
-    definition = METADATA_REGISTRY[def_key]
-    return ColumnSpec(
-        id=str(definition.key),
-        value_type=definition.value_type,
-        registry_id=definition.registry_id,
-        title=definition.title or str(definition.key),
-        description=definition.description,
-        width=definition.width,
-        sortable=False,
-        filterable=True,
-        searchable=False,
-        plugin_id=definition.plugin_id,
-    )
-
-
-def _asset_columns() -> Iterable[ColumnSpec]:
-    for key in [
-        ASSET_ID,
-        ASSET_ACTOR_ID,
-        ASSET_EXTERNAL_ID,
-        ASSET_CANONICAL_URI,
-    ]:
-        definition = get_metadata_def_by_key(key)
-        sortable = definition.value_type in (
-            MetadataType.STRING,
-            MetadataType.INT,
-            MetadataType.FLOAT,
-            MetadataType.DATETIME,
-        )
-        filterable = sortable
-        yield ColumnSpec(
-            id=str(definition.key),
-            value_type=definition.value_type,
-            registry_id=definition.registry_id,
-            title=definition.title or str(definition.key),
-            description=definition.description,
-            width=definition.width,
-            sortable=sortable,
-            filterable=filterable,
-            searchable=definition.value_type == MetadataType.STRING,
-            plugin_id=definition.plugin_id,
-        )
-
-
 def default_view() -> ViewSpec:
     """Default view: mirrors the previous list_assets_with_metadata output."""
-
-    columns: list[ColumnSpec] = list(_asset_columns())
-    selected_metadata_keys = [
-        FILE_PATH,
-        FILE_NAME,
-        FILE_SIZE,
-        FILE_TYPE,
-        TIME_CREATED,
-        TIME_MODIFIED,
-        FLAG_FAVORITE,
-        HASH_MD5,
+    columns: list[ColumnSpec] = [
+        ColumnSpec.from_metadata(ASSET_ID, sortable=True, width=80),
+        # ColumnSpec.from_metadata(ASSET_ACTOR_ID, sortable=True, filterable=True),
+        ColumnSpec.from_metadata(ASSET_EXTERNAL_ID, searchable=True),
+        ColumnSpec.from_metadata(
+            ASSET_CANONICAL_URI,
+            hidden=True,
+            searchable=True,
+        ),
+        ColumnSpec.from_metadata(FILE_PATH, filterable=True, width=400),
+        ColumnSpec.from_metadata(FILE_NAME, filterable=True),
+        ColumnSpec.from_metadata(FILE_SIZE, filterable=True, width=80),
+        ColumnSpec.from_metadata(FILE_TYPE, filterable=True),
+        ColumnSpec.from_metadata(TIME_CREATED, filterable=True, width=210),
+        ColumnSpec.from_metadata(TIME_MODIFIED, filterable=True, width=210),
+        ColumnSpec.from_metadata(FLAG_FAVORITE, filterable=True),
+        ColumnSpec.from_metadata(HASH_MD5, filterable=True, width=250),
     ]
-    for def_key in selected_metadata_keys:
-        if def_key not in METADATA_REGISTRY:
-            continue
-        columns.append(_metadata_column(def_key))
 
     return ViewSpec(
         id="default",

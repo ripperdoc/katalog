@@ -3,6 +3,7 @@
 # Next up
 
 - [ ] Fix AssetTable so ExternalID is clickable to external URL, and instead hide Canonical URL
+- [ ] Google Canonical URI to folders should be different than files
 - [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
       a flatter table for easier querying. E.g. a generated asset_current.
 - [ ] Test harness that uses "real" Actors, Processors to test all CRUD operations
@@ -17,7 +18,8 @@
 
 # Backlog
 
-- [ ] Compose processors into a type of analyzer, or extend to a kind of generic "saved procedure"
+- [ ] Compose processors into a type of analyzer, or extend to a kind of generic "saved procedure".
+      Create a graph UI to connect them together?
 - [ ] Re-process files reported as application/octet-stream (e.g. from Google Drive) for better mime
       detection. However, how to avoid doing it over and over?
 - [ ] Plugin system for **views**. A view is defined as a set of columns, computed columns (?) and
@@ -27,7 +29,6 @@
 - [ ] Store parent/child relationships from Google drive as relationship metadata. But how can we do
       that if we want the source scanner to not touch the DB?
 - [ ] Speed up time to save to DB after scan, can we batch more writes?
-- [ ] Google Canonical URI to folders should be different than files
 - [ ] Google drive actor isn't sending progress updates
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.
