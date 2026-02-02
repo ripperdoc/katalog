@@ -22,6 +22,39 @@ from katalog.db.query_sort import sort_conditions
 from katalog.db.query_values import _decode_metadata_value
 
 
+def build_assets_where(
+    *,
+    actor_id: int | None,
+    filters: list[str] | None,
+    search: str | None,
+    extra_where: tuple[str, list[Any]] | None,
+) -> tuple[str, list[Any]]:
+    conditions, filter_params = filter_conditions(filters)
+
+    if actor_id is not None:
+        # Scope to assets that have metadata from the actor.
+        conditions.append(
+            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.actor_id = ?)"
+        )
+        filter_params.extend([actor_id])
+
+    if extra_where:
+        conditions.append(extra_where[0])
+        filter_params.extend(extra_where[1])
+
+    if search is not None and search.strip():
+        fts_query = _fts5_query_from_user_text(search)
+        if not fts_query:
+            raise ValueError("Invalid search query")
+        conditions.append(
+            "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
+        )
+        filter_params.append(fts_query)
+
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    return where_sql, filter_params
+
+
 async def list_assets_for_view(
     view: ViewSpec,
     *,
@@ -55,30 +88,12 @@ async def list_assets_for_view(
 
     asset_table = Asset._meta.db_table
     metadata_table = Metadata._meta.db_table
-    # WHERE clause builder
-    conditions, filter_params = filter_conditions(filters)
-
-    if actor_id is not None:
-        # Scope to assets that have metadata from the actor.
-        conditions.append(
-            "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.actor_id = ?)"
-        )
-        filter_params.extend([actor_id])
-
-    if extra_where:
-        conditions.append(extra_where[0])
-        filter_params.extend(extra_where[1])
-
-    if search is not None and search.strip():
-        fts_query = _fts5_query_from_user_text(search)
-        if not fts_query:
-            raise ValueError("Invalid search query")
-        conditions.append(
-            "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
-        )
-        filter_params.append(fts_query)
-
-    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where_sql, filter_params = build_assets_where(
+        actor_id=actor_id,
+        filters=filters,
+        search=search,
+        extra_where=extra_where,
+    )
 
     # Determine which metadata keys to include; reduces workload when projecting columns.
     metadata_keys = [
@@ -214,3 +229,60 @@ async def list_assets_for_view(
         },
         "pagination": {"offset": offset, "limit": limit},
     }
+
+
+async def list_asset_ids_for_query(
+    *,
+    actor_id: int | None = None,
+    filters: list[str] | None = None,
+    search: str | None = None,
+    extra_where: tuple[str, list[Any]] | None = None,
+    offset: int = 0,
+    limit: int = 1000,
+) -> list[int]:
+    if limit < 0 or offset < 0:
+        raise ValueError("offset and limit must be non-negative")
+
+    asset_table = Asset._meta.db_table
+    where_sql, filter_params = build_assets_where(
+        actor_id=actor_id,
+        filters=filters,
+        search=search,
+        extra_where=extra_where,
+    )
+
+    conn = Tortoise.get_connection("default")
+    asset_rows = await conn.execute_query_dict(
+        f"""
+        SELECT a.id AS asset_id
+        FROM {asset_table} a
+        {where_sql}
+        ORDER BY a.id ASC
+        LIMIT ? OFFSET ?
+        """,
+        [*filter_params, limit, offset],
+    )
+    return [int(row["asset_id"]) for row in asset_rows]
+
+
+async def count_assets_for_query(
+    *,
+    actor_id: int | None = None,
+    filters: list[str] | None = None,
+    search: str | None = None,
+    extra_where: tuple[str, list[Any]] | None = None,
+) -> int:
+    asset_table = Asset._meta.db_table
+    where_sql, filter_params = build_assets_where(
+        actor_id=actor_id,
+        filters=filters,
+        search=search,
+        extra_where=extra_where,
+    )
+
+    conn = Tortoise.get_connection("default")
+    count_rows = await conn.execute_query_dict(
+        f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_sql}",
+        filter_params,
+    )
+    return int(count_rows[0]["cnt"]) if count_rows else 0

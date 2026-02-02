@@ -145,7 +145,12 @@ const AssetTable = ({
   const [sort, setSort] = useState<{ accessor: string; direction: "asc" | "desc" } | null>(null);
   const [filters, setFilters] = useState<TableFilterState>({});
   const [durationMs, setDurationMs] = useState<number | null>(null);
-  const skipDebounceRef = useRef(true);
+  const searchRef = useRef("");
+  const lastRequestRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    searchRef.current = searchQuery;
+  }, [searchQuery]);
 
   const loadPage = useCallback(
     async (
@@ -154,11 +159,12 @@ const AssetTable = ({
       sortOverride?: { accessor: string; direction: "asc" | "desc" } | null,
       filtersOverride?: TableFilterState,
       searchOverride?: string,
+      forceReload: boolean = false,
     ) => {
       const limit = limitOverride ?? pagination.limit;
       const effectiveSort = sortOverride ?? sort;
       const effectiveFilters = filtersOverride ?? filters;
-      const effectiveSearch = (searchOverride ?? searchQuery).trim();
+      const effectiveSearch = (searchOverride ?? searchRef.current).trim();
       const sortParam =
         effectiveSort && effectiveSort.accessor && effectiveSort.direction
           ? `${effectiveSort.accessor}:${effectiveSort.direction}`
@@ -168,6 +174,17 @@ const AssetTable = ({
         filterParams.append("filters", JSON.stringify(filter));
       });
       const searchParam = effectiveSearch.length > 0 ? effectiveSearch : undefined;
+      const requestKey = JSON.stringify({
+        page,
+        limit,
+        sort: sortParam,
+        filters: filterParams.getAll("filters"),
+        search: searchParam,
+      });
+      if (!forceReload && lastRequestRef.current === requestKey) {
+        return;
+      }
+      lastRequestRef.current = requestKey;
       setLoading(true);
       setError(null);
       try {
@@ -205,7 +222,7 @@ const AssetTable = ({
         setLoading(false);
       }
     },
-    [pagination.limit, sort, filters, searchQuery, fetchPage, onLoadComplete],
+    [pagination.limit, sort, filters, fetchPage, onLoadComplete],
   );
 
   useEffect(() => {
@@ -213,32 +230,11 @@ const AssetTable = ({
   }, [loadPage]);
 
   useEffect(() => {
-    if (skipDebounceRef.current) {
-      skipDebounceRef.current = false;
-      return;
-    }
     const handle = window.setTimeout(() => {
       void loadPage(1, undefined, sort, filters, searchQuery);
-    }, 250);
+    }, 1000);
     return () => window.clearTimeout(handle);
   }, [searchQuery, loadPage, sort, filters]);
-
-  const handleCellClick = useCallback(
-    (props: CellClickProps) => {
-      if (!onRowClick) {
-        return;
-      }
-
-      const assetId =
-        typeof props.value === "number" ? props.value : Number(String(props.value ?? ""));
-      if (!Number.isFinite(assetId)) {
-        return;
-      }
-
-      onRowClick(assetId);
-    },
-    [onRowClick],
-  );
 
   return (
     <section className="panel">
@@ -252,7 +248,7 @@ const AssetTable = ({
           <button
             className="btn-primary"
             type="button"
-            onClick={() => void loadPage(1)}
+            onClick={() => void loadPage(1, undefined, sort, filters, searchQuery, true)}
             disabled={loading}
           >
             {loading ? "Loading..." : "Reload"}
@@ -277,7 +273,6 @@ const AssetTable = ({
           rows={records}
           height="100%"
           selectableCells={true}
-          onCellClick={handleCellClick}
           columnResizing={true}
           shouldPaginate={true}
           rowsPerPage={pagination.limit}
@@ -288,7 +283,7 @@ const AssetTable = ({
             if (page === pagination.page) {
               return;
             }
-            void loadPage(page);
+            void loadPage(page, undefined, sort, filters, searchQuery);
           }}
           isLoading={loading}
           // externalSortHandling={true}

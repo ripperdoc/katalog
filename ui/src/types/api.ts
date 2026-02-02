@@ -161,6 +161,11 @@ export interface CollectionUpdateResponse {
   collection: AssetCollection;
 }
 
+export interface DeleteCollectionResponse {
+  status: string;
+  collection_id: number;
+}
+
 export interface AssetDetailRecord {
   id: number;
   actor_id: number;

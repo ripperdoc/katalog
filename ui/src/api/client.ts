@@ -19,6 +19,7 @@ import type {
   CollectionListResponse,
   CollectionResponse,
   CollectionUpdateResponse,
+  DeleteCollectionResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -41,6 +42,7 @@ export async function fetchViewAssets(
     sort,
     filters,
     search,
+    columns,
   }: {
     actorId?: number;
     offset?: number;
@@ -48,6 +50,7 @@ export async function fetchViewAssets(
     sort?: string | undefined;
     filters?: string[] | undefined;
     search?: string | undefined;
+    columns?: string[] | undefined;
   },
 ): Promise<ViewAssetsResponse> {
   const params = new URLSearchParams();
@@ -64,6 +67,9 @@ export async function fetchViewAssets(
   }
   if (search) {
     params.set("search", search);
+  }
+  if (columns && columns.length > 0) {
+    columns.forEach((col) => params.append("columns", col));
   }
   const response = await fetch(`${API_BASE}/views/${encodeURIComponent(viewId)}/assets?${params}`, {
     headers: { Accept: "application/json" },
@@ -311,6 +317,14 @@ export async function fetchCollectionAssets(
       headers: { Accept: "application/json" },
     },
   );
+  return handleResponse(response);
+}
+
+export async function deleteCollection(id: number): Promise<DeleteCollectionResponse> {
+  const response = await fetch(`${API_BASE}/collections/${id}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
   return handleResponse(response);
 }
 

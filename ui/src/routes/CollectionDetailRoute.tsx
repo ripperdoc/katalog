@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import AssetTable from "../components/AssetTable";
 import AppHeader from "../components/AppHeader";
-import { fetchCollection, fetchCollectionAssets, updateCollection } from "../api/client";
+import {
+  deleteCollection,
+  fetchCollection,
+  fetchCollectionAssets,
+  updateCollection,
+} from "../api/client";
 import type { AssetCollection, ViewAssetsResponse } from "../types/api";
 
 const DEFAULT_VIEW_ID = "default";
@@ -13,6 +18,7 @@ function CollectionDetailRoute() {
   const [collection, setCollection] = useState<AssetCollection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [nameDraft, setNameDraft] = useState<string>("");
   const [descDraft, setDescDraft] = useState<string | undefined>(undefined);
 
@@ -59,6 +65,29 @@ function CollectionDetailRoute() {
       setSaving(false);
     }
   }, [collection, nameDraft, descDraft]);
+
+  const handleDelete = useCallback(async () => {
+    if (!collection) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete collection "${collection.name}"? This will remove all collection memberships.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteCollection(collection.id);
+      navigate("/collections");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to delete collection: ${message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }, [collection, navigate]);
 
   const fetchPage = useCallback(
     ({
@@ -154,6 +183,14 @@ function CollectionDetailRoute() {
         <div className="panel-actions">
           <button className="btn-primary" type="button" onClick={() => navigate("/collections")}>
             Back to collections
+          </button>
+          <button
+            className="app-btn danger"
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete"}
           </button>
           <button
             className="btn-primary"

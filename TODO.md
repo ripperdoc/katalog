@@ -2,6 +2,7 @@
 
 # Next up
 
+- [ ] Fix AssetTable so ExternalID is clickable to external URL, and instead hide Canonical URL
 - [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
       a flatter table for easier querying. E.g. a generated asset_current.
 - [ ] Test harness with "real" Actors, Processors
