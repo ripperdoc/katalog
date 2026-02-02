@@ -5,7 +5,7 @@
 - [ ] Fix AssetTable so ExternalID is clickable to external URL, and instead hide Canonical URL
 - [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
       a flatter table for easier querying. E.g. a generated asset_current.
-- [ ] Test harness with "real" Actors, Processors
+- [ ] Test harness that uses "real" Actors, Processors to test all CRUD operations
 - [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
       if we keep an ID the same but dramatically change the definition, e.g a different root folder.
 - [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
@@ -17,6 +17,7 @@
 
 # Backlog
 
+- [ ] Compose processors into a type of analyzer, or extend to a kind of generic "saved procedure"
 - [ ] Re-process files reported as application/octet-stream (e.g. from Google Drive) for better mime
       detection. However, how to avoid doing it over and over?
 - [ ] Plugin system for **views**. A view is defined as a set of columns, computed columns (?) and

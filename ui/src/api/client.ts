@@ -355,11 +355,31 @@ export async function runProcessor(actorId: number): Promise<Changeset> {
   return handleResponse(response);
 }
 
-export async function runAnalyzer(actorId: number): Promise<Changeset> {
-  const response = await fetch(`${API_BASE}/analyzers/${encodeURIComponent(actorId)}/run`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
+export async function runAnalyzer(
+  actorId: number,
+  {
+    assetId,
+    collectionId,
+  }: {
+    assetId?: number;
+    collectionId?: number;
+  } = {},
+): Promise<Changeset> {
+  const params = new URLSearchParams();
+  if (assetId !== undefined) {
+    params.set("asset_id", String(assetId));
+  }
+  if (collectionId !== undefined) {
+    params.set("collection_id", String(collectionId));
+  }
+  const suffix = params.toString();
+  const response = await fetch(
+    `${API_BASE}/analyzers/${encodeURIComponent(actorId)}/run${suffix ? `?${suffix}` : ""}`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
+  );
   return handleResponse(response);
 }
 

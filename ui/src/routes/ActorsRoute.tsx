@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
+import ActorList from "../components/ActorList";
 import {
   fetchPlugins,
   fetchActors,
@@ -228,50 +229,18 @@ function ActorsRoute() {
                   </div>
                 </div>
                 <div className="record-list">
-                  {list.map((actor) => (
-                    <div key={actor.id} className="file-card">
-                      <div className="status-bar">
-                        <strong>
-                          #{actor.id} {actor.name}
-                        </strong>
-                        <span>
-                          {typeLabel}
-                          {actor.disabled ? " · Disabled" : ""}
-                        </span>
-                      </div>
-                      <p>Plugin: {actor.plugin_id ?? "n/a"}</p>
-                      <div className="meta-grid">
-                        <div>Created: {actor.created_at ?? "—"}</div>
-                        <div>Updated: {actor.updated_at ?? "—"}</div>
-                      </div>
-                      <div className="button-row">
-                        <label className="toggle">
-                          <input
-                            type="checkbox"
-                            checked={!actor.disabled}
-                            onChange={() => void toggleDisabled(actor)}
-                          />
-                          <span>{actor.disabled ? "Disabled" : "Enabled"}</span>
-                        </label>
-                        <Link to={`/actors/${actor.id}`} className="link-button">
-                          Edit
-                        </Link>
-                        {groupKey !== "editors" && (
-                          <button
-                            type="button"
-                            className="app-btn btn-primary"
-                            onClick={() => triggerRun(actor, groupKey)}
-                            disabled={scanningId !== null || actor.disabled}
-                          >
-                            {scanningId === actor.id ? "Starting..." : "Run"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {!loading && list.length === 0 && (
-                    <div className="empty-state">No {typeLabel.toLowerCase()} found.</div>
-                  )}
+                  <ActorList
+                    actors={list}
+                    typeLabel={typeLabel}
+                    runningId={scanningId}
+                    loading={loading}
+                    showEdit={true}
+                    showToggle={true}
+                    showRun={groupKey !== "editors"}
+                    runDisabled={scanningId !== null}
+                    onToggleDisabled={(actor) => void toggleDisabled(actor)}
+                    onRun={(actor) => triggerRun(actor, groupKey)}
+                  />
                 </div>
               </div>
             );
