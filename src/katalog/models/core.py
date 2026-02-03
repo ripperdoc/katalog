@@ -10,27 +10,16 @@ On the other hand, users will be encouraged to purge changesets regularly.
 """
 
 from __future__ import annotations
+
 import asyncio
-from dataclasses import dataclass, asdict
 from enum import Enum, IntEnum
 from time import time
+from datetime import datetime
 import traceback
-from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
-from tortoise.fields import (
-    CASCADE,
-    IntEnumField,
-    CharEnumField,
-    CharField,
-    DatetimeField,
-    ForeignKeyField,
-    JSONField,
-    IntField,
-    TextField,
-    BooleanField,
-)
-from tortoise.models import Model
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class OpStatus(Enum):
@@ -50,33 +39,25 @@ class ActorType(IntEnum):
     EXPORTER = 4
 
 
-class Actor(Model):
-    id = IntField(pk=True)
-    name = CharField(max_length=255, unique=True)
-    plugin_id = CharField(max_length=1024, null=True)
-    config = JSONField(null=True)
-    config_toml = TextField(null=True)
-    type = IntEnumField(ActorType)
-    disabled = BooleanField(default=False)
-    created_at = DatetimeField(auto_now_add=True)
-    updated_at = DatetimeField(auto_now=True)
+class Actor(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "type": self.type.name if isinstance(self.type, ActorType) else self.type,
-            "plugin_id": self.plugin_id,
-            "config": self.config,
-            "config_toml": self.config_toml,
-            "disabled": bool(self.disabled),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
+    id: int | None = None
+    name: str
+    plugin_id: str | None = None
+    type: ActorType
+    config: dict[str, Any] | None = None
+    config_toml: str | None = None
+    disabled: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_serializer("type")
+    def _serialize_type(self, value: ActorType) -> str:
+        return value.name if isinstance(value, ActorType) else str(value)
 
 
-@dataclass(slots=True)
-class ChangesetStats:
+class ChangesetStats(BaseModel):
     # Total assets encountered/accessed during scan (saved + ignored)
     assets_seen: int = 0
     assets_saved: int = 0  # Assets yielded and saved/processed by the pipeline
@@ -90,9 +71,6 @@ class ChangesetStats:
     metadata_values_changed: int = 0  # Total metadata values added or removed
     metadata_values_added: int = 0  # Metadata values added
     metadata_values_removed: int = 0  # Metadata values removed
-    # TODO how to correctly count unique keys affected across
-    # a changeset when we persist paralell async operations?
-    # metadata_keys_affected: int = 0
 
     processings_started: int = 0  # Total processing operations started
     processings_completed: int = 0  # Total processing operations completed successfully
@@ -101,134 +79,53 @@ class ChangesetStats:
     processings_skipped: int = 0  # Total processing operations skipped
     processings_error: int = 0  # Total processing operations failed with error
 
-    # def validate(self) -> None:
-    #     assert self.ass
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 DEFAULT_TASK_CONCURRENCY = 10
 
 
-class Changeset(Model):
-    # The int timestamp in ms since epoch when the changeset was started
-    id = IntField(pk=True)
-    message = CharField(max_length=512, null=True)
-    running_time_ms = IntField(null=True)
-    status = CharEnumField(OpStatus, max_length=32)
-    data = JSONField(null=True)
+class Changeset(BaseModel):
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+    id: int
+    message: str | None = None
+    running_time_ms: int | None = None
+    status: OpStatus
+    data: dict[str, Any] | None = None
+    actor_ids: list[int] | None = None
 
     # Local fields not persisted to DB, used for operations
-    stats: ChangesetStats
-    tasks: list[asyncio.Task]
-    semaphore: asyncio.Semaphore
-    _tasks_queued: int
-    _tasks_running: int
-    _tasks_finished: int
-    task: asyncio.Task | None
-    cancel_event: asyncio.Event | None
-    done_event: asyncio.Event | None
+    stats: ChangesetStats | None = None
+    tasks: list[asyncio.Task] | None = Field(default=None, exclude=True)
+    semaphore: asyncio.Semaphore | None = Field(default=None, exclude=True)
+    _tasks_queued: int = 0
+    _tasks_running: int = 0
+    _tasks_finished: int = 0
+    task: asyncio.Task | None = Field(default=None, exclude=True)
+    cancel_event: asyncio.Event | None = Field(default=None, exclude=True)
+    done_event: asyncio.Event | None = Field(default=None, exclude=True)
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    @field_serializer("status")
+    def _serialize_status(self, value: OpStatus) -> str:
+        return value.value if isinstance(value, OpStatus) else str(value)
+
+    def __init__(self, **data: Any) -> None:
+        super().__init__(**data)
         self._init_runtime_state()
 
     def _init_runtime_state(self) -> None:
-        # Safe defaults so instances materialized from the ORM always have runtime fields.
-        self.stats = ChangesetStats()
-        self.tasks = []
-        self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+        # Safe defaults so instances materialized from the DB always have runtime fields.
+        if self.stats is None:
+            self.stats = ChangesetStats()
+        if self.tasks is None:
+            self.tasks = []
+        if self.semaphore is None:
+            self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
         self._tasks_queued = 0
         self._tasks_running = 0
         self._tasks_finished = 0
         self.task = None
         self.cancel_event = None
         self.done_event = None
-
-    def to_dict(self) -> dict:
-        actor_ids: Sequence[int] | None = None
-        cache = getattr(self, "_prefetched_objects_cache", None)
-        if cache and "actor_links" in cache:
-            actor_ids = [int(link.actor_id) for link in cache["actor_links"]]
-        return {
-            "id": self.id,
-            "actor_ids": actor_ids,
-            "message": self.message,
-            "running_time_ms": self.running_time_ms,
-            "status": self.status.value
-            if isinstance(self.status, OpStatus)
-            else str(self.status),
-            "data": self.data,
-        }
-
-    @classmethod
-    async def find_partial_resume_point(cls, *, actor: Actor) -> "Changeset | None":
-        """
-        Return the most recent PARTIAL changeset that occurred after the latest
-        COMPLETED changeset for this actor. If no COMPLETED changeset exists,
-        return None (treat as full scan).
-        """
-        changesets = list(await cls.filter(actor_links__actor=actor).order_by("-id"))
-        last_full = None
-        last_partial = None
-        for s in reversed(changesets):
-            if s.status == OpStatus.COMPLETED:
-                last_full = s
-                break
-            elif last_partial is None and s.status == OpStatus.PARTIAL:
-                last_partial = s
-
-        if last_full is None:
-            return None
-
-        if last_partial is not None:
-            return last_partial
-        else:
-            return last_full
-
-    @classmethod
-    async def begin(
-        cls,
-        *,
-        status: OpStatus = OpStatus.IN_PROGRESS,
-        data: Mapping[str, Any] | None = None,
-        actors: Iterable[Actor] | None = None,
-        message: str | None = None,
-    ) -> "Changeset":
-        # Prevent concurrent in-progress changesets (scans or edits).
-        existing_in_progress = await cls.get_or_none(status=OpStatus.IN_PROGRESS)
-        if existing_in_progress is not None:
-            raise ValueError(
-                f"Changeset {existing_in_progress.id} is already in progress; finish or cancel it first"
-            )
-        changeset_id = int(time() * 1000)
-        if await cls.get_or_none(id=changeset_id):
-            raise ValueError(f"Changeset with id {changeset_id} already exists")
-        changeset = await cls.create(
-            id=changeset_id,
-            status=status,
-            message=message,
-            data=dict(data) if data else None,
-        )
-        await changeset.add_actors(actors or [])
-        return changeset
-
-    async def add_actors(self, actors: Iterable[Actor]) -> None:
-        actor_list = list(actors)
-        if not actor_list:
-            return
-        existing = {
-            row["actor_id"]
-            for row in await ChangesetActor.filter(changeset=self).values("actor_id")
-        }
-        payload = [
-            ChangesetActor(changeset=self, actor=actor)
-            for actor in actor_list
-            if actor.id not in existing
-        ]
-        if payload:
-            await ChangesetActor.bulk_create(payload)
 
     def log_task_progress(self) -> None:
         """
@@ -290,7 +187,9 @@ class Changeset(Model):
                     self.done_event.set()
 
         self.task = asyncio.create_task(runner())
-        self.task.add_done_callback(lambda _: self.done_event.set())
+        done_event = self.done_event
+        if done_event is not None:
+            self.task.add_done_callback(lambda _: done_event.set())
         return self.task
 
     def cancel(self) -> None:
@@ -329,21 +228,23 @@ class Changeset(Model):
         """
         if self.semaphore is None:
             self.semaphore = asyncio.Semaphore(DEFAULT_TASK_CONCURRENCY)
+        semaphore = self.semaphore
+        assert semaphore is not None
         self._tasks_queued += 1
         self.log_task_progress()
 
         async def runner():
-            async with self.semaphore:
+            async with semaphore:
                 self._tasks_queued -= 1
                 self._tasks_running += 1
                 self.log_task_progress()
                 try:
                     if self.cancel_event and self.cancel_event.is_set():
                         raise asyncio.CancelledError()
-                    if asyncio.iscoroutine(coro_or_factory):
-                        coro = coro_or_factory
-                    else:
+                    if callable(coro_or_factory):
                         coro = coro_or_factory()
+                    else:
+                        coro = coro_or_factory
                     return await coro
                 finally:
                     self._tasks_running -= 1
@@ -351,6 +252,8 @@ class Changeset(Model):
                     self.log_task_progress()
 
         task = asyncio.create_task(runner())
+        if self.tasks is None:
+            self.tasks = []
         self.tasks.append(task)
         return task
 
@@ -377,36 +280,26 @@ class Changeset(Model):
         if self.stats is not None or self.data is not None:
             data_payload = dict(self.data or {})
             if self.stats is not None:
-                data_payload["stats"] = self.stats.to_dict()
+                data_payload["stats"] = self.stats.model_dump(mode="json")
             self.data = data_payload
 
         if self.running_time_ms is None:
             now_ts = time()
             self.running_time_ms = int(now_ts * 1000) - int(self.id)
 
-        update_fields = ["status", "running_time_ms"]
-        if data_payload is not None:
-            update_fields.append("data")
         self.status = status
-        await self.save(update_fields=update_fields)
+        from katalog.db.changesets import get_changeset_repo
 
-    class Meta(Model.Meta):
-        indexes = ()
+        db = get_changeset_repo()
+        await db.save(self, update_data=data_payload)
 
 
-class ChangesetActor(Model):
-    """Join table for changeset -> actors involved."""
+class ChangesetActor(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
-    id = IntField(pk=True)
-    changeset = ForeignKeyField(
-        "models.Changeset", related_name="actor_links", on_delete=CASCADE
-    )
-    actor = ForeignKeyField(
-        "models.Actor", related_name="changeset_links", on_delete=CASCADE
-    )
-
-    class Meta(Model.Meta):
-        unique_together = (("changeset", "actor"),)
+    id: int | None = None
+    changeset_id: int
+    actor_id: int
 
 
 async def drain_tasks(tasks: list[asyncio.Task[Any]]) -> tuple[int, int]:

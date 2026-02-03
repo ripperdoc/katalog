@@ -11,8 +11,11 @@ from katalog.analyzers.base import (
     AnalyzerScope,
     FileGroupFinding,
 )
-from katalog.analyzers.utils import build_scoped_assets_cte, get_analysis_connection
-from katalog.models import Asset, Metadata, Actor, Changeset
+from katalog.analyzers.utils import build_scoped_assets_cte
+from katalog.db.sqlspec.sql_helpers import select
+from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
+from katalog.models import Metadata, Actor, Changeset
 from katalog.constants.metadata import HASH_MD5, get_metadata_id
 
 
@@ -50,18 +53,17 @@ class ExactDuplicateAnalyzer(Analyzer):
     ) -> AnalyzerResult:
         """Find duplicate assets by MD5 using SQL-only grouping."""
 
+        _ = changeset
         md5_registry_id = get_metadata_id(HASH_MD5)
         max_groups = int(self.config.max_groups)
-        conn = get_analysis_connection()
-        metadata_table = Metadata._meta.db_table
-        asset_table = Asset._meta.db_table
+        metadata_table = METADATA_TABLE
+        asset_table = ASSET_TABLE
         scoped_cte, scoped_params = build_scoped_assets_cte(
             scope,
             asset_table=asset_table,
             metadata_table=metadata_table,
         )
 
-        # Step 1: detect assets with conflicting current MD5 values (different actors disagree).
         conflict_sql = f"""
         WITH {scoped_cte},
         latest_md5 AS (
@@ -90,77 +92,77 @@ class ExactDuplicateAnalyzer(Analyzer):
         HAVING COUNT(DISTINCT md5) > 1
         """
 
-        conflict_rows = await conn.execute_query_dict(
-            conflict_sql, scoped_params + [md5_registry_id]
-        )
-
-        issues: list[AnalyzerIssue] = []
-        for row in conflict_rows:
-            hashes = sorted((row.get("hashes") or "").split(","))
-            message = (
-                "Multiple current hash/md5 values for asset "
-                f"{row['asset_id']}: {', '.join(hashes)}"
+        async with session_scope(analysis=True) as session:
+            conflict_rows = await select(
+                session, conflict_sql, scoped_params + [md5_registry_id]
             )
-            logger.error(message)
-            issues.append(
-                AnalyzerIssue(
-                    level="error",
-                    message=message,
-                    file_ids=[str(row["asset_id"])],
-                    extra={"hashes": hashes},
+
+            issues: list[AnalyzerIssue] = []
+            for row in conflict_rows:
+                hashes = sorted((row.get("hashes") or "").split(","))
+                message = (
+                    "Multiple current hash/md5 values for asset "
+                    f"{row['asset_id']}: {', '.join(hashes)}"
+                )
+                logger.error(message)
+                issues.append(
+                    AnalyzerIssue(
+                        level="error",
+                        message=message,
+                        file_ids=[str(row["asset_id"])],
+                        extra={"hashes": hashes},
+                    )
+                )
+
+            group_sql = f"""
+            WITH {scoped_cte},
+            latest_md5 AS (
+                SELECT
+                    m.asset_id,
+                    m.actor_id,
+                    lower(trim(m.value_text)) AS md5,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY m.asset_id, m.actor_id
+                        ORDER BY m.changeset_id DESC, m.id DESC
+                    ) AS rn
+                FROM {metadata_table} AS m
+                JOIN scoped_assets s ON s.asset_id = m.asset_id
+                WHERE m.metadata_key_id = ?
+                  AND m.removed = 0
+                  AND m.value_text IS NOT NULL
+            ),
+            current_md5 AS (
+                SELECT asset_id, actor_id, md5
+                FROM latest_md5
+                WHERE rn = 1 AND md5 != ''
+            ),
+            deduped AS (
+                SELECT asset_id, actor_id, md5
+                FROM current_md5
+                WHERE asset_id NOT IN (
+                    SELECT asset_id FROM (
+                        SELECT asset_id
+                        FROM current_md5
+                        GROUP BY asset_id
+                        HAVING COUNT(DISTINCT md5) > 1
+                    )
                 )
             )
-
-        # Step 2: group remaining assets by MD5 entirely in SQL, returning only duplicate sets.
-        group_sql = f"""
-        WITH {scoped_cte},
-        latest_md5 AS (
             SELECT
-                m.asset_id,
-                m.actor_id,
-                lower(trim(m.value_text)) AS md5,
-                ROW_NUMBER() OVER (
-                    PARTITION BY m.asset_id, m.actor_id
-                    ORDER BY m.changeset_id DESC, m.id DESC
-                ) AS rn
-            FROM {metadata_table} AS m
-            JOIN scoped_assets s ON s.asset_id = m.asset_id
-            WHERE m.metadata_key_id = ?
-              AND m.removed = 0
-              AND m.value_text IS NOT NULL
-        ),
-        current_md5 AS (
-            SELECT asset_id, actor_id, md5
-            FROM latest_md5
-            WHERE rn = 1 AND md5 != ''
-        ),
-        deduped AS (
-            SELECT asset_id, actor_id, md5
-            FROM current_md5
-            WHERE asset_id NOT IN (
-                SELECT asset_id FROM (
-                    SELECT asset_id
-                    FROM current_md5
-                    GROUP BY asset_id
-                    HAVING COUNT(DISTINCT md5) > 1
-                )
-            )
-        )
-        SELECT
-            md5,
-            COUNT(*) AS file_count,
-            GROUP_CONCAT(DISTINCT asset_id) AS asset_ids,
-            GROUP_CONCAT(DISTINCT actor_id) AS actor_ids
-        FROM deduped
-        GROUP BY md5
-        HAVING COUNT(*) > 1
-        ORDER BY file_count DESC, md5
-        LIMIT ?
-        """
+                md5,
+                COUNT(*) AS file_count,
+                GROUP_CONCAT(DISTINCT asset_id) AS asset_ids,
+                GROUP_CONCAT(DISTINCT actor_id) AS actor_ids
+            FROM deduped
+            GROUP BY md5
+            HAVING COUNT(*) > 1
+            ORDER BY file_count DESC, md5
+            LIMIT ?
+            """
 
-        rows = await conn.execute_query_dict(
-            group_sql, scoped_params + [md5_registry_id, max_groups]
-        )
+            rows = await select(
+                session, group_sql, scoped_params + [md5_registry_id, max_groups]
+            )
 
         groups: list[FileGroupFinding] = []
         for row in rows:
@@ -185,7 +187,6 @@ class ExactDuplicateAnalyzer(Analyzer):
                 )
             )
 
-        # Relationships can be derived later when we decide how to persist duplicate groups.
         return AnalyzerResult(
             metadata=[],
             relationships=[],
@@ -198,4 +199,4 @@ class ExactDuplicateAnalyzer(Analyzer):
         if metadata.value is None:
             return None
         text = str(metadata.value).strip()
-        return text.lower() or None
+        return text or None

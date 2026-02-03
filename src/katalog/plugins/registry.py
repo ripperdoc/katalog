@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
 from typing import Iterable, TypeVar, cast, overload
 
 from loguru import logger
 
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
 from katalog.models import Actor, ActorType
+from katalog.db.actors import get_actor_repo
 from katalog.plugins.base import PluginBase
 from katalog.utils.utils import import_plugin_class
 
@@ -20,25 +22,20 @@ ENTRYPOINT_GROUP_BY_TYPE: dict[ActorType, str] = {
 }
 
 
-@dataclass(slots=True)
-class PluginSpec:
+class PluginSpec(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     plugin_id: str
     actor_type: ActorType
-    cls: type
+    cls: type = Field(exclude=True)
     title: str
     description: str | None
     origin: str = "entrypoint"
     version: str | None = None
 
-    def to_dict(self) -> dict[str, str | None]:
-        return {
-            "plugin_id": self.plugin_id,
-            "type": self.actor_type.name,
-            "title": self.title,
-            "description": self.description,
-            "origin": self.origin,
-            "version": self.version,
-        }
+    @field_serializer("actor_type")
+    def _serialize_actor_type(self, value: ActorType) -> str:
+        return value.name if isinstance(value, ActorType) else str(value)
 
 
 def _iter_entrypoints(group: str) -> Iterable[EntryPoint]:
@@ -137,9 +134,15 @@ async def get_actor_instance(actor) -> PluginBase:
     if isinstance(actor, Actor):
         actor_obj = actor
     else:
-        actor_obj = await Actor.get_or_none(id=int(actor))
+        db = get_actor_repo()
+        actor_obj = await db.get_or_none(id=int(actor))
     if actor_obj is None:
         raise ValueError(f"Actor {actor!r} not found")
+
+    if actor_obj.id is None:
+        raise ValueError(f"Actor {actor!r} is missing an id")
+    if actor_obj.plugin_id is None:
+        raise ValueError(f"Actor {actor!r} is missing a plugin_id")
 
     cached = _INSTANCE_CACHE.get(actor_obj.id)
     if cached is not None:

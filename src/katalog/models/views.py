@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 from typing import Sequence
+
+from pydantic import BaseModel, ConfigDict, computed_field, field_serializer
 
 from katalog.constants.metadata import (
     ASSET_EXTERNAL_ID,
@@ -23,9 +24,10 @@ from katalog.constants.metadata import (
 )
 
 
-@dataclass(frozen=True)
-class ColumnSpec:
+class ColumnSpec(BaseModel):
     """Describe a column that can be shown in an asset view."""
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     value_type: MetadataType
@@ -39,11 +41,13 @@ class ColumnSpec:
     searchable: bool = False
     plugin_id: str | None = None
 
-    def to_dict(self) -> dict:
-        payload = asdict(self)
-        payload["value_type"] = int(self.value_type)
-        payload["key"] = self.id
-        return payload
+    @computed_field(return_type=str)
+    def key(self) -> str:
+        return self.id
+
+    @field_serializer("value_type")
+    def _serialize_value_type(self, value: MetadataType) -> int:
+        return int(value) if isinstance(value, MetadataType) else int(value)
 
     @classmethod
     def from_metadata(
@@ -72,9 +76,10 @@ class ColumnSpec:
         )
 
 
-@dataclass(frozen=True)
-class ViewSpec:
+class ViewSpec(BaseModel):
     """Describe a view (set of columns + capabilities)."""
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     name: str
@@ -84,17 +89,6 @@ class ViewSpec:
 
     def column_map(self) -> dict[str, ColumnSpec]:
         return {col.id: col for col in self.columns}
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "columns": [c.to_dict() for c in self.columns],
-            "default_sort": list(self.default_sort),
-            "default_columns": list(self.default_columns)
-            if self.default_columns is not None
-            else None,
-        }
 
 
 def default_view() -> ViewSpec:

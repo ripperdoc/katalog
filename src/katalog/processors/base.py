@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import FrozenSet, cast
+
+from pydantic import BaseModel, Field, field_serializer
 
 from katalog.models import (
     Asset,
@@ -16,12 +17,15 @@ from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_actor_instance
 
 
-@dataclass(slots=True)
-class ProcessorResult:
-    metadata: list[Metadata] = field(default_factory=list)
-    assets: list[Asset] = field(default_factory=list)
+class ProcessorResult(BaseModel):
+    metadata: list[Metadata] = Field(default_factory=list)
+    assets: list[Asset] = Field(default_factory=list)
     status: OpStatus = OpStatus.COMPLETED
     message: str | None = None
+
+    @field_serializer("status")
+    def _serialize_status(self, value: OpStatus) -> str:
+        return value.value if isinstance(value, OpStatus) else str(value)
 
 
 class Processor(PluginBase, ABC):

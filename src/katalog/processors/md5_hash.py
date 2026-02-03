@@ -66,10 +66,10 @@ class MD5HashProcessor(Processor):
             )
 
         # If the accessor exposes a local path, hash it in a thread to leverage GIL release.
-        if hasattr(reader, "path"):
+        if hasattr(reader, "path") and reader.path is not None:
             digest = await asyncio.to_thread(
                 _hash_file_path, Path(reader.path), self.config.chunk_size
-            )  # type: ignore[arg-type]
+            )
         else:
             digest = await _hash_stream_async(reader, self.config.chunk_size)
 

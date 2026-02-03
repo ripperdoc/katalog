@@ -1,0 +1,7 @@
+ASSET_TABLE = "assets"
+ASSET_COLLECTION_TABLE = "asset_collections"
+ACTOR_TABLE = "actors"
+CHANGESET_TABLE = "changesets"
+CHANGESET_ACTOR_TABLE = "changeset_actors"
+METADATA_TABLE = "metadata"
+METADATA_REGISTRY_TABLE = "metadata_registry"

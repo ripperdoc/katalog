@@ -5,13 +5,14 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from katalog.db import list_changeset_metadata_changes
 from katalog.models import Changeset, OpStatus
+from katalog.db.changesets import get_changeset_repo
 from katalog.utils.changeset_events import sse_event
 
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.state import RUNNING_CHANGESETS, event_manager
 from katalog.api.helpers import ApiError
+from katalog.api.schemas import ChangesetChangesResponse
 
 router = APIRouter()
 
@@ -20,10 +21,11 @@ class ChangesetUpdate(BaseModel):
     message: str | None = Field(default=None)
 
 
-async def create_changeset_api() -> dict:
+async def create_changeset() -> Changeset:
     actor = await ensure_user_editor()
+    db = get_changeset_repo()
     try:
-        changeset = await Changeset.begin(
+        changeset = await db.begin(
             actors=[actor],
             message="Manual edit",
             status=OpStatus.IN_PROGRESS,
@@ -31,81 +33,91 @@ async def create_changeset_api() -> dict:
         )
     except ValueError as exc:
         raise ApiError(status_code=409, detail=str(exc))
-    return changeset.to_dict()
+    return changeset
 
 
-async def finish_changeset_api(changeset_id: int) -> dict:
-    changeset = await Changeset.get_or_none(id=changeset_id)
+async def finish_changeset(changeset_id: int) -> Changeset:
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
     if changeset.status != OpStatus.IN_PROGRESS:
         raise ApiError(status_code=409, detail="Changeset is not in progress")
     await changeset.finalize(status=OpStatus.COMPLETED)
-    return {"changeset": (await Changeset.get(id=changeset_id)).to_dict()}
+    latest = await db.get(id=changeset_id)
+    await db.load_actor_ids(latest)
+    return latest
 
 
-async def list_changesets_api() -> dict:
-    changesets = (
-        await Changeset.all().order_by("-id").prefetch_related("actor_links__actor")
-    )
-    return {"changesets": [s.to_dict() for s in changesets]}
+async def list_changesets() -> list[Changeset]:
+    db = get_changeset_repo()
+    changesets = await db.list_rows(order_by="id DESC")
+    for changeset in changesets:
+        await db.load_actor_ids(changeset)
+    return changesets
 
 
-async def get_changeset_api(changeset_id: int) -> dict:
-    changeset = await Changeset.get_or_none(id=changeset_id).prefetch_related(
-        "actor_links__actor"
-    )
+async def get_changeset(
+    changeset_id: int,
+) -> tuple[Changeset, list[str], bool]:
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
+    await db.load_actor_ids(changeset)
 
-    return {
-        "changeset": changeset.to_dict(),
-        "logs": event_manager.get_buffer(changeset_id),
-        "running": changeset.status == OpStatus.IN_PROGRESS,
-    }
+    return (
+        changeset,
+        event_manager.get_buffer(changeset_id),
+        changeset.status == OpStatus.IN_PROGRESS,
+    )
 
 
-async def delete_changeset_api(changeset_id: int) -> dict:
+async def delete_changeset(changeset_id: int) -> dict[str, int | str]:
     """Undo a changeset by deleting it (cascade removes related rows)."""
-    changeset = await Changeset.get_or_none(id=changeset_id)
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
 
-    await changeset.delete()
+    await db.delete(changeset)
     return {"status": "deleted", "changeset_id": changeset_id}
 
 
-async def list_changeset_changes_api(
+async def list_changeset_changes(
     changeset_id: int,
     offset: int = 0,
     limit: int = 200,
-) -> dict:
-    changeset = await Changeset.get_or_none(id=changeset_id)
+) -> ChangesetChangesResponse:
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
 
     try:
-        return await list_changeset_metadata_changes(
+        return await db.list_changeset_metadata_changes(
             changeset_id, offset=offset, limit=limit, include_total=True
         )
     except ValueError as exc:
         raise ApiError(status_code=400, detail=str(exc))
 
 
-async def update_changeset_api(changeset_id: int, payload: ChangesetUpdate) -> dict:
-    changeset = await Changeset.get_or_none(id=changeset_id)
+async def update_changeset(changeset_id: int, payload: ChangesetUpdate) -> Changeset:
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
 
     if payload.message is not None:
         changeset.message = payload.message
-        await changeset.save()
+        await db.save(changeset)
+    await db.load_actor_ids(changeset)
+    return changeset
 
-    return {"changeset": changeset.to_dict()}
 
-
-async def stream_changeset_events_api(changeset_id: int):
-    changeset = await Changeset.get_or_none(id=changeset_id)
+async def stream_changeset_events(changeset_id: int):
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
 
@@ -135,8 +147,10 @@ async def stream_changeset_events_api(changeset_id: int):
                 else:
                     log_waiter.cancel()
                 if done_waiter in done:
-                    latest = await Changeset.get(id=changeset_id)
-                    yield sse_event("changeset", json.dumps(latest.to_dict()))
+                    latest = await db.get(id=changeset_id)
+                    await db.load_actor_ids(latest)
+                    payload = latest.model_dump(mode="json")
+                    yield sse_event("changeset", json.dumps(payload))
                     break
         finally:
             event_manager.unsubscribe(changeset_id, queue)
@@ -144,8 +158,11 @@ async def stream_changeset_events_api(changeset_id: int):
     return event_generator()
 
 
-async def cancel_changeset_api(changeset_id: int) -> dict:
-    changeset = await Changeset.get_or_none(id=changeset_id)
+async def cancel_changeset(
+    changeset_id: int,
+) -> tuple[str, Changeset | None]:
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
     running_changeset = RUNNING_CHANGESETS.get(changeset_id)
@@ -155,55 +172,65 @@ async def cancel_changeset_api(changeset_id: int) -> dict:
         # Nothing running (maybe after restart). If still in progress, finalize as canceled.
         if changeset.status == OpStatus.IN_PROGRESS:
             await changeset.finalize(status=OpStatus.CANCELED)
-            changeset = await Changeset.get(id=changeset_id)
-            await changeset.fetch_related("actor_links__actor")
-        return {"status": "cancelled", "changeset": changeset.to_dict()}
+            changeset = await db.get(id=changeset_id)
+            await db.load_actor_ids(changeset)
+        return "cancelled", changeset
 
     # Signal cancellation and wait briefly
     running_changeset.cancel()
     try:
         await running_changeset.wait_cancelled(timeout=10)
     except asyncio.TimeoutError:
-        return {"status": "cancellation_requested"}
+        return "cancellation_requested", None
 
-    latest = await Changeset.get(id=changeset_id)
-    await latest.fetch_related("actor_links__actor")
-    return {"status": "cancelled", "changeset": latest.to_dict()}
+    latest = await db.get(id=changeset_id)
+    await db.load_actor_ids(latest)
+    return "cancelled", latest
+
+
+@router.post("/changesets/{changeset_id}/cancel")
+async def cancel_changeset_rest(changeset_id: int):
+    status, changeset = await cancel_changeset(changeset_id)
+    return {"status": status, "changeset": changeset}
 
 
 @router.post("/changesets")
-async def create_changeset():
-    return await create_changeset_api()
+async def create_changeset_rest():
+    changeset = await create_changeset()
+    return {"changeset": changeset}
 
 
 @router.post("/changesets/{changeset_id}/finish")
-async def finish_changeset(changeset_id: int):
-    return await finish_changeset_api(changeset_id)
+async def finish_changeset_rest(changeset_id: int):
+    changeset = await finish_changeset(changeset_id)
+    return {"changeset": changeset}
 
 
 @router.get("/changesets")
-async def list_changesets():
-    return await list_changesets_api()
+async def list_changesets_rest():
+    changesets = await list_changesets()
+    return {"changesets": changesets}
 
 
 @router.get("/changesets/{changeset_id}")
-async def get_changeset(changeset_id: int, stream: bool = Query(False)):
+async def get_changeset_rest(changeset_id: int, stream: bool = Query(False)):
     _ = stream
-    return await get_changeset_api(changeset_id)
+    changeset, logs, running = await get_changeset(changeset_id)
+    return {"changeset": changeset, "logs": logs, "running": running}
 
 
 @router.delete("/changesets/{changeset_id}")
-async def delete_changeset(changeset_id: int):
-    return await delete_changeset_api(changeset_id)
+async def delete_changeset_rest(changeset_id: int):
+    return await delete_changeset(changeset_id)
 
 
 @router.get("/changesets/{changeset_id}/changes")
-async def list_changeset_changes(
+async def list_changeset_changes_rest(
     changeset_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
 ):
-    return await list_changeset_changes_api(
+    return await list_changeset_changes(
         changeset_id,
         offset=offset,
         limit=limit,
@@ -211,17 +238,13 @@ async def list_changeset_changes(
 
 
 @router.patch("/changesets/{changeset_id}")
-async def update_changeset(changeset_id: int, request: Request):
+async def update_changeset_rest(changeset_id: int, request: Request):
     payload = ChangesetUpdate.model_validate(await request.json())
-    return await update_changeset_api(changeset_id, payload)
+    changeset = await update_changeset(changeset_id, payload)
+    return {"changeset": changeset}
 
 
 @router.get("/changesets/{changeset_id}/events")
-async def stream_changeset_events(changeset_id: int):
-    event_generator = await stream_changeset_events_api(changeset_id)
+async def stream_changeset_events_rest(changeset_id: int):
+    event_generator = await stream_changeset_events(changeset_id)
     return StreamingResponse(event_generator, media_type="text/event-stream")
-
-
-@router.post("/changesets/{changeset_id}/cancel")
-async def cancel_changeset(changeset_id: int):
-    return await cancel_changeset_api(changeset_id)

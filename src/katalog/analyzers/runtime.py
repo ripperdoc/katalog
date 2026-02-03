@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from katalog.analyzers.base import AnalyzerResult, AnalyzerScope, make_analyzer_instance
 from katalog.models import Actor, Changeset
+from katalog.db.changesets import get_changeset_repo
 
 
-async def run_analyzer(
+async def do_run_analyzer(
     actor: Actor,
     changeset: Changeset,
     scope: AnalyzerScope | None = None,
-) -> dict:
+) -> AnalyzerResult:
     """Run a specific analyzer (by actor instance) and return serialized results."""
 
     if actor.disabled:
@@ -35,11 +36,12 @@ async def run_analyzer(
         outputs[str(actor.id)] = {
             "plugin_id": actor.plugin_id,
             "kind": analyzer.output_kind or "analysis",
-            "scope": resolved_scope.to_dict(),
+            "scope": resolved_scope.model_dump(mode="json"),
             "data": result.output,
         }
         data_payload["outputs"] = outputs
         changeset.data = data_payload
-        await changeset.save(update_fields=["data"])
+        db = get_changeset_repo()
+        await db.save(changeset, update_data=changeset.data)
 
-    return result.to_dict()
+    return result

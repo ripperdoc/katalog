@@ -87,17 +87,7 @@ class NameReadabilityProcessor(Processor):
         return ProcessorResult(metadata=[metadata])
 
     def _resolve_file_name(self, asset: Asset) -> str | None:
-        if self.database:
-            entries = self.database.get_metadata_for_file(
-                asset.id,
-                actor_id=self.actor.id,
-                metadata_key=FILE_NAME,
-            )
-            if entries:
-                latest = entries[0].value
-                if isinstance(latest, str) and latest:
-                    return latest
-        return Path(asset.canonical_uri).name or asset.canonical_uri
+        raise NotImplementedError()
 
     def _analyze_name(self, filename: str) -> dict[str, Any]:
         stem = Path(filename).stem or filename

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from katalog.db import sync_config
+from katalog.db.metadata import sync_config_db
 from katalog.sources.runtime import get_source_plugin
 
 router = APIRouter()
@@ -12,9 +12,9 @@ async def auth_callback_api(actor: int, authorization_response: str) -> dict[str
     return {"status": "ok"}
 
 
-async def sync_config_api() -> dict[str, str]:
+async def sync_config() -> dict[str, str]:
     """Requests to sync config"""
-    await sync_config()
+    await sync_config_db()
 
     return {"status": "ok"}
 
@@ -26,5 +26,5 @@ async def auth_callback(actor: int, request: Request):
 
 
 @router.post("/sync")
-async def sync():
-    return await sync_config_api()
+async def sync_config_rest():
+    return await sync_config()

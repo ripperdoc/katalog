@@ -1,28 +1,31 @@
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from fastapi import APIRouter, Query, Request
 
 from katalog.constants.metadata import MetadataKey
-from katalog.db import (
-    build_group_member_filter,
-    list_assets_for_view,
-    list_grouped_assets,
-)
+from katalog.db.assets import get_asset_repo
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
 from katalog.models.views import get_view
 from katalog.api.helpers import ApiError
+from katalog.api.schemas import (
+    AssetsListResponse,
+    GroupedAssetsResponse,
+    ManualEditResult,
+)
+from katalog.db.metadata import get_metadata_repo
 
 
 router = APIRouter()
 
 
-async def list_assets_api(actor_id: Optional[int] = None) -> dict[str, Any]:
+async def list_assets(actor_id: Optional[int] = None) -> AssetsListResponse:
     view = get_view("default")
-    return await list_assets_for_view(view, actor_id=actor_id)
+    db = get_asset_repo()
+    return await db.list_assets_for_view_db(view, actor_id=actor_id)
 
 
-async def list_grouped_assets_api(
+async def list_grouped_assets(
     group_by: str,
     group_value: Optional[str] = None,
     actor_id: Optional[int] = None,
@@ -30,7 +33,7 @@ async def list_grouped_assets_api(
     limit: int = 50,
     filters: list[str] | None = None,
     search: Optional[str] = None,
-) -> dict[str, Any]:
+) -> GroupedAssetsResponse:
     """
     Grouped asset listing:
     - Without group_value: returns group aggregates (row_kind='group').
@@ -40,7 +43,8 @@ async def list_grouped_assets_api(
     view = get_view("default")
 
     if group_value is None:
-        return await list_grouped_assets(
+        db = get_asset_repo()
+        return await db.list_grouped_assets_db(
             view,
             group_by=group_by,
             actor_id=actor_id,
@@ -51,8 +55,9 @@ async def list_grouped_assets_api(
             include_total=True,
         )
 
-    extra_where = build_group_member_filter(group_by, group_value)
-    members = await list_assets_for_view(
+    db = get_asset_repo()
+    extra_where = db.build_group_member_filter(group_by, group_value)
+    members = await db.list_assets_for_view_db(
         view,
         actor_id=actor_id,
         offset=offset,
@@ -64,49 +69,54 @@ async def list_grouped_assets_api(
         include_total=True,
         extra_where=extra_where,
     )
-    # Tag rows so UI can distinguish assets returned via grouping.
-    for item in members.get("items", []):
-        item["row_kind"] = "asset"
-        item["group_key"] = group_by
-        item["group_value"] = group_value
-    members["mode"] = "members"
-    members["group_by"] = group_by
-    members["group_value"] = group_value
-    return members
+    items: list[dict[str, Any]] = []
+    for item in members.items:
+        row = item.model_dump(by_alias=True)
+        row["row_kind"] = "asset"
+        row["group_key"] = group_by
+        row["group_value"] = group_value
+        items.append(row)
+    return GroupedAssetsResponse(
+        mode="members",
+        group_by=group_by,
+        group_value=group_value,
+        items=items,
+        stats=members.stats.model_dump(mode="json"),
+        pagination=members.pagination,
+    )
 
 
-async def create_asset_api() -> dict[str, Any]:
+async def create_asset() -> None:
     raise NotImplementedError("Direct asset creation is not supported")
 
 
-async def get_asset_api(asset_id: int) -> dict[str, Any]:
-    asset = await Asset.get_or_none(id=asset_id)
+async def get_asset(asset_id: int) -> tuple[Asset, Sequence[Metadata]]:
+    db = get_asset_repo()
+    asset = await db.get_or_none(id=asset_id)
     if asset is None:
         raise ApiError(status_code=404, detail="Asset not found")
 
-    metadata = await Metadata.for_asset(asset, include_removed=True)
-    return {
-        "asset": asset.to_dict(),
-        "metadata": [m.to_dict() for m in metadata],
-    }
+    metadata = await db.load_metadata(asset, include_removed=True)
+    return asset, metadata
 
 
-async def manual_edit_asset_api(
-    asset_id: int, payload: dict[str, Any]
-) -> dict[str, Any]:
+async def manual_edit_asset(asset_id: int, payload: dict[str, Any]) -> ManualEditResult:
     changeset_id = payload.get("changeset_id")
     if changeset_id is None:
         raise ApiError(status_code=400, detail="changeset_id is required")
 
-    from katalog.models import Changeset, OpStatus
+    from katalog.db.changesets import get_changeset_repo
+    from katalog.models import OpStatus
 
-    changeset = await Changeset.get_or_none(id=int(changeset_id))
+    db = get_changeset_repo()
+    changeset = await db.get_or_none(id=int(changeset_id))
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
     if changeset.status != OpStatus.IN_PROGRESS:
         raise ApiError(status_code=409, detail="Changeset is not in progress")
 
-    asset = await Asset.get_or_none(id=asset_id)
+    db = get_asset_repo()
+    asset = await db.get_or_none(id=asset_id)
     if asset is None:
         raise ApiError(status_code=404, detail="Asset not found")
 
@@ -120,33 +130,36 @@ async def manual_edit_asset_api(
             md = make_metadata(mk, value, actor_id=actor.id)
         except Exception as exc:
             raise ApiError(status_code=400, detail=f"Invalid metadata {key}: {exc}")
-        md.asset = asset
-        md.changeset = changeset
+        md.asset_id = asset.id
+        md.changeset_id = changeset.id
         metadata_entries.append(md)
 
     # Apply changes
-    loaded = await asset.load_metadata()
+    loaded = await db.load_metadata(asset)
     changes = MetadataChanges(loaded=loaded, staged=metadata_entries)
-    changed_keys = await changes.persist(asset=asset, changeset=changeset)
+    md_db = get_metadata_repo()
+    changed_keys = await md_db.persist_changes(
+        changes, asset=asset, changeset=changeset
+    )
 
-    return {
-        "asset_id": asset_id,
-        "changeset_id": changeset.id,
-        "changed_keys": [str(k) for k in changed_keys],
-    }
+    return ManualEditResult(
+        asset_id=asset_id,
+        changeset_id=changeset.id,
+        changed_keys=[str(k) for k in changed_keys],
+    )
 
 
-async def update_asset_api() -> dict[str, Any]:
+async def update_asset() -> None:
     raise NotImplementedError()
 
 
 @router.get("/assets")
-async def list_assets(actor_id: Optional[int] = None):
-    return await list_assets_api(actor_id=actor_id)
+async def list_assets_rest(actor_id: Optional[int] = None):
+    return await list_assets(actor_id=actor_id)
 
 
 @router.get("/assets/grouped")
-async def list_grouped_assets_endpoint(
+async def list_grouped_assets_rest(
     group_by: str = Query(
         ..., description="Grouping key, e.g. 'hash/md5' or 'a.actor_id'"
     ),
@@ -160,7 +173,7 @@ async def list_grouped_assets_endpoint(
     filters: list[str] | None = Query(None),
     search: Optional[str] = Query(None),
 ):
-    return await list_grouped_assets_api(
+    return await list_grouped_assets(
         group_by=group_by,
         group_value=group_value,
         actor_id=actor_id,
@@ -172,21 +185,22 @@ async def list_grouped_assets_endpoint(
 
 
 @router.post("/assets")
-async def create_asset(request: Request):
-    return await create_asset_api()
+async def create_asset_rest(request: Request):
+    return await create_asset()
 
 
 @router.get("/assets/{asset_id}")
-async def get_asset(asset_id: int):
-    return await get_asset_api(asset_id)
+async def get_asset_rest(asset_id: int):
+    asset, metadata = await get_asset(asset_id)
+    return {"asset": asset, "metadata": metadata}
 
 
 @router.post("/assets/{asset_id}/manual-edit")
-async def manual_edit_asset(asset_id: int, request: Request):
+async def manual_edit_asset_rest(asset_id: int, request: Request):
     payload = await request.json()
-    return await manual_edit_asset_api(asset_id, payload)
+    return await manual_edit_asset(asset_id, payload)
 
 
 @router.patch("/assets/{asset_id}")
-async def update_asset(asset_id: int):
-    return await update_asset_api()
+async def update_asset_rest(asset_id: int):
+    return await update_asset()

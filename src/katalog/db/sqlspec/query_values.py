@@ -3,7 +3,7 @@ from typing import Any, Mapping
 from katalog.models import MetadataType
 
 
-def _decode_metadata_value(row: Mapping[str, Any]) -> Any:
+def decode_metadata_value(row: Mapping[str, Any]) -> Any:
     """Decode a metadata row's value based on its value_type.
 
     Shared between asset listings and changeset change listings to keep value

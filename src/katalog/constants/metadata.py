@@ -1,7 +1,8 @@
-from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
 from typing import Any, Mapping, NewType
+
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 
 MetadataScalar = (
@@ -25,8 +26,9 @@ class MetadataType(IntEnum):
     COLLECTION = 6
 
 
-@dataclass(frozen=True)
-class MetadataDef:
+class MetadataDef(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     plugin_id: str
     key: MetadataKey
     registry_id: int | None
@@ -35,16 +37,13 @@ class MetadataDef:
     description: str = ""
     width: int | None = None  # For UI display purposes
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "plugin_id": self.plugin_id,
-            "key": str(self.key),
-            "registry_id": self.registry_id,
-            "value_type": self.value_type.name.lower(),
-            "title": self.title,
-            "description": self.description,
-            "width": self.width,
-        }
+    @field_serializer("key")
+    def _serialize_key(self, value: MetadataKey) -> str:
+        return str(value)
+
+    @field_serializer("value_type")
+    def _serialize_value_type(self, value: MetadataType) -> str:
+        return value.name.lower() if isinstance(value, MetadataType) else str(value)
 
 
 # Central registry of built-in keys
@@ -115,7 +114,13 @@ def define_metadata(
 ) -> MetadataKey:
     key = MetadataKey(name)
     METADATA_REGISTRY[key] = MetadataDef(
-        plugin_id, key, None, value_type, title, description, width
+        plugin_id=plugin_id,
+        key=key,
+        registry_id=None,
+        value_type=value_type,
+        title=title,
+        description=description,
+        width=width,
     )
     return key
 
@@ -144,7 +149,7 @@ def get_metadata_schema(key: MetadataKey) -> dict:
     if definition is None:
         return {}
     else:
-        return definition.to_dict()
+        return definition.model_dump(mode="json")
 
 
 def get_metadata_def_by_key(key: MetadataKey) -> MetadataDef:

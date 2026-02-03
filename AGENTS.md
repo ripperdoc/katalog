@@ -39,6 +39,5 @@
 # Tools in this repo
 
 - This is a `uv` based project, always use `uv` to install and run things. Use
-  `UV_CACHE_DIR=.uv_cache` to avoid permissions issues.
 - `loguru` for logging
 - `pytest` for tests

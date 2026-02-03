@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from random import Random
 from typing import Any, AsyncIterator, Dict, Iterable
@@ -66,10 +65,12 @@ from katalog.models import (
 )
 from katalog.models import Actor, OpStatus
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
+from katalog.db.asset_collections import get_asset_collection_repo
 
 
-@dataclass(slots=True)
-class _FakeAssetSpec:
+class _FakeAssetSpec(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     external_id: str
     canonical_uri: str
     file_name: str
@@ -191,7 +192,10 @@ class FakeAssetSource(SourcePlugin):
         ignored = 0
 
         collection = await self._ensure_collection()
-        rng = Random(self.seed + int(self.actor.id or 0))
+        if self.actor.id is None:
+            raise ValueError("FakeAssetSource actor is missing id")
+        actor_id = int(self.actor.id)
+        rng = Random(self.seed + actor_id)
         scan_result: ScanResult | None = None
 
         async def iterator() -> AsyncIterator[AssetScanResult]:
@@ -200,11 +204,11 @@ class FakeAssetSource(SourcePlugin):
             emitted = 0
             batch_count = 0
             for idx in range(self.total_assets):
-                spec = _generate_asset_spec(rng, self.actor.id, idx)
+                spec = _generate_asset_spec(rng, actor_id, idx)
                 asset = Asset(
                     external_id=spec.external_id,
                     canonical_uri=spec.canonical_uri,
-                    actor_id=self.actor.id,
+                    actor_id=actor_id,
                 )
 
                 result = AssetScanResult(asset=asset, actor=self.actor)
@@ -321,16 +325,17 @@ class FakeAssetSource(SourcePlugin):
             return self._collection
 
         name = f"Fake Assets ({self.actor.id})"
-        existing = await AssetCollection.get_or_none(name=name)
+        db = get_asset_collection_repo()
+        existing = await db.get_or_none(name=name)
         if existing is not None:
             self._collection = existing
             return existing
 
-        collection = await AssetCollection.create(
+        collection = await db.create(
             name=name,
             description="Synthetic asset collection",
             membership_key_id=get_metadata_id(COLLECTION_MEMBER),
-            item_count=self.total_assets,
+            asset_count=self.total_assets,
         )
         self._collection = collection
         return collection

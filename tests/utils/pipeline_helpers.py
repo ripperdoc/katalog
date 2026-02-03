@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-import pytest_asyncio
-from tortoise import Tortoise
+from typing import TYPE_CHECKING
 
 from katalog.constants.metadata import MetadataKey
 from katalog.models import (
@@ -12,43 +10,40 @@ from katalog.models import (
     OpStatus,
     Actor,
     ActorType,
-    Changeset,
     make_metadata,
 )
-from katalog.db import sync_metadata_registry
+from katalog.db.metadata import sync_config_db
+from katalog.db.actors import get_actor_repo
+from katalog.db.assets import get_asset_repo
+from katalog.db.changesets import get_changeset_repo
 
 
 async def init_db() -> None:
-    await Tortoise.init(
-        db_url="sqlite://:memory:", modules={"models": ["katalog.models"]}, use_tz=False
-    )
-    await Tortoise.generate_schemas()
-    await sync_metadata_registry()
-
-
-async def teardown_db() -> None:
-    await Tortoise.close_connections()
+    await sync_config_db()
 
 
 @dataclass
 class PipelineFixture:
     actor: Actor
-    changeset: Changeset
+    changeset: "Changeset"
     asset: Asset
-
     @classmethod
     async def create(cls) -> "PipelineFixture":
-        actor = await Actor.create(
+        actor_db = get_actor_repo()
+        changeset_db = get_changeset_repo()
+        asset_db = get_asset_repo()
+        actor = await actor_db.create(
             name="source-actor",
             plugin_id="plugin.source",
             type=ActorType.SOURCE,
         )
-        changeset = await Changeset.create(actor=actor, status=OpStatus.IN_PROGRESS)
+        changeset = await changeset_db.create_auto(status=OpStatus.IN_PROGRESS)
+        await changeset_db.add_actors(changeset, [actor])
         asset = Asset(
             external_id="asset-1",
             canonical_uri="file:///asset-1",
         )
-        await asset.save_record(changeset=changeset, actor=actor)
+        await asset_db.save_record(asset, changeset=changeset, actor=actor)
         return cls(actor=actor, changeset=changeset, asset=asset)
 
     def metadata(
@@ -68,11 +63,10 @@ class PipelineFixture:
         )
         return md
 
+    async def load_metadata(self) -> list[Metadata]:
+        asset_db = get_asset_repo()
+        return list(await asset_db.load_metadata(self.asset, include_removed=True))
 
-@pytest_asyncio.fixture
-async def pipeline_db():
-    await init_db()
-    try:
-        yield
-    finally:
-        await teardown_db()
+
+if TYPE_CHECKING:
+    from katalog.models import Changeset

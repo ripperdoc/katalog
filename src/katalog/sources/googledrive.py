@@ -218,10 +218,13 @@ class GoogleDriveClient(SourcePlugin):
         self._folder_cache: Dict[str, Dict[str, Any]] = {}
         self._oauth_state = None
         self._credentials: Credentials | None = None
-        self.token_path = actor_path(self.actor.id) / "token.json"
-        self.client_secret_path = actor_path(self.actor.id) / "client_secret.json"
-        self.folder_cache_path = actor_path(self.actor.id) / "folder_cache.json"
-        self.start_page_token_path = actor_path(self.actor.id) / "start_page_token.json"
+        actor_id = self.actor.id
+        if actor_id is None:
+            raise ValueError("GoogleDriveSource actor is missing id")
+        self.token_path = actor_path(actor_id) / "token.json"
+        self.client_secret_path = actor_path(actor_id) / "client_secret.json"
+        self.folder_cache_path = actor_path(actor_id) / "folder_cache.json"
+        self.start_page_token_path = actor_path(actor_id) / "start_page_token.json"
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -616,7 +619,7 @@ class GoogleDriveClient(SourcePlugin):
                 params["q"] = f"({params['q']}) and ({time_query})"
             else:
                 params["q"] = time_query
-            user_data["time_slice"] = time_slice.to_dict()
+            user_data["time_slice"] = time_slice.model_dump(mode="json")
 
         url = str(
             httpx.URL(

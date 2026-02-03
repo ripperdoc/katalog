@@ -5,16 +5,8 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from katalog.constants.metadata import COLLECTION_MEMBER, get_metadata_id
-from tortoise import Tortoise
-
-from katalog.db import list_assets_for_view
-from katalog.db.query_assets import build_assets_where, count_assets_for_query
-from katalog.constants.metadata import MetadataType
 from katalog.models import (
-    Asset,
     AssetCollection,
-    Changeset,
-    Metadata,
     CollectionRefreshMode,
     OpStatus,
     make_metadata,
@@ -22,6 +14,11 @@ from katalog.models import (
 from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError
+from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
+from katalog.db.asset_collections import get_asset_collection_repo
+from katalog.db.assets import get_asset_repo
+from katalog.db.changesets import get_changeset_repo
+from katalog.db.metadata import get_metadata_repo
 
 router = APIRouter()
 
@@ -45,15 +42,14 @@ class CollectionRemoveAssets(BaseModel):
     changeset_id: int
 
 
-async def list_collections_api() -> dict[str, Any]:
-    collections = await AssetCollection.all().order_by("-created_at")
-    result = []
-    for col in collections:
-        result.append(col.to_dict())
-    return {"collections": result}
+async def list_collections() -> list[AssetCollection]:
+    db = get_asset_collection_repo()
+    collections = await db.list_rows(order_by="created_at DESC")
+    return collections
 
 
-async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
+async def create_collection(payload: CollectionCreate) -> AssetCollection:
+    db = get_asset_collection_repo()
     try:
         asset_ids = [int(a) for a in payload.asset_ids]
     except Exception:
@@ -73,7 +69,7 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
             status_code=400, detail="Provide either asset_ids or source.query, not both"
         )
 
-    existing = await AssetCollection.get_or_none(name=payload.name)
+    existing = await db.get_or_none(name=payload.name)
     if existing:
         raise ApiError(status_code=400, detail="Collection name already exists")
 
@@ -134,7 +130,8 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
     unique_asset_ids = sorted(set(asset_ids))
     query_total_count = None
     if query_payload:
-        query_total_count = await count_assets_for_query(
+        asset_db = get_asset_repo()
+        query_total_count = await asset_db.count_assets_for_query(
             actor_id=actor_id,
             filters=filters,
             search=search,
@@ -144,104 +141,88 @@ async def create_collection_api(payload: CollectionCreate) -> dict[str, Any]:
 
     membership_key_id = get_metadata_id(COLLECTION_MEMBER)
 
-    collection = await AssetCollection.create(
+    collection = await db.create(
         name=payload.name,
         description=payload.description,
         source=payload.source,
         membership_key_id=membership_key_id,
-        item_count=query_total_count
+        asset_count=query_total_count
         if query_total_count is not None
         else len(unique_asset_ids),
         refresh_mode=refresh_mode,
     )
 
+    collection_id_value = collection.id
+    if collection_id_value is None:
+        raise ApiError(status_code=409, detail="Collection id is missing")
+
     if query_payload and query_total_count:
         actor = await ensure_user_editor()
-        changeset = await Changeset.create(
-            actor=actor,
+        if actor.id is None:
+            raise ApiError(status_code=409, detail="Actor id is missing")
+        changeset_db = get_changeset_repo()
+        changeset = await changeset_db.create_auto(
             status=OpStatus.COMPLETED,
-            message=f"Created collection {collection.id}",
+            message=f"Created collection {collection_id_value}",
         )
-        asset_table = Asset._meta.db_table
-        metadata_table = Metadata._meta.db_table
-        where_sql, filter_params = build_assets_where(
-            actor_id=actor_id,
+        await changeset_db.add_actors(changeset, [actor])
+        await db.add_collection_members_for_query(
+            collection_id=collection_id_value,
+            membership_key_id=membership_key_id,
+            actor_id=actor.id,
+            changeset_id=changeset.id,
+            query_actor_id=actor_id,
             filters=filters,
             search=search,
-            extra_where=None,
         )
-        conn = Tortoise.get_connection("default")
-        # Single-shot insert to avoid pulling large query results into Python.
-        insert_sql = f"""
-        INSERT INTO {metadata_table} (
-            asset_id,
-            actor_id,
-            changeset_id,
-            metadata_key_id,
-            value_type,
-            value_collection_id,
-            removed,
-            confidence
-        )
-        SELECT
-            a.id,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            0,
-            NULL
-        FROM {asset_table} a
-        {where_sql}
-        """
-        params = [
-            actor.id,
-            changeset.id,
-            membership_key_id,
-            int(MetadataType.COLLECTION),
-            collection.id,
-            *filter_params,
-        ]
-        await conn.execute_query(insert_sql, params)
     elif unique_asset_ids:
         actor = await ensure_user_editor()
-        changeset = await Changeset.create(
-            actor=actor,
+        if actor.id is None:
+            raise ApiError(status_code=409, detail="Actor id is missing")
+        changeset_db = get_changeset_repo()
+        changeset = await changeset_db.create_auto(
             status=OpStatus.COMPLETED,
-            note=f"Created collection {collection.id}",
+            message=f"Created collection {collection_id_value}",
         )
+        await changeset_db.add_actors(changeset, [actor])
         membership_entries = []
         for asset_id in unique_asset_ids:
-            md = make_metadata(COLLECTION_MEMBER, collection.id, actor_id=actor.id)
+            md = make_metadata(COLLECTION_MEMBER, collection_id_value, actor_id=actor.id)
             md.asset_id = asset_id
             md.changeset_id = changeset.id
             membership_entries.append(md)
             if len(membership_entries) >= 5000:
-                await Metadata.bulk_create(membership_entries)
+                md_db = get_metadata_repo()
+                await md_db.bulk_create(membership_entries)
                 membership_entries = []
         if membership_entries:
-            await Metadata.bulk_create(membership_entries)
+            md_db = get_metadata_repo()
+            await md_db.bulk_create(membership_entries)
 
-    return {"collection": collection.to_dict()}
+    return collection
 
 
-async def get_collection_api(collection_id: int) -> dict[str, Any]:
-    collection = await AssetCollection.get_or_none(id=collection_id)
+async def get_collection(collection_id: int) -> AssetCollection:
+    db = get_asset_collection_repo()
+    collection = await db.get_or_none(id=collection_id)
     if collection is None:
         raise ApiError(status_code=404, detail="Collection not found")
-    return {"collection": collection.to_dict()}
+    collection_id_value = collection.id
+    if collection_id_value is None:
+        raise ApiError(status_code=409, detail="Collection id is missing")
+    return collection
 
 
-async def update_collection_api(
+async def update_collection(
     collection_id: int, payload: CollectionUpdate
-) -> dict[str, Any]:
-    collection = await AssetCollection.get_or_none(id=collection_id)
+) -> AssetCollection:
+    db = get_asset_collection_repo()
+    collection = await db.get_or_none(id=collection_id)
     if collection is None:
         raise ApiError(status_code=404, detail="Collection not found")
 
     if payload.name:
-        existing = await AssetCollection.get_or_none(name=payload.name)
+        existing = await db.get_or_none(name=payload.name)
         if existing and existing.id != collection.id:
             raise ApiError(status_code=400, detail="Collection name already exists")
         collection.name = payload.name
@@ -261,11 +242,11 @@ async def update_collection_api(
                 status_code=400, detail="refresh_mode must be 'live' or 'on_demand'"
             )
 
-    await collection.save()
-    return {"collection": collection.to_dict()}
+    await db.save(collection)
+    return collection
 
 
-async def list_collection_assets_api(
+async def list_collection_assets(
     collection_id: int,
     view_id: str,
     offset: int,
@@ -274,8 +255,9 @@ async def list_collection_assets_api(
     columns: list[str] | None,
     search: Optional[str],
     filters: list[str] | None,
-) -> dict[str, Any]:
-    collection = await AssetCollection.get_or_none(id=collection_id)
+) -> AssetsListResponse:
+    db = get_asset_collection_repo()
+    collection = await db.get_or_none(id=collection_id)
     if collection is None:
         raise ApiError(status_code=404, detail="Collection not found")
 
@@ -284,29 +266,18 @@ async def list_collection_assets_api(
     except KeyError:
         raise ApiError(status_code=404, detail="View not found")
 
-    metadata_table = Metadata._meta.db_table
+    collection_id_value = collection.id
+    if collection_id_value is None:
+        raise ApiError(status_code=409, detail="Collection id is missing")
     membership_key_id = get_metadata_id(COLLECTION_MEMBER)
-    extra_where = (
-        "a.id IN ("
-        "    WITH latest AS ("
-        "        SELECT"
-        "            m.asset_id,"
-        "            m.removed,"
-        "            ROW_NUMBER() OVER ("
-        "                PARTITION BY m.asset_id, m.value_collection_id, m.actor_id"
-        "                ORDER BY m.changeset_id DESC, m.id DESC"
-        "            ) AS rn"
-        f"        FROM {metadata_table} m"
-        "        WHERE m.metadata_key_id = ?"
-        "          AND m.value_collection_id = ?"
-        "    )"
-        "    SELECT asset_id FROM latest WHERE rn = 1 AND removed = 0"
-        ")",
-        [membership_key_id, collection.id],
+    asset_db = get_asset_repo()
+    extra_where = asset_db.build_collection_membership_filter(
+        membership_key_id=membership_key_id,
+        collection_id=collection_id_value,
     )
 
     try:
-        return await list_assets_for_view(
+        return await asset_db.list_assets_for_view_db(
             view,
             offset=offset,
             limit=limit,
@@ -321,18 +292,23 @@ async def list_collection_assets_api(
         raise ApiError(status_code=400, detail=str(exc))
 
 
-async def delete_collection_api(collection_id: int) -> dict[str, Any]:
-    collection = await AssetCollection.get_or_none(id=collection_id)
+async def delete_collection(collection_id: int) -> dict[str, int | str]:
+    db = get_asset_collection_repo()
+    collection = await db.get_or_none(id=collection_id)
     if collection is None:
         raise ApiError(status_code=404, detail="Collection not found")
-    await collection.delete()
+    collection_id_value = collection.id
+    if collection_id_value is None:
+        raise ApiError(status_code=409, detail="Collection id is missing")
+    await db.delete(collection_id_value)
     return {"status": "deleted", "collection_id": collection_id}
 
 
-async def remove_collection_assets_api(
+async def remove_collection_assets(
     collection_id: int, payload: CollectionRemoveAssets
-) -> dict[str, Any]:
-    collection = await AssetCollection.get_or_none(id=collection_id)
+) -> RemoveAssetsResponse:
+    db = get_asset_collection_repo()
+    collection = await db.get_or_none(id=collection_id)
     if collection is None:
         raise ApiError(status_code=404, detail="Collection not found")
 
@@ -342,9 +318,10 @@ async def remove_collection_assets_api(
         raise ApiError(status_code=400, detail="asset_ids must be integers")
 
     if not asset_ids:
-        return {"removed": 0, "skipped": 0}
+        return RemoveAssetsResponse(removed=0, skipped=0)
 
-    changeset = await Changeset.get_or_none(id=payload.changeset_id)
+    changeset_db = get_changeset_repo()
+    changeset = await changeset_db.get_or_none(id=payload.changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
     if changeset.status != OpStatus.IN_PROGRESS:
@@ -356,87 +333,104 @@ async def remove_collection_assets_api(
             detail="Changeset must be a manual edit",
         )
 
+    collection_id_value = collection.id
+    if collection_id_value is None:
+        raise ApiError(status_code=409, detail="Collection id is missing")
+
     actor = await ensure_user_editor()
-    await changeset.add_actors([actor])
+    if actor.id is None:
+        raise ApiError(status_code=409, detail="Actor id is missing")
+    await changeset_db.add_actors(changeset, [actor])
 
     membership_key_id = get_metadata_id(COLLECTION_MEMBER)
-    metadata_table = Metadata._meta.db_table
-    asset_placeholders = ", ".join("?" for _ in asset_ids)
-    active_sql = f"""
-        WITH latest AS (
-            SELECT
-                m.asset_id,
-                m.removed,
-                ROW_NUMBER() OVER (
-                    PARTITION BY m.asset_id, m.value_collection_id, m.actor_id
-                    ORDER BY m.changeset_id DESC, m.id DESC
-                ) AS rn
-            FROM {metadata_table} m
-            WHERE m.metadata_key_id = ?
-              AND m.value_collection_id = ?
-              AND m.asset_id IN ({asset_placeholders})
-        )
-        SELECT asset_id FROM latest WHERE rn = 1 AND removed = 0
-    """
-    conn = Tortoise.get_connection("default")
-    active_rows = await conn.execute_query_dict(
-        active_sql, [membership_key_id, collection.id, *asset_ids]
+    md_db = get_metadata_repo()
+    active_asset_ids = await md_db.list_active_collection_asset_ids(
+        membership_key_id=membership_key_id,
+        collection_id=collection_id_value,
+        asset_ids=asset_ids,
     )
-    active_asset_ids = [int(row["asset_id"]) for row in active_rows]
 
     if not active_asset_ids:
-        return {"removed": 0, "skipped": len(asset_ids)}
+        return RemoveAssetsResponse(removed=0, skipped=len(asset_ids))
 
-    membership_entries: list[Metadata] = []
+    # Avoid inserting duplicate removals within the same changeset.
+    already_removed = await md_db.list_removed_collection_asset_ids(
+        membership_key_id=membership_key_id,
+        collection_id=collection_id_value,
+        actor_id=actor.id,
+        changeset_id=changeset.id,
+        asset_ids=active_asset_ids,
+    )
+    active_asset_ids = [aid for aid in active_asset_ids if aid not in already_removed]
+    if not active_asset_ids:
+        return RemoveAssetsResponse(removed=0, skipped=len(asset_ids))
+
+    membership_entries = []
     for asset_id in active_asset_ids:
         md = make_metadata(
-            COLLECTION_MEMBER, collection.id, actor_id=actor.id, removed=True
+            COLLECTION_MEMBER,
+            collection_id_value,
+            actor_id=actor.id,
+            removed=True,
         )
         md.asset_id = asset_id
         md.changeset_id = changeset.id
         membership_entries.append(md)
         if len(membership_entries) >= 5000:
-            await Metadata.bulk_create(membership_entries)
+            md_db = get_metadata_repo()
+            await md_db.bulk_create(membership_entries)
             membership_entries = []
     if membership_entries:
-        await Metadata.bulk_create(membership_entries)
+        md_db = get_metadata_repo()
+        await md_db.bulk_create(membership_entries)
 
-    collection.item_count = max(0, collection.item_count - len(active_asset_ids))
-    await collection.save()
+    current_count = await md_db.count_active_collection_assets(
+        membership_key_id=membership_key_id,
+        collection_id=collection_id_value,
+    )
+    collection.asset_count = current_count
+    await db.save(collection)
 
     logger.bind(changeset_id=changeset.id).info(
         "Removed {count} assets from collection {collection_id}",
         count=len(active_asset_ids),
-        collection_id=collection.id,
+        collection_id=collection_id_value,
     )
 
-    return {"removed": len(active_asset_ids), "skipped": len(asset_ids) - len(active_asset_ids)}
+    return RemoveAssetsResponse(
+        removed=len(active_asset_ids),
+        skipped=len(asset_ids) - len(active_asset_ids),
+    )
 
 
 @router.get("/collections")
-async def list_collections():
-    return await list_collections_api()
+async def list_collections_rest():
+    collections = await list_collections()
+    return {"collections": collections}
 
 
 @router.post("/collections")
-async def create_collection(request: Request):
+async def create_collection_rest(request: Request):
     payload = CollectionCreate.model_validate(await request.json())
-    return await create_collection_api(payload)
+    collection = await create_collection(payload)
+    return {"collection": collection}
 
 
 @router.get("/collections/{collection_id}")
-async def get_collection(collection_id: int):
-    return await get_collection_api(collection_id)
+async def get_collection_rest(collection_id: int):
+    collection = await get_collection(collection_id)
+    return {"collection": collection}
 
 
 @router.patch("/collections/{collection_id}")
-async def update_collection(collection_id: int, request: Request):
+async def update_collection_rest(collection_id: int, request: Request):
     payload = CollectionUpdate.model_validate(await request.json())
-    return await update_collection_api(collection_id, payload)
+    collection = await update_collection(collection_id, payload)
+    return {"collection": collection}
 
 
 @router.get("/collections/{collection_id}/assets")
-async def list_collection_assets(
+async def list_collection_assets_rest(
     collection_id: int,
     view_id: str = Query("default"),
     offset: int = Query(0, ge=0),
@@ -453,7 +447,7 @@ async def list_collection_assets(
         else:
             col, direction = sort, "asc"
         sort_tuple = (col, direction)
-    return await list_collection_assets_api(
+    return await list_collection_assets(
         collection_id=collection_id,
         view_id=view_id,
         offset=offset,
@@ -466,11 +460,11 @@ async def list_collection_assets(
 
 
 @router.delete("/collections/{collection_id}")
-async def delete_collection(collection_id: int):
-    return await delete_collection_api(collection_id)
+async def delete_collection_rest(collection_id: int):
+    return await delete_collection(collection_id)
 
 
 @router.post("/collections/{collection_id}/remove")
-async def remove_collection_assets(collection_id: int, request: Request):
+async def remove_collection_assets_rest(collection_id: int, request: Request):
     payload = CollectionRemoveAssets.model_validate(await request.json())
-    return await remove_collection_assets_api(collection_id, payload)
+    return await remove_collection_assets(collection_id, payload)

@@ -34,7 +34,7 @@ class FilesystemReader(DataReader):
     """
 
     def __init__(self, path: str):
-        self.path = path
+        self.path: str | None = path
 
     async def read(
         self, offset: int = 0, length: int | None = None, no_cache=False
@@ -42,6 +42,8 @@ class FilesystemReader(DataReader):
         """
         Read bytes from the file at the specified offset and length.
         """
+        if self.path is None:
+            raise ValueError("FilesystemReader path is not set")
         with open(self.path, "rb") as f:
             f.seek(offset)
             return f.read(length) if length is not None else f.read()

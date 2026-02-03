@@ -1,4 +1,4 @@
-def _fts5_query_from_user_text(raw: str) -> str:
+def fts5_query_from_user_text(raw: str) -> str:
     """Convert arbitrary user input into a safe FTS5 MATCH query.
 
     We intentionally do not expose FTS query syntax to the UI search box.

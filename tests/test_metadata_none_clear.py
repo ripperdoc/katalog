@@ -4,165 +4,133 @@ import pytest
 
 from katalog.constants.metadata import FILE_NAME, FILE_PATH
 from katalog.models import (
-    Metadata,
     MetadataChanges,
     OpStatus,
     Changeset,
     make_metadata,
 )
-from tests.utils.pipeline_helpers import PipelineFixture
+from katalog.models.assets import Asset
 
 
 @pytest.mark.asyncio
 async def test_persist_none_does_not_write_null_row_when_no_prior_value(
     pipeline_db,
 ) -> None:
-    fx = await PipelineFixture.create()
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
+    staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
 
-    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-    loaded = await fx.asset.load_metadata()
-    staged = [make_metadata(FILE_PATH, None, actor_id=fx.actor.id)]
-
-    cs = MetadataChanges(loaded=loaded, staged=staged)
-    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
+    cs = MetadataChanges(loaded=[], staged=staged)
+    to_create, changed = cs.prepare_persist(
+        asset=asset,
+        changeset=changeset2,
+        existing_metadata=[],
+    )
 
     assert changed == set()
-
-    key_id = staged[0].metadata_key_id
-    assert (
-        await Metadata.filter(
-            asset_id=fx.asset.id, actor_id=fx.actor.id, metadata_key_id=key_id
-        ).count()
-        == 0
-    )
+    assert to_create == []
 
 
 @pytest.mark.asyncio
 async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
-    fx = await PipelineFixture.create()
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    existing = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
+    existing.changeset_id = 1
 
-    existing = fx.metadata(FILE_PATH, "/tmp/a")
-    await existing.save()
-    await fx.asset.load_metadata()
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
+    staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
+    cs = MetadataChanges(loaded=[existing], staged=staged)
 
-    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-    staged = [make_metadata(FILE_PATH, None, actor_id=fx.actor.id)]
-    cs = MetadataChanges(loaded=await fx.asset.load_metadata(), staged=staged)
-
-    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
-    assert FILE_PATH in changed
-
-    key_id = existing.metadata_key_id
-
-    rows = await Metadata.filter(
-        asset_id=fx.asset.id, actor_id=fx.actor.id, metadata_key_id=key_id
-    ).order_by("id")
-    assert len(rows) == 2
-    assert {r.value_text for r in rows} == {"/tmp/a"}
-    assert any(r.removed for r in rows)
-    assert any(not r.removed for r in rows)
-
-    # No NULL-value rows should be written for this key.
-    assert (
-        await Metadata.filter(
-            asset_id=fx.asset.id,
-            actor_id=fx.actor.id,
-            metadata_key_id=key_id,
-            value_text__isnull=True,
-        ).count()
-        == 0
+    to_create, changed = cs.prepare_persist(
+        asset=asset,
+        changeset=changeset2,
+        existing_metadata=[existing],
     )
-
-    # Current state should be empty (value was cleared).
-    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
-    assert FILE_PATH not in current or current[FILE_PATH] == []
+    assert FILE_PATH in changed
+    assert len(to_create) == 1
+    assert to_create[0].removed is True
+    assert to_create[0].value_text == "/tmp/a"
 
 
 @pytest.mark.asyncio
 async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None:
-    fx = await PipelineFixture.create()
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    a = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
+    b = make_metadata(FILE_PATH, "/tmp/b", actor_id=1, asset=asset)
+    a.changeset_id = 1
+    b.changeset_id = 1
 
-    a = fx.metadata(FILE_PATH, "/tmp/a")
-    b = fx.metadata(FILE_PATH, "/tmp/b")
-    await a.save()
-    await b.save()
-    await fx.asset.load_metadata()
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
+    staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
+    cs = MetadataChanges(loaded=[a, b], staged=staged)
 
-    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-    staged = [make_metadata(FILE_PATH, None, actor_id=fx.actor.id)]
-    cs = MetadataChanges(loaded=await fx.asset.load_metadata(), staged=staged)
-
-    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
+    to_create, changed = cs.prepare_persist(
+        asset=asset,
+        changeset=changeset2,
+        existing_metadata=[a, b],
+    )
     assert FILE_PATH in changed
-
-    key_id = a.metadata_key_id
-    rows = await Metadata.filter(
-        asset_id=fx.asset.id, actor_id=fx.actor.id, metadata_key_id=key_id
-    ).order_by("id")
-
-    assert len(rows) == 4
-    assert {r.value_text for r in rows} == {"/tmp/a", "/tmp/b"}
-
-    removed_rows = [r for r in rows if r.removed]
-    assert len(removed_rows) == 2
-
-    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
-    assert FILE_PATH not in current or current[FILE_PATH] == []
+    assert len(to_create) == 2
+    assert {row.value_text for row in to_create} == {"/tmp/a", "/tmp/b"}
+    assert all(row.removed for row in to_create)
 
 
 @pytest.mark.asyncio
 async def test_missing_key_in_staged_keeps_existing_value_unchanged(
     pipeline_db,
 ) -> None:
-    fx = await PipelineFixture.create()
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    existing_path = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
+    existing_path.changeset_id = 1
 
-    existing_path = fx.metadata(FILE_PATH, "/tmp/a")
-    await existing_path.save()
-    await fx.asset.load_metadata()
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
+    staged = [make_metadata(FILE_NAME, "doc.txt", actor_id=1, asset=asset)]
+    cs = MetadataChanges(loaded=[existing_path], staged=staged)
 
-    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-    staged = [make_metadata(FILE_NAME, "doc.txt", actor_id=fx.actor.id)]
-    cs = MetadataChanges(loaded=await fx.asset.load_metadata(), staged=staged)
-
-    changed = await cs.persist(asset=fx.asset, changeset=changeset2)
+    to_create, changed = cs.prepare_persist(
+        asset=asset,
+        changeset=changeset2,
+        existing_metadata=[existing_path],
+    )
     assert FILE_NAME in changed
     assert FILE_PATH not in changed
-
-    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
-    assert current[FILE_PATH][0].value_text == "/tmp/a"
+    assert len(to_create) == 1
+    assert to_create[0].value_text == "doc.txt"
 
 
 @pytest.mark.asyncio
 async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
-    fx = await PipelineFixture.create()
-
-    existing_path = fx.metadata(FILE_PATH, "/tmp/a")
-    await existing_path.save()
-    await fx.asset.load_metadata()
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    existing_path = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
+    existing_path.changeset_id = 1
 
     # Remove it.
-    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     cs2 = MetadataChanges(
-        loaded=await fx.asset.load_metadata(),
-        staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=fx.actor.id, removed=True)],
+        loaded=[existing_path],
+        staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=1, removed=True, asset=asset)],
     )
-    changed2 = await cs2.persist(asset=fx.asset, changeset=changeset2)
+    to_create2, changed2 = cs2.prepare_persist(
+        asset=asset,
+        changeset=changeset2,
+        existing_metadata=[existing_path],
+    )
     assert FILE_PATH in changed2
+    assert len(to_create2) == 1
+    assert to_create2[0].removed is True
 
     # Re-add it (should not be deduped away).
-    changeset3 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
+    changeset3 = Changeset(id=3, status=OpStatus.IN_PROGRESS)
+    existing_after_remove = [existing_path, to_create2[0]]
     cs3 = MetadataChanges(
-        loaded=await fx.asset.load_metadata(),
-        staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=fx.actor.id)],
+        loaded=existing_after_remove,
+        staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)],
     )
-    changed3 = await cs3.persist(asset=fx.asset, changeset=changeset3)
+    to_create3, changed3 = cs3.prepare_persist(
+        asset=asset,
+        changeset=changeset3,
+        existing_metadata=existing_after_remove,
+    )
     assert FILE_PATH in changed3
-
-    key_id = existing_path.metadata_key_id
-    rows = await Metadata.filter(
-        asset_id=fx.asset.id, actor_id=fx.actor.id, metadata_key_id=key_id
-    ).order_by("id")
-    assert len(rows) == 3
-
-    current = MetadataChanges(await fx.asset.load_metadata()).current(fx.actor.id)
-    assert current[FILE_PATH][0].value_text == "/tmp/a"
+    assert len(to_create3) == 1
+    assert to_create3[0].removed is False

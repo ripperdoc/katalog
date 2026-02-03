@@ -1,9 +1,13 @@
 from fastapi import APIRouter, Query
 
 from katalog.analyzers.base import AnalyzerScope
-from katalog.analyzers.runtime import run_analyzer
-from katalog.models import Actor, ActorType, Asset, AssetCollection, Changeset, OpStatus
-from katalog.processors.runtime import run_processors, sort_processors
+from katalog.analyzers.runtime import do_run_analyzer
+from katalog.models import Actor, ActorType, Changeset, OpStatus
+from katalog.db.asset_collections import get_asset_collection_repo
+from katalog.db.assets import get_asset_repo
+from katalog.db.actors import get_actor_repo
+from katalog.db.changesets import get_changeset_repo
+from katalog.processors.runtime import do_run_processors, sort_processors
 from katalog.sources.runtime import run_sources
 
 from katalog.api.state import RUNNING_CHANGESETS
@@ -12,10 +16,11 @@ from katalog.api.helpers import ApiError
 router = APIRouter()
 
 
-async def run_sources_api(source_id: int) -> dict:
+async def run_source(source_id: int) -> Changeset:
     """Scan a single source and run processors for changed assets."""
 
-    source = await Actor.get_or_none(id=source_id, type=ActorType.SOURCE)
+    db = get_actor_repo()
+    source = await db.get_or_none(id=source_id, type=ActorType.SOURCE)
     if source is None:
         raise ApiError(status_code=404, detail="Source not found")
     if source.disabled:
@@ -24,28 +29,31 @@ async def run_sources_api(source_id: int) -> dict:
     # Single-source scans map 1:1 to a changeset. Processor actors may still participate downstream.
     sources = [source]
 
-    changeset = await Changeset.begin(
+    db = get_changeset_repo()
+    changeset = await db.begin(
         message="Source scan", actors=sources, status=OpStatus.IN_PROGRESS
     )
 
     RUNNING_CHANGESETS[changeset.id] = changeset
     changeset.start_operation(lambda: run_sources(changeset=changeset, sources=sources))
 
-    return changeset.to_dict()
+    return changeset
 
 
-async def run_processors_api(
+async def run_processors(
     processor_ids: list[int] | None,
     asset_ids: list[int] | None,
-) -> dict:
+) -> Changeset:
     processor_pipeline, processor_actors = await sort_processors(processor_ids)
     if not processor_pipeline:
         raise ApiError(status_code=400, detail="No processor actors configured")
 
-    assets_query = Asset.all()
     if asset_ids:
-        assets_query = assets_query.filter(id__in=sorted(asset_ids))
-    assets = await assets_query
+        db = get_asset_repo()
+        assets = await db.list_rows(id__in=sorted(asset_ids))
+    else:
+        db = get_asset_repo()
+        assets = await db.list_rows()
     if asset_ids and len(assets) != len(asset_ids):
         raise ApiError(
             status_code=404, detail="One or more asset ids not found or deleted"
@@ -53,26 +61,27 @@ async def run_processors_api(
     if not assets:
         raise ApiError(status_code=404, detail="No assets found to process")
 
-    changeset = await Changeset.begin(
+    db = get_changeset_repo()
+    changeset = await db.begin(
         message="Processor run", actors=processor_actors, status=OpStatus.IN_PROGRESS
     )
     RUNNING_CHANGESETS[changeset.id] = changeset
 
     changeset.start_operation(
-        lambda: run_processors(
+        lambda: do_run_processors(
             changeset=changeset, assets=assets, pipeline=processor_pipeline
         )
     )
 
-    return changeset.to_dict()
+    return changeset
 
 
-async def run_analyzer_api(
+async def run_analyzer(
     analyzer_id: str,
     *,
     asset_id: int | None = None,
     collection_id: int | None = None,
-) -> dict:
+) -> Changeset:
     """Run a specific analyzer actor id, return started changeset."""
 
     try:
@@ -83,7 +92,8 @@ async def run_analyzer_api(
             detail="analyzer_id must be an integer actor id",
         )
 
-    actor = await Actor.get_or_none(id=target_id, type=ActorType.ANALYZER)
+    db = get_actor_repo()
+    actor = await db.get_or_none(id=target_id, type=ActorType.ANALYZER)
     if actor is None or actor.disabled:
         raise ApiError(status_code=404, detail="Analyzer actor not found or disabled")
 
@@ -94,12 +104,14 @@ async def run_analyzer_api(
         )
 
     if asset_id is not None:
-        asset = await Asset.get_or_none(id=asset_id)
+        db = get_asset_repo()
+        asset = await db.get_or_none(id=asset_id)
         if asset is None:
             raise ApiError(status_code=404, detail="Asset not found")
         scope = AnalyzerScope.asset(asset_id=int(asset_id))
     elif collection_id is not None:
-        collection = await AssetCollection.get_or_none(id=collection_id)
+        db = get_asset_collection_repo()
+        collection = await db.get_or_none(id=collection_id)
         if collection is None:
             raise ApiError(status_code=404, detail="Collection not found")
         if collection.membership_key_id is None:
@@ -112,7 +124,8 @@ async def run_analyzer_api(
         )
     else:
         scope = AnalyzerScope.all()
-    changeset = await Changeset.begin(
+    db = get_changeset_repo()
+    changeset = await db.begin(
         message=f"Run analyzer {actor.name or actor.id}",
         actors=[actor],
         status=OpStatus.IN_PROGRESS,
@@ -120,31 +133,31 @@ async def run_analyzer_api(
     RUNNING_CHANGESETS[changeset.id] = changeset
 
     changeset.start_operation(
-        lambda: run_analyzer(actor, changeset=changeset, scope=scope)
+        lambda: do_run_analyzer(actor, changeset=changeset, scope=scope)
     )
-    return changeset.to_dict()
+    return changeset
 
 
 @router.post("/sources/{source_id}/run")
-async def do_run_sources(source_id: int):
-    return await run_sources_api(source_id)
+async def run_source_rest(source_id: int):
+    return await run_source(source_id)
 
 
 @router.post("/processors/run")
-async def do_run_processors(
+async def run_processors_rest(
     processor_ids: list[int] | None = Query(None),
     asset_ids: list[int] | None = Query(None),
 ):
-    return await run_processors_api(processor_ids=processor_ids, asset_ids=asset_ids)
+    return await run_processors(processor_ids=processor_ids, asset_ids=asset_ids)
 
 
 @router.post("/analyzers/{analyzer_id}/run")
-async def do_run_analyzers(
+async def run_analyzer_rest(
     analyzer_id: str,
     asset_id: int | None = Query(None),
     collection_id: int | None = Query(None),
 ):
-    return await run_analyzer_api(
+    return await run_analyzer(
         analyzer_id,
         asset_id=asset_id,
         collection_id=collection_id,

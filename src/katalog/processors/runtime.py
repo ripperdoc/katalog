@@ -6,6 +6,7 @@ from typing import Awaitable, Sequence, cast
 
 from loguru import logger
 
+from katalog.constants.metadata import MetadataKey
 from katalog.models import (
     Asset,
     Metadata,
@@ -14,9 +15,13 @@ from katalog.models import (
     ActorType,
     Changeset,
     MetadataChanges,
+    ChangesetStats,
 )
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.plugins.registry import get_actor_instance
+from katalog.db.assets import get_asset_repo
+from katalog.db.metadata import get_metadata_repo
+from katalog.db.actors import get_actor_repo
 
 DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
 
@@ -29,10 +34,11 @@ async def sort_processors(
 ) -> tuple[list[ProcessorStage], list[Actor]]:
     """Return processors layered via Kahn topological sorting, plus actor records."""
 
-    query = Actor.filter(type=ActorType.PROCESSOR, disabled=False)
+    filters = {"type": ActorType.PROCESSOR, "disabled": False}
     if actor_ids:
-        query = query.filter(id__in=sorted(set(actor_ids)))
-    actors = await query.order_by("id")
+        filters["id__in"] = sorted(set(actor_ids))
+    db = get_actor_repo()
+    actors = await db.list_rows(order_by="id", **filters)
     if not actors:
         logger.warning("No processor actors found")
         return [], []
@@ -49,7 +55,7 @@ async def sort_processors(
         processors_by_name[name] = processor
         cfg = actor.config or {}
         order = int(cfg.get("order") or 0)
-        seq = int(cfg.get("_sequence") or actor.id)
+        seq = int(cfg.get("_sequence") or (actor.id or 0))
         order_by_name[name] = (order, seq)
         dependencies_by_name[name] = processor.dependencies
         outputs_by_name[name] = processor.outputs
@@ -106,8 +112,11 @@ async def process_asset(
     force_run: bool = False,
 ) -> set[MetadataKey]:
     stats = changeset.stats
+    if stats is None:
+        stats = ChangesetStats()
+        changeset.stats = stats
     failed_runs = 0
-    changeset.stats.assets_processed += 1
+    stats.assets_processed += 1
 
     for stage in pipeline:
         coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
@@ -152,21 +161,27 @@ async def process_asset(
                 stage_metadata.append(meta)
         # Add all produced metadata to the change set for the next stage.
         changes.add(stage_metadata)
-    return await changes.persist(asset=asset, changeset=changeset)
+    md_db = get_metadata_repo()
+    return await md_db.persist_changes(changes, asset=asset, changeset=changeset)
 
 
-async def run_processors(
+async def do_run_processors(
     *,
     changeset: Changeset,
     assets: list[Asset],
     pipeline: Sequence[ProcessorStage],
 ):
     """Run processors for a list of assets belonging to one actor."""
+    stats = changeset.stats
+    if stats is None:
+        stats = ChangesetStats()
+        changeset.stats = stats
 
     for asset in assets:
-        changeset.stats.assets_seen += 1
-        changeset.stats.assets_saved += 1
-        loaded_metadata = await asset.load_metadata()
+        stats.assets_seen += 1
+        stats.assets_saved += 1
+        db = get_asset_repo()
+        loaded_metadata = await db.load_metadata(asset)
         changes = MetadataChanges(loaded=loaded_metadata)
 
         changeset.enqueue(

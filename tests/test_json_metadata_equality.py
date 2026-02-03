@@ -6,13 +6,12 @@ import pytest
 
 from katalog.constants.metadata import FILE_TAGS
 from katalog.models import (
-    Metadata,
     MetadataChanges,
     OpStatus,
     Changeset,
     make_metadata,
 )
-from tests.utils.pipeline_helpers import PipelineFixture
+from katalog.models.assets import Asset
 
 
 @pytest.mark.asyncio
@@ -24,9 +23,13 @@ async def test_json_metadata_rejects_non_serializable_values(pipeline_db):
 
 @pytest.mark.asyncio
 async def test_changed_keys_json_dict_order_does_not_matter(pipeline_db):
-    fx = await PipelineFixture.create()
-    loaded = [fx.metadata(FILE_TAGS, {"a": 1, "b": 2})]
-    staged = [fx.metadata(FILE_TAGS, {"b": 2, "a": 1})]
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    loaded = [
+        make_metadata(FILE_TAGS, {"a": 1, "b": 2}, actor_id=1, asset=asset)
+    ]
+    staged = [
+        make_metadata(FILE_TAGS, {"b": 2, "a": 1}, actor_id=1, asset=asset)
+    ]
 
     changes = MetadataChanges(loaded=loaded, staged=staged)
     assert changes.changed_keys() == set()
@@ -34,9 +37,11 @@ async def test_changed_keys_json_dict_order_does_not_matter(pipeline_db):
 
 @pytest.mark.asyncio
 async def test_changed_keys_json_list_compares_by_value_not_identity(pipeline_db):
-    fx = await PipelineFixture.create()
-    loaded = [fx.metadata(FILE_TAGS, ["a", "b"])]
-    staged = [fx.metadata(FILE_TAGS, ["a", "b"])]  # different list instance
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    loaded = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)]
+    staged = [
+        make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)
+    ]  # different list instance
 
     changes = MetadataChanges(loaded=loaded, staged=staged)
     assert changes.changed_keys() == set()
@@ -44,9 +49,13 @@ async def test_changed_keys_json_list_compares_by_value_not_identity(pipeline_db
 
 @pytest.mark.asyncio
 async def test_changed_keys_json_detects_actual_change(pipeline_db):
-    fx = await PipelineFixture.create()
-    loaded = [fx.metadata(FILE_TAGS, {"a": 1, "b": 2})]
-    staged = [fx.metadata(FILE_TAGS, {"a": 1, "b": 3})]
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    loaded = [
+        make_metadata(FILE_TAGS, {"a": 1, "b": 2}, actor_id=1, asset=asset)
+    ]
+    staged = [
+        make_metadata(FILE_TAGS, {"a": 1, "b": 3}, actor_id=1, asset=asset)
+    ]
 
     changes = MetadataChanges(loaded=loaded, staged=staged)
     assert FILE_TAGS in changes.changed_keys()
@@ -54,45 +63,37 @@ async def test_changed_keys_json_detects_actual_change(pipeline_db):
 
 @pytest.mark.asyncio
 async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_db):
-    fx = await PipelineFixture.create()
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    existing = make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)
+    existing.changeset_id = 1
 
-    existing = fx.metadata(FILE_TAGS, ["a", "b"])
-    await existing.save()
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
 
-    # New changeset to simulate a later run.
-    changeset2 = await Changeset.create(actor=fx.actor, status=OpStatus.IN_PROGRESS)
-
-    loaded = await fx.asset.load_metadata()
-    staged = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=fx.actor.id)]
+    loaded = [existing]
+    staged = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)]
     changes = MetadataChanges(loaded=loaded, staged=staged)
-
-    changed = await changes.persist(asset=fx.asset, changeset=changeset2)
+    to_create, changed = changes.prepare_persist(
+        asset=asset,
+        changeset=changeset2,
+        existing_metadata=loaded,
+    )
     assert changed == set()
-
-    # Ensure we didn't insert a duplicate row.
-    key_id = existing.metadata_key_id
-    count = await Metadata.filter(
-        asset_id=fx.asset.id,
-        actor_id=fx.actor.id,
-        metadata_key_id=key_id,
-    ).count()
-    assert count == 1
+    assert to_create == []
 
 
 @pytest.mark.asyncio
 async def test_persist_json_empty_object_is_saved(pipeline_db):
-    fx = await PipelineFixture.create()
-    loaded = await fx.asset.load_metadata()
-    staged = [fx.metadata(FILE_TAGS, {})]
+    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    changeset = Changeset(id=3, status=OpStatus.IN_PROGRESS)
+    staged = [make_metadata(FILE_TAGS, {}, actor_id=1, asset=asset)]
 
-    changes = MetadataChanges(loaded=loaded, staged=staged)
-    changed_keys = await changes.persist(asset=fx.asset, changeset=fx.changeset)
+    changes = MetadataChanges(loaded=[], staged=staged)
+    to_create, changed_keys = changes.prepare_persist(
+        asset=asset,
+        changeset=changeset,
+        existing_metadata=[],
+    )
 
     assert FILE_TAGS in changed_keys
-    row = await Metadata.get(
-        asset=fx.asset,
-        actor=fx.actor,
-        metadata_key_id=staged[0].metadata_key_id,
-        removed=False,
-    )
-    assert row.value_json == {}
+    assert len(to_create) == 1
+    assert to_create[0].value_json == {}

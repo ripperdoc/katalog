@@ -1,7 +1,7 @@
 from katalog.constants.metadata import ASSET_ACTOR_ID, ASSET_ID
 from katalog.models.views import ViewSpec
 
-from katalog.db.query_fields import asset_sort_fields
+from katalog.db.sqlspec.query_fields import asset_sort_fields
 
 
 def sort_conditions(sort: tuple[str, str] | None, view: ViewSpec):

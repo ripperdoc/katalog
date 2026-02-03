@@ -42,18 +42,18 @@ def make_actor() -> Actor:
 
 
 def make_record() -> Asset:
-    asset = Asset()
-    asset.id = 1
-    asset.actor_id = 1
-    asset.external_id = "cid"
-    asset.canonical_uri = "uri://file"
-    return asset
+    return Asset(
+        id=1,
+        actor_id=1,
+        external_id="cid",
+        canonical_uri="uri://file",
+    )
 
 
 def test_should_run_when_mime_missing():
     processor = MimeTypeProcessor(actor=make_actor())
     record = make_record()
-    changes = MetadataChanges([])
+    changes = MetadataChanges(loaded=[])
     assert processor.should_run(record, changes) is True
 
 
@@ -63,5 +63,5 @@ def test_should_skip_when_mime_present_and_no_change():
     md = make_metadata(FILE_TYPE, "text/plain", actor_id=record.actor_id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_TYPE].registry_id
     md.changeset_id = 1
-    changes = MetadataChanges([md])
+    changes = MetadataChanges(loaded=[md])
     assert processor.should_run(record, changes) is False

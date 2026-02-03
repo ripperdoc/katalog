@@ -57,12 +57,12 @@ def make_actor() -> Actor:
 
 
 def make_record() -> Asset:
-    asset = Asset()
-    asset.id = 1
-    asset.actor_id = 1
-    asset.external_id = "cid"
-    asset.canonical_uri = "uri://file"
-    return asset
+    return Asset(
+        id=1,
+        actor_id=1,
+        external_id="cid",
+        canonical_uri="uri://file",
+    )
 
 
 def with_hash_cache(asset: Asset) -> Asset:
@@ -76,14 +76,14 @@ def with_hash_cache(asset: Asset) -> Asset:
 def test_should_run_skips_when_hash_already_present_and_no_change():
     processor = MD5HashProcessor(actor=make_actor())
     record = with_hash_cache(make_record())
-    cs = MetadataChanges(record._metadata_cache or [])
+    cs = MetadataChanges(loaded=record._metadata_cache or [])
     assert processor.should_run(record, cs) is False
 
 
 def test_should_run_when_hash_missing():
     processor = MD5HashProcessor(actor=make_actor())
     record = make_record()
-    cs = MetadataChanges([])
+    cs = MetadataChanges(loaded=[])
     should_run = processor.should_run(record, cs)
     assert should_run is True
 
@@ -91,13 +91,13 @@ def test_should_run_when_hash_missing():
 def test_runs_when_fingerprint_changed_even_with_existing_hash():
     processor = MD5HashProcessor(actor=make_actor())
     record = with_hash_cache(make_record())
-    cs = MetadataChanges(record._metadata_cache or [], staged=[])
+    cs = MetadataChanges(loaded=record._metadata_cache or [], staged=[])
     md = make_metadata(FILE_SIZE, 1, actor_id=record.actor_id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_SIZE].registry_id
     md.changeset_id = 2
     cs.add([md])
     assert processor.should_run(record, cs) is True
-    cs = MetadataChanges(record._metadata_cache or [], staged=[])
+    cs = MetadataChanges(loaded=record._metadata_cache or [], staged=[])
     md = make_metadata(
         TIME_MODIFIED,
         datetime(2001, 1, 1, tzinfo=UTC),
@@ -118,9 +118,9 @@ async def test_run_computes_expected_hash():
     async def fake_get_data_reader(key, changes):
         return MemoryAccessor(payload)
 
-    record.get_data_reader = fake_get_data_reader  # type: ignore[attr-defined]
+    object.__setattr__(record, "get_data_reader", fake_get_data_reader)
 
-    cs = MetadataChanges([])
+    cs = MetadataChanges(loaded=[])
     result = await processor.run(record, cs)
 
     assert len(result.metadata) == 1

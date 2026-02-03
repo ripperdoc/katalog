@@ -1,10 +1,11 @@
 import base64
 import importlib
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 import json
 from fnmatch import fnmatch
 from typing import Any, Iterable, Mapping, Optional
+
+from pydantic import BaseModel, ConfigDict
 
 
 def import_plugin_class(
@@ -179,8 +180,9 @@ def match_paths(
     return any(fnmatch(path, pattern) for path in path_list for pattern in include)
 
 
-@dataclass(frozen=True)
-class TimeSlice:
+class TimeSlice(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     start: Optional[datetime]
     end: Optional[datetime]
 
@@ -223,16 +225,6 @@ class TimeSlice:
         end = self.end.date().isoformat() if self.end else "end"
         return f"{start}->{end}"
 
-    def to_dict(self) -> dict[str, Optional[str]]:
-        return {
-            "start": self.start.isoformat() if self.start else None,
-            "end": self.end.isoformat() if self.end else None,
-        }
-
     @classmethod
     def from_dict(cls, data: Any) -> "TimeSlice":
-        start_str = data.get("start")
-        end_str = data.get("end")
-        start = datetime.fromisoformat(start_str) if start_str else None
-        end = datetime.fromisoformat(end_str) if end_str else None
-        return cls(start=start, end=end)
+        return cls.model_validate(data)

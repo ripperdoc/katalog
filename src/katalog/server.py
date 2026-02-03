@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
-from tortoise import Tortoise
+from katalog.db.sqlspec import close_db
 
 from katalog.api import (
     actors,
@@ -24,7 +24,7 @@ from katalog.api import (
 from katalog.api.helpers import ApiError
 from katalog.api.state import RUNNING_CHANGESETS, event_manager
 from katalog.config import DB_URL, WORKSPACE
-from katalog.db import sync_config
+from katalog.db.metadata import sync_config_db
 from katalog.plugins.registry import refresh_plugins
 
 logging.getLogger("uvicorn.access").disabled = True
@@ -51,7 +51,7 @@ async def lifespan(app):
     else:
         logger.warning("No plugins discovered via entry points")
 
-    await sync_config()
+    await sync_config_db()
     event_manager.bind_loop(asyncio.get_running_loop())
     event_manager.ensure_sink()
     try:
@@ -63,7 +63,7 @@ async def lifespan(app):
         for snap in list(RUNNING_CHANGESETS.values()):
             await snap.wait_cancelled(timeout=5)
         # run shutdown logic
-        await Tortoise.close_connections()
+        await close_db()
 
 
 app = FastAPI(lifespan=lifespan)

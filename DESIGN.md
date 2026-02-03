@@ -553,3 +553,43 @@ plugin code.
   changes”.
 - Exceptions from `run` should be reserved for unexpected failures; the runtime treats those as
   `ERROR` and logs them.
+
+## How to treat asset, provider and metadata:
+
+First - a table view is just a way to browse many assets. The only way to operate on complete data
+is to load a specific asset with all the metadata rows for it. Any table view we make is a
+compromise of showing specific information. This is because at the basic data model level, an asset
+always has a list of metadata rows.
+
+To see this in a table, we can:
+
+- Show the latest, singular value
+  - Hint that we have X more current results
+  - Hint that we have Y removed results?
+- Show the current values from all or specific provider(s) as an inline list
+- Show the removed values from all or specific provider(s) as an inline list
+
+To query this table, we can:
+
+- Filter assets where a `metadata` has a value `value` that matches `operator` (eg equal, greater
+  than, smaller than)
+- Filter assets where `actor`, `changeset` is something
+- Filter asset where text matches (the corresponding asset doc)
+- Group assets by a metadata value
+  - How do we handle that a metadata key can have multiple values?
+- How to sort assets? Every metadata can be a list, so how can we sort assets by date if date can be
+  multiple? Maybe we sort by "latest" value.
+- Paginate results (e.g. limit/offset)
+- Listing assets in a collection (a special case of filtering by a metadata value)
+- Control which columns are presented in the result
+
+Edge cases:
+
+- What if provider A thinks `name` is `[ABC, DEF]` but provider B thinks it's `[DEF]`? We can show
+  that each individual metadata value is "source by" one or more providers?
+- If provider A sets `name` to `ABC` and provider B also sets `name` to `ABC`, the second row will
+  never be recorded, does that mean that if we later remove provider A, we no longer have the data
+  that B "agreed" on this metadata value?
+- `A` adds asset `1` to collection `1`. Then `B` removes `1` from collection `1`. If we look at the
+  collection with data from provider `A`, it's still there. if we look with provider `B`, it's not
+  there. What if we want to look at both of them together, what is the value then?

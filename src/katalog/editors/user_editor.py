@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from katalog.models import Actor
+from katalog.db.actors import get_actor_repo
 from katalog.editors.base import EditorPlugin
 from katalog.models.core import ActorType
 
@@ -15,16 +16,17 @@ class UserEditor(EditorPlugin):
 
 async def ensure_user_editor() -> Actor:
     """Return the first Actor configured with the UserEditor plugin."""
-    actor = await Actor.get_or_none(plugin_id=UserEditor.plugin_id)
+    db = get_actor_repo()
+    actor = await db.get_or_none(plugin_id=UserEditor.plugin_id)
     if actor is None:
         base_name = "User Editor"
         name = base_name
         suffix = 1
-        while await Actor.get_or_none(name=name):
+        while await db.get_or_none(name=name):
             suffix += 1
             name = f"{base_name} ({suffix})"
 
-        actor = await Actor.create(
+        actor = await db.create(
             name=name,
             plugin_id=UserEditor.plugin_id,
             type=ActorType.EDITOR,

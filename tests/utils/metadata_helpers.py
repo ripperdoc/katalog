@@ -1,4 +1,3 @@
-from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -44,7 +43,7 @@ def registry_stub():
     saved_by_id = METADATA_REGISTRY_BY_ID.copy()
     saved_def = METADATA_REGISTRY[FILE_PATH]
 
-    patched = replace(saved_def, registry_id=1)
+    patched = saved_def.model_copy(update={"registry_id": 1})
     METADATA_REGISTRY[FILE_PATH] = patched
     METADATA_REGISTRY_BY_ID.clear()
     METADATA_REGISTRY_BY_ID[1] = patched

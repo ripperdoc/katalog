@@ -2,26 +2,23 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from katalog.db import list_assets_for_view
-from katalog.models.views import get_view, list_views
+from katalog.db.assets import get_asset_repo
+from katalog.models.views import ViewSpec, get_view, list_views
 from katalog.api.helpers import ApiError
+from katalog.api.schemas import AssetsListResponse
 
 router = APIRouter()
 
 
-async def list_views_api() -> dict:
-    return {"views": [v.to_dict() for v in list_views()]}
-
-
-async def get_view_api(view_id: str) -> dict:
+async def get_view_api(view_id: str) -> ViewSpec:
     try:
         view = get_view(view_id)
     except KeyError:
         raise ApiError(status_code=404, detail="View not found")
-    return {"view": view.to_dict()}
+    return view
 
 
-async def list_assets_for_view_api(
+async def list_assets_for_view(
     view_id: str,
     actor_id: Optional[int],
     offset: int,
@@ -30,14 +27,15 @@ async def list_assets_for_view_api(
     columns: list[str] | None,
     search: Optional[str],
     filters: list[str] | None,
-) -> dict:
+) -> AssetsListResponse:
     try:
         view = get_view(view_id)
     except KeyError:
         raise ApiError(status_code=404, detail="View not found")
 
     try:
-        return await list_assets_for_view(
+        db = get_asset_repo()
+        return await db.list_assets_for_view_db(
             view,
             actor_id=actor_id,
             offset=offset,
@@ -52,17 +50,19 @@ async def list_assets_for_view_api(
 
 
 @router.get("/views")
-async def list_views_endpoint():
-    return await list_views_api()
+async def list_views_rest():
+    views = list_views()
+    return {"views": views}
 
 
 @router.get("/views/{view_id}")
-async def get_view_endpoint(view_id: str):
-    return await get_view_api(view_id)
+async def get_view_rest(view_id: str):
+    view = await get_view_api(view_id)
+    return {"view": view}
 
 
 @router.get("/views/{view_id}/assets")
-async def list_assets_for_view_endpoint(
+async def list_assets_for_view_rest(
     view_id: str,
     actor_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
@@ -80,7 +80,7 @@ async def list_assets_for_view_endpoint(
             col, direction = sort, "asc"
         sort_tuple = (col, direction)
 
-    return await list_assets_for_view_api(
+    return await list_assets_for_view(
         view_id=view_id,
         actor_id=actor_id,
         offset=offset,

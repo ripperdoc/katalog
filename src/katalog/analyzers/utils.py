@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from tortoise import Tortoise
-
 from katalog.analyzers.base import AnalyzerScope
 
 
@@ -39,7 +37,7 @@ def build_scoped_assets_cte(
             "                m.asset_id,"
             "                m.removed,"
             "                ROW_NUMBER() OVER ("
-            "                    PARTITION BY m.asset_id, m.value_collection_id, m.actor_id"
+            "                    PARTITION BY m.asset_id, m.value_collection_id"
             "                    ORDER BY m.changeset_id DESC, m.id DESC"
             "                ) AS rn"
             f"            FROM {metadata_table} m"
@@ -55,10 +53,4 @@ def build_scoped_assets_cte(
     raise ValueError(f"Unknown analyzer scope kind: {scope.kind}")
 
 
-def get_analysis_connection():
-    """Prefer the dedicated analysis connection if configured."""
-
-    try:
-        return Tortoise.get_connection("analysis")
-    except Exception:
-        return Tortoise.get_connection("default")
+__all__ = ["build_scoped_assets_cte"]

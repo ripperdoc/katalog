@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Collection, cast
+
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from katalog.models import (
     Asset,
@@ -15,11 +16,10 @@ from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_actor_instance
 
 
-@dataclass(slots=True)
-class AssetScanResult:
+class AssetScanResult(BaseModel):
     asset: Asset
     actor: Actor
-    metadata: list[Metadata] = field(default_factory=list)
+    metadata: list[Metadata] = Field(default_factory=list)
 
     def set_metadata(self, metadata_key: MetadataKey, value: MetadataScalar) -> None:
         """Sets e.g. replaces the metadata value on this actor for the given key with a scalar value."""
@@ -35,11 +35,15 @@ class AssetScanResult:
             self.metadata.append(make_metadata(metadata_key, v, self.actor.id))
 
 
-@dataclass(slots=True)
-class ScanResult:
+class ScanResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     iterator: AsyncIterator[AssetScanResult]
     status: OpStatus = OpStatus.IN_PROGRESS
     ignored: int = 0
+
+    @field_serializer("status")
+    def _serialize_status(self, value: OpStatus) -> str:
+        return value.value if isinstance(value, OpStatus) else str(value)
 
 
 class SourcePlugin(PluginBase):

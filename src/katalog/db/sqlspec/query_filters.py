@@ -2,9 +2,10 @@ import json
 from typing import Any, Mapping
 
 from katalog.constants.metadata import METADATA_REGISTRY, MetadataKey, get_metadata_id
-from katalog.models import Metadata, MetadataType
+from katalog.db.sqlspec.tables import METADATA_TABLE
+from katalog.models import MetadataType
 
-from katalog.db.query_fields import asset_filter_fields
+from katalog.db.sqlspec.query_fields import asset_filter_fields
 
 
 def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]:
@@ -24,7 +25,7 @@ def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]
         raise ValueError(f"Filtering not supported for column: {accessor}")
 
     registry_id = get_metadata_id(definition.key)
-    metadata_table = Metadata._meta.db_table
+    metadata_table = METADATA_TABLE
 
     col_map: dict[MetadataType, tuple[str, str]] = {
         MetadataType.STRING: ("m.value_text", "str"),

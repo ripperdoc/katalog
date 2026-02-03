@@ -12,8 +12,7 @@ dependencies = [
     "python-magic>=0.4.27",
     "uvicorn[standard]>=0.40.0",
     "loguru>=0.7.3",
-    "tortoise-orm",
-    "aiosqlite==0.21.0",           # pinned as .22 has a breaking change that Tortoise ORM hasn't adapted to yet
+    "sqlspec[aiosqlite]",
     "markdownify>=1.2.2",
     "markdown>=3.10",
     "openai>=2.14.0",
@@ -27,7 +26,7 @@ dependencies = [
 package = true
 
 [dependency-groups]
-dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler"]
+dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler", "pyright"]
 
 [project.scripts]
 # Installable console script: runs katalog.cli:main as `katalog`

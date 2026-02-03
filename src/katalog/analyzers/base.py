@@ -1,36 +1,34 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar, FrozenSet, cast
+
+from pydantic import BaseModel, Field
 
 from katalog.models import Metadata, MetadataKey, Actor, Changeset
 from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_actor_instance
 
 
-@dataclass(slots=True)
-class AnalyzerIssue:
+class AnalyzerIssue(BaseModel):
     """Represents an unexpected state detected by an analyzer."""
 
     level: str
     message: str
-    file_ids: list[str] = field(default_factory=list)
-    extra: dict[str, Any] = field(default_factory=dict)
+    file_ids: list[str] = Field(default_factory=list)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class FileGroupFinding:
+class FileGroupFinding(BaseModel):
     """Describes a group of related files discovered by an analyzer."""
 
     kind: str
     label: str
     file_ids: list[str]
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class RelationshipRecord:
+class RelationshipRecord(BaseModel):
     """Records a relationship edge that can be persisted to asset_relationships."""
 
     from_id: str
@@ -40,31 +38,20 @@ class RelationshipRecord:
     confidence: float | None = None
     description: str | None = None
     removed: bool = False
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class AnalyzerResult:
+class AnalyzerResult(BaseModel):
     """Container for the analyzer outputs."""
 
-    metadata: list[Metadata] = field(default_factory=list)
-    relationships: list[RelationshipRecord] = field(default_factory=list)
-    groups: list[FileGroupFinding] = field(default_factory=list)
-    issues: list[AnalyzerIssue] = field(default_factory=list)
+    metadata: list[Metadata] = Field(default_factory=list)
+    relationships: list[RelationshipRecord] = Field(default_factory=list)
+    groups: list[FileGroupFinding] = Field(default_factory=list)
+    issues: list[AnalyzerIssue] = Field(default_factory=list)
     output: dict[str, Any] | None = None
 
-    def to_dict(self) -> dict:
-        return {
-            "metadata": [asdict(m) for m in self.metadata],
-            "relationships": [asdict(r) for r in self.relationships],
-            "groups": [asdict(g) for g in self.groups],
-            "issues": [asdict(i) for i in self.issues],
-            "output": self.output,
-        }
 
-
-@dataclass(slots=True)
-class AnalyzerScope:
+class AnalyzerScope(BaseModel):
     """Scope for analyzer operations."""
 
     kind: str
@@ -85,14 +72,6 @@ class AnalyzerScope:
         return cls(
             kind="collection", collection_id=collection_id, collection_key_id=key_id
         )
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"kind": self.kind}
-        if self.asset_id is not None:
-            payload["asset_id"] = self.asset_id
-        if self.collection_id is not None:
-            payload["collection_id"] = self.collection_id
-        return payload
 
 
 class Analyzer(PluginBase, ABC):

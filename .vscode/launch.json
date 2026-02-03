@@ -18,7 +18,20 @@
       ],
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "KATALOG_WORKSPACE": "workspace_hg"
+        "KATALOG_WORKSPACE": "workspace_test"
+      },
+      "jinja": true,
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug test workspace",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "katalog.cli",
+      "args": ["workspace_test", "--test-workspace", "--xseed-assets", "2000", "--port", "8000"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
       },
       "jinja": true,
       "justMyCode": true,
