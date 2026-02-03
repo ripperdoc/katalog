@@ -58,10 +58,7 @@ const formatBytes = (value: unknown): string => {
 
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   const absValue = Math.abs(numericValue);
-  const unitIndex = Math.min(
-    Math.floor(Math.log(absValue) / Math.log(1024)),
-    units.length - 1,
-  );
+  const unitIndex = Math.min(Math.floor(Math.log(absValue) / Math.log(1024)), units.length - 1);
   const scaled = numericValue / 1024 ** unitIndex;
   const formatter = new Intl.NumberFormat(undefined, {
     maximumFractionDigits: scaled >= 10 || unitIndex === 0 ? 0 : 1,
@@ -341,14 +338,15 @@ const AssetTable = ({
             void loadPage(page, undefined, sort, filters, searchQuery);
           }}
           isLoading={loading}
-          onRowSelectionChange={({ selectedRows }) => {
-            const nextSelected = new Set<number>();
-            selectedRows.forEach((rowId) => {
-              const assetId = Number(rowId);
-              if (!Number.isNaN(assetId)) {
-                nextSelected.add(assetId);
-              }
-            });
+          onRowSelectionChange={({ row, isSelected, selectedRows }) => {
+            const assetId = Number(row["asset/id"]);
+            const nextSelected = new Set<number>(selectedAssetIds);
+            if (Number.isNaN(assetId)) return;
+            if (isSelected) {
+              nextSelected.add(assetId);
+            } else {
+              nextSelected.delete(assetId);
+            }
             setSelectedAssetIds(nextSelected);
             onSelectionChange?.(nextSelected);
           }}

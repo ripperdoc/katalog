@@ -20,6 +20,7 @@ import type {
   CollectionResponse,
   CollectionUpdateResponse,
   DeleteCollectionResponse,
+  CollectionRemoveAssetsResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -320,6 +321,24 @@ export async function fetchCollectionAssets(
   return handleResponse(response);
 }
 
+export async function removeCollectionAssets(
+  collectionId: number,
+  payload: {
+    asset_ids: number[];
+    changeset_id: number;
+  },
+): Promise<CollectionRemoveAssetsResponse> {
+  const response = await fetch(`${API_BASE}/collections/${collectionId}/remove`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
 export async function deleteCollection(id: number): Promise<DeleteCollectionResponse> {
   const response = await fetch(`${API_BASE}/collections/${id}`, {
     method: "DELETE",
@@ -411,6 +430,21 @@ export async function finishChangeset(changesetId: number): Promise<ChangesetRes
   const response = await fetch(`${API_BASE}/changesets/${changesetId}/finish`, {
     method: "POST",
     headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function updateChangesetMessage(
+  changesetId: number,
+  message: string,
+): Promise<ChangesetResponse> {
+  const response = await fetch(`${API_BASE}/changesets/${changesetId}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ message }),
   });
   return handleResponse(response);
 }

@@ -30,7 +30,7 @@ function AssetDetailRoute() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const { startTracking } = useChangesetProgress();
+  const { startTracking, stopTracking } = useChangesetProgress();
 
   const load = useCallback(async () => {
     if (!assetIdNum || Number.isNaN(assetIdNum)) {
@@ -90,11 +90,12 @@ function AssetDetailRoute() {
     try {
       const refreshed = await finishChangesetApi(activeChangeset.id);
       setActiveChangeset(refreshed.changeset);
+      stopTracking(activeChangeset.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
     }
-  }, [activeChangeset]);
+  }, [activeChangeset, stopTracking]);
 
   const discardChangeset = useCallback(async () => {
     if (!activeChangeset) return;
@@ -102,12 +103,13 @@ function AssetDetailRoute() {
     try {
       await deleteChangeset(activeChangeset.id);
       setActiveChangeset(null);
+      stopTracking(activeChangeset.id);
       await load();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
     }
-  }, [activeChangeset, load]);
+  }, [activeChangeset, load, stopTracking]);
 
   const canEdit = useMemo(() => Boolean(schema && activeChangeset), [schema, activeChangeset]);
 

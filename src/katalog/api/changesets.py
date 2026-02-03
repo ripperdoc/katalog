@@ -1,8 +1,9 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from katalog.db import list_changeset_metadata_changes
 from katalog.models import Changeset, OpStatus
@@ -15,11 +16,18 @@ from katalog.api.helpers import ApiError
 router = APIRouter()
 
 
+class ChangesetUpdate(BaseModel):
+    message: str | None = Field(default=None)
+
+
 async def create_changeset_api() -> dict:
     actor = await ensure_user_editor()
     try:
         changeset = await Changeset.begin(
-            actors=[actor], message="Manual edit", status=OpStatus.IN_PROGRESS
+            actors=[actor],
+            message="Manual edit",
+            status=OpStatus.IN_PROGRESS,
+            data={"manual": True},
         )
     except ValueError as exc:
         raise ApiError(status_code=409, detail=str(exc))
@@ -84,8 +92,16 @@ async def list_changeset_changes_api(
         raise ApiError(status_code=400, detail=str(exc))
 
 
-async def update_changeset_api() -> dict:
-    raise NotImplementedError()
+async def update_changeset_api(changeset_id: int, payload: ChangesetUpdate) -> dict:
+    changeset = await Changeset.get_or_none(id=changeset_id)
+    if changeset is None:
+        raise ApiError(status_code=404, detail="Changeset not found")
+
+    if payload.message is not None:
+        changeset.message = payload.message
+        await changeset.save()
+
+    return {"changeset": changeset.to_dict()}
 
 
 async def stream_changeset_events_api(changeset_id: int):
@@ -195,9 +211,9 @@ async def list_changeset_changes(
 
 
 @router.patch("/changesets/{changeset_id}")
-async def update_changeset(changeset_id: int):
-    _ = changeset_id
-    return await update_changeset_api()
+async def update_changeset(changeset_id: int, request: Request):
+    payload = ChangesetUpdate.model_validate(await request.json())
+    return await update_changeset_api(changeset_id, payload)
 
 
 @router.get("/changesets/{changeset_id}/events")

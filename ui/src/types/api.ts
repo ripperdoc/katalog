@@ -167,6 +167,11 @@ export interface DeleteCollectionResponse {
   collection_id: number;
 }
 
+export interface CollectionRemoveAssetsResponse {
+  removed: number;
+  skipped: number;
+}
+
 export interface AssetDetailRecord {
   id: number;
   actor_id: number;

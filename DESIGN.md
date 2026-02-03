@@ -342,6 +342,12 @@ There are some important requirements to list for these operations.
   complete and allowing for cleanup. Any changes already persisted remain and are still associated
   with the changeset.
 - A Changeset can also be discarded, this completely removes it and all data associated with it.
+- Manual edits (e.g. editing metadata, removing items from a collection) must use the `User Editor`
+  actor and create an in-progress changeset with `data.manual = true`. UI actions that perform
+  manual edits should start or reuse the active manual changeset, apply edits against it, and allow
+  users to Finish (complete) or Cancel (undo by deleting) the changeset.
+- Manual edit actions should log progress messages (e.g. number of assets affected) using the
+  changeset event stream so the floating changeset bar can show activity.
 
 ### Data views
 

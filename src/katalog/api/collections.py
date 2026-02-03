@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
+from loguru import logger
 
 from katalog.constants.metadata import COLLECTION_MEMBER, get_metadata_id
 from tortoise import Tortoise
@@ -37,6 +38,11 @@ class CollectionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     refresh_mode: str | CollectionRefreshMode | None = None
+
+
+class CollectionRemoveAssets(BaseModel):
+    asset_ids: list[int] = Field(default_factory=list)
+    changeset_id: int
 
 
 async def list_collections_api() -> dict[str, Any]:
@@ -323,6 +329,90 @@ async def delete_collection_api(collection_id: int) -> dict[str, Any]:
     return {"status": "deleted", "collection_id": collection_id}
 
 
+async def remove_collection_assets_api(
+    collection_id: int, payload: CollectionRemoveAssets
+) -> dict[str, Any]:
+    collection = await AssetCollection.get_or_none(id=collection_id)
+    if collection is None:
+        raise ApiError(status_code=404, detail="Collection not found")
+
+    try:
+        asset_ids = sorted({int(a) for a in payload.asset_ids})
+    except Exception:
+        raise ApiError(status_code=400, detail="asset_ids must be integers")
+
+    if not asset_ids:
+        return {"removed": 0, "skipped": 0}
+
+    changeset = await Changeset.get_or_none(id=payload.changeset_id)
+    if changeset is None:
+        raise ApiError(status_code=404, detail="Changeset not found")
+    if changeset.status != OpStatus.IN_PROGRESS:
+        raise ApiError(status_code=409, detail="Changeset is not in progress")
+
+    if not isinstance(changeset.data, dict) or not changeset.data.get("manual"):
+        raise ApiError(
+            status_code=409,
+            detail="Changeset must be a manual edit",
+        )
+
+    actor = await ensure_user_editor()
+    await changeset.add_actors([actor])
+
+    membership_key_id = get_metadata_id(COLLECTION_MEMBER)
+    metadata_table = Metadata._meta.db_table
+    asset_placeholders = ", ".join("?" for _ in asset_ids)
+    active_sql = f"""
+        WITH latest AS (
+            SELECT
+                m.asset_id,
+                m.removed,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.asset_id, m.value_collection_id, m.actor_id
+                    ORDER BY m.changeset_id DESC, m.id DESC
+                ) AS rn
+            FROM {metadata_table} m
+            WHERE m.metadata_key_id = ?
+              AND m.value_collection_id = ?
+              AND m.asset_id IN ({asset_placeholders})
+        )
+        SELECT asset_id FROM latest WHERE rn = 1 AND removed = 0
+    """
+    conn = Tortoise.get_connection("default")
+    active_rows = await conn.execute_query_dict(
+        active_sql, [membership_key_id, collection.id, *asset_ids]
+    )
+    active_asset_ids = [int(row["asset_id"]) for row in active_rows]
+
+    if not active_asset_ids:
+        return {"removed": 0, "skipped": len(asset_ids)}
+
+    membership_entries: list[Metadata] = []
+    for asset_id in active_asset_ids:
+        md = make_metadata(
+            COLLECTION_MEMBER, collection.id, actor_id=actor.id, removed=True
+        )
+        md.asset_id = asset_id
+        md.changeset_id = changeset.id
+        membership_entries.append(md)
+        if len(membership_entries) >= 5000:
+            await Metadata.bulk_create(membership_entries)
+            membership_entries = []
+    if membership_entries:
+        await Metadata.bulk_create(membership_entries)
+
+    collection.item_count = max(0, collection.item_count - len(active_asset_ids))
+    await collection.save()
+
+    logger.bind(changeset_id=changeset.id).info(
+        "Removed {count} assets from collection {collection_id}",
+        count=len(active_asset_ids),
+        collection_id=collection.id,
+    )
+
+    return {"removed": len(active_asset_ids), "skipped": len(asset_ids) - len(active_asset_ids)}
+
+
 @router.get("/collections")
 async def list_collections():
     return await list_collections_api()
@@ -378,3 +468,9 @@ async def list_collection_assets(
 @router.delete("/collections/{collection_id}")
 async def delete_collection(collection_id: int):
     return await delete_collection_api(collection_id)
+
+
+@router.post("/collections/{collection_id}/remove")
+async def remove_collection_assets(collection_id: int, request: Request):
+    payload = CollectionRemoveAssets.model_validate(await request.json())
+    return await remove_collection_assets_api(collection_id, payload)

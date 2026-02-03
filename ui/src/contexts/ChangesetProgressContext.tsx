@@ -14,6 +14,7 @@ export interface ChangesetProgress {
   id: number;
   message: string | null;
   status: ChangesetStatus;
+  data: Record<string, unknown> | null;
   queued: number | null;
   running: number | null;
   finished: number | null;
@@ -59,6 +60,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
               id: update.id,
               message: null,
               status: "in_progress",
+              data: null,
               queued: null,
               running: null,
               finished: null,
@@ -104,6 +106,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
         id: changeset.id,
         message: changeset.message ?? null,
         status: changeset.status,
+        data: (changeset.data as Record<string, unknown> | null) ?? null,
         queued: null,
         running: null,
         finished: null,
@@ -129,6 +132,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
             id: payload.id,
             message: payload.message ?? progress.message,
             status: payload.status,
+            data: (payload.data as Record<string, unknown> | null) ?? progress.data,
           });
           if (payload.status !== "in_progress") {
             removeTracker(payload.id);

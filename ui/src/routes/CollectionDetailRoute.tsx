@@ -9,7 +9,9 @@ import {
   fetchActors,
   fetchCollection,
   fetchCollectionAssets,
+  removeCollectionAssets,
   runAnalyzer,
+  startManualChangeset,
   updateCollection,
 } from "../api/client";
 import type { Actor, AssetCollection, ViewAssetsResponse } from "../types/api";
@@ -31,7 +33,10 @@ function CollectionDetailRoute() {
   const [runningAnalyzerId, setRunningAnalyzerId] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState<string>("");
   const [descDraft, setDescDraft] = useState<string | undefined>(undefined);
-  const { startTracking } = useChangesetProgress();
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
+  const [removing, setRemoving] = useState(false);
+  const [tableReloadKey, setTableReloadKey] = useState(0);
+  const { active, startTracking } = useChangesetProgress();
 
   useEffect(() => {
     const load = async () => {
@@ -99,6 +104,43 @@ function CollectionDetailRoute() {
       setSaving(false);
     }
   }, [collection, nameDraft, descDraft]);
+
+  const handleRemoveAssets = useCallback(async () => {
+    if (!collection) {
+      return;
+    }
+    const assetIds = Array.from(selectedAssetIds);
+    if (assetIds.length === 0) {
+      return;
+    }
+    const current = active[0];
+    const currentIsManual = Boolean(current?.data && current.data["manual"]);
+    if (current && !currentIsManual) {
+      window.alert("A changeset is already running. Finish or cancel it before editing.");
+      return;
+    }
+
+    setRemoving(true);
+    try {
+      let changesetId = current?.id;
+      if (!changesetId) {
+        const created = await startManualChangeset();
+        startTracking(created);
+        changesetId = created.id;
+      }
+      await removeCollectionAssets(collection.id, {
+        asset_ids: assetIds,
+        changeset_id: changesetId,
+      });
+      setSelectedAssetIds(new Set());
+      setTableReloadKey((prev) => prev + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to remove assets: ${message}`);
+    } finally {
+      setRemoving(false);
+    }
+  }, [collection, selectedAssetIds, active, startTracking]);
 
   const handleDelete = useCallback(async () => {
     if (!collection) {
@@ -237,6 +279,18 @@ function CollectionDetailRoute() {
           />
         </div>
         <div className="panel-actions">
+          {selectedAssetIds.size > 0 && (
+            <button
+              className="app-btn danger"
+              type="button"
+              onClick={() => void handleRemoveAssets()}
+              disabled={removing || saving || deleting}
+            >
+              {removing
+                ? "Removing…"
+                : `Remove ${selectedAssetIds.size.toLocaleString()} assets`}
+            </button>
+          )}
           <button
             className="btn-primary"
             type="button"
@@ -266,9 +320,11 @@ function CollectionDetailRoute() {
         <section className="panel collection-detail">
           <div className="collection-assets">
             <AssetTable
+              key={tableReloadKey}
               title="Assets"
               fetchPage={fetchPage}
               searchPlaceholder="Search within collection…"
+              onSelectionChange={setSelectedAssetIds}
             />
           </div>
         </section>

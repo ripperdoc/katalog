@@ -1,6 +1,5 @@
 import { ReactNode, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import ChangesetProgressBar from "./ChangesetProgressBar";
 
 interface AppHeaderProps {
   children?: ReactNode;
@@ -81,7 +80,6 @@ const AppHeader = ({ children, breadcrumbLabel }: AppHeaderProps) => {
           <Link to="/changesets">History</Link>
         </nav>
       </div>
-      <ChangesetProgressBar />
       {children && <div className="page-header">{children}</div>}
     </header>
   );
