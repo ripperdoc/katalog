@@ -23,7 +23,7 @@ async def test_json_metadata_rejects_non_serializable_values(pipeline_db):
 
 @pytest.mark.asyncio
 async def test_changed_keys_json_dict_order_does_not_matter(pipeline_db):
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     loaded = [
         make_metadata(FILE_TAGS, {"a": 1, "b": 2}, actor_id=1, asset=asset)
     ]
@@ -37,7 +37,7 @@ async def test_changed_keys_json_dict_order_does_not_matter(pipeline_db):
 
 @pytest.mark.asyncio
 async def test_changed_keys_json_list_compares_by_value_not_identity(pipeline_db):
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     loaded = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)]
     staged = [
         make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)
@@ -49,7 +49,7 @@ async def test_changed_keys_json_list_compares_by_value_not_identity(pipeline_db
 
 @pytest.mark.asyncio
 async def test_changed_keys_json_detects_actual_change(pipeline_db):
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     loaded = [
         make_metadata(FILE_TAGS, {"a": 1, "b": 2}, actor_id=1, asset=asset)
     ]
@@ -63,7 +63,7 @@ async def test_changed_keys_json_detects_actual_change(pipeline_db):
 
 @pytest.mark.asyncio
 async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_db):
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     existing = make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)
     existing.changeset_id = 1
 
@@ -83,7 +83,7 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
 
 @pytest.mark.asyncio
 async def test_persist_json_empty_object_is_saved(pipeline_db):
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     changeset = Changeset(id=3, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_TAGS, {}, actor_id=1, asset=asset)]
 

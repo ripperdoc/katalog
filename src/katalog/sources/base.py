@@ -51,6 +51,8 @@ class SourcePlugin(PluginBase):
     Source plugin for accessing and listing assets in some asset or file repository.
     """
 
+    plugin_id: str = "katalog.sources.base.SourcePlugin"
+
     def __init__(self, actor: Actor, **kwargs: Any) -> None:
         super().__init__(actor, **kwargs)
 
@@ -70,6 +72,10 @@ class SourcePlugin(PluginBase):
     ) -> Any:
         """Return a FileReader for the given asset (or None if not available)."""
         raise NotImplementedError()
+
+    def get_namespace(self) -> str:
+        """Return the namespace to use for external_id uniqueness."""
+        return self.plugin_id
 
     def can_connect(self, uri: str) -> bool:
         """Check if the client can connect to the given URI."""

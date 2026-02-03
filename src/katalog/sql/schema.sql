@@ -41,8 +41,11 @@ CREATE TABLE IF NOT EXISTS changeset_actors (
 CREATE TABLE IF NOT EXISTS assets (
     id INTEGER PRIMARY KEY,
     canonical_asset_id INTEGER REFERENCES assets(id) ON DELETE RESTRICT,
-    external_id TEXT NOT NULL UNIQUE,
-    canonical_uri TEXT NOT NULL
+    actor_id INTEGER REFERENCES actors(id) ON DELETE RESTRICT,
+    namespace TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    canonical_uri TEXT NOT NULL,
+    UNIQUE (namespace, external_id)
 );
 
 -- name: create_metadata_registry

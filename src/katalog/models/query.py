@@ -42,6 +42,7 @@ class AssetRow(BaseModel):
 
     asset_id: int = Field(alias="asset/id")
     asset_actor_id: int | None = Field(default=None, alias="asset/actor_id")
+    asset_namespace: str | None = Field(default=None, alias="asset/namespace")
     asset_external_id: str | None = Field(default=None, alias="asset/external_id")
     asset_canonical_uri: str | None = Field(default=None, alias="asset/canonical_uri")
 

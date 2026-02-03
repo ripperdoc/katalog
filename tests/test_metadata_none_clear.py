@@ -16,7 +16,7 @@ from katalog.models.assets import Asset
 async def test_persist_none_does_not_write_null_row_when_no_prior_value(
     pipeline_db,
 ) -> None:
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
 
@@ -33,7 +33,7 @@ async def test_persist_none_does_not_write_null_row_when_no_prior_value(
 
 @pytest.mark.asyncio
 async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     existing = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
     existing.changeset_id = 1
 
@@ -54,7 +54,7 @@ async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
 
 @pytest.mark.asyncio
 async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None:
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     a = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
     b = make_metadata(FILE_PATH, "/tmp/b", actor_id=1, asset=asset)
     a.changeset_id = 1
@@ -79,7 +79,7 @@ async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None
 async def test_missing_key_in_staged_keeps_existing_value_unchanged(
     pipeline_db,
 ) -> None:
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     existing_path = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
     existing_path.changeset_id = 1
 
@@ -100,7 +100,7 @@ async def test_missing_key_in_staged_keeps_existing_value_unchanged(
 
 @pytest.mark.asyncio
 async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
-    asset = Asset(id=1, external_id="a", canonical_uri="file:///a")
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
     existing_path = make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)
     existing_path.changeset_id = 1
 

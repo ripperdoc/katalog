@@ -122,6 +122,10 @@ class FakeAssetSource(SourcePlugin):
     class ConfigModel(BaseModel):
         model_config = ConfigDict(extra="ignore")
 
+        namespace: str = Field(
+            default="fake",
+            description="Namespace for external_id uniqueness",
+        )
         total_assets: int = Field(
             default=250,
             ge=0,
@@ -164,6 +168,7 @@ class FakeAssetSource(SourcePlugin):
         self.batch_jitter_ms = cfg.batch_jitter_ms
         self.seed = cfg.seed
         self.include_collection = cfg.include_collection
+        self.namespace = cfg.namespace
 
         self._collection: AssetCollection | None = None
 
@@ -176,6 +181,9 @@ class FakeAssetSource(SourcePlugin):
 
     def authorize(self, **kwargs: Any) -> str:
         return ""
+
+    def get_namespace(self) -> str:
+        return self.namespace
 
     def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
         size = _parse_fake_size(asset.canonical_uri) or (params or {}).get("size")
@@ -207,6 +215,7 @@ class FakeAssetSource(SourcePlugin):
                 spec = _generate_asset_spec(rng, actor_id, idx)
                 asset = Asset(
                     external_id=spec.external_id,
+                    namespace=self.get_namespace(),
                     canonical_uri=spec.canonical_uri,
                     actor_id=actor_id,
                 )

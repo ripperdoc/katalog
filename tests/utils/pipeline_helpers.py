@@ -40,8 +40,10 @@ class PipelineFixture:
         changeset = await changeset_db.create_auto(status=OpStatus.IN_PROGRESS)
         await changeset_db.add_actors(changeset, [actor])
         asset = Asset(
+            namespace="test",
             external_id="asset-1",
             canonical_uri="file:///asset-1",
+            actor_id=actor.id,
         )
         await asset_db.save_record(asset, changeset=changeset, actor=actor)
         return cls(actor=actor, changeset=changeset, asset=asset)

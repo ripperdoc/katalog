@@ -28,6 +28,7 @@ class Asset(BaseModel):
 
     id: int | None = None
     canonical_asset_id: int | None = None
+    namespace: str
     external_id: str
     canonical_uri: str
     actor_id: int | None = None

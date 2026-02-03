@@ -74,6 +74,7 @@ class FilesystemClient(SourcePlugin):
         # Store normalized values for runtime use.
         self.root_path = str(cfg.root_path)
         self.max_files = cfg.max_files
+        self._namespace = self._resolve_namespace()
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -81,6 +82,9 @@ class FilesystemClient(SourcePlugin):
             "author": "Katalog Team",
             "version": "0.1",
         }
+
+    def get_namespace(self) -> str:
+        return self._namespace
 
     def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
         """Return an accessor keyed off the canonical absolute path."""
@@ -118,16 +122,16 @@ class FilesystemClient(SourcePlugin):
                         modified = timestamp_to_utc(stat.st_mtime)
                         created = timestamp_to_utc(stat.st_ctime)
                         inode = getattr(stat, "st_ino", None)
-                        device = getattr(stat, "st_dev", None)
-                        if inode and device:
-                            # POSIX st_ino/st_dev survive renames on macOS/Linux; Windows often reports 0 so we fall back to the path identifier there.
-                            external_id = f"inode:{device}:{inode}"
+                        if inode:
+                            # st_ino survives renames on POSIX; namespace carries st_dev.
+                            external_id = f"inode:{inode}"
                         else:
                             external_id = f"path:{full_path}"
 
                         abs_path = Path(full_path).resolve()
                         asset = Asset(
                             external_id=external_id,
+                            namespace=self.get_namespace(),
                             canonical_uri=abs_path.as_uri(),
                             actor_id=self.actor.id,
                         )
@@ -159,6 +163,27 @@ class FilesystemClient(SourcePlugin):
 
         scan_result = ScanResult(iterator=inner(), status=status)
         return scan_result
+
+    def _resolve_namespace(self) -> str:
+        try:
+            stat = os.stat(self.root_path)
+        except OSError as exc:
+            logger.warning(
+                "Failed to stat root_path {root_path}; using fallback namespace: {err}",
+                root_path=self.root_path,
+                err=exc,
+            )
+            return self._fallback_namespace()
+
+        device = getattr(stat, "st_dev", None)
+        if device:
+            return f"fs:{device}"
+        return self._fallback_namespace()
+
+    def _fallback_namespace(self) -> str:
+        if self.actor.id is not None:
+            return f"fs:{self.actor.id}"
+        return "fs:unknown"
 
 
 def _looks_hidden(path: Path) -> bool:

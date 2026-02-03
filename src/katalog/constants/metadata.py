@@ -169,6 +169,9 @@ ASSET_ACTOR_ID = define_metadata("asset/actor_id", MetadataType.INT, "Actor ID")
 ASSET_EXTERNAL_ID = define_metadata(
     "asset/external_id", MetadataType.STRING, "External ID"
 )
+ASSET_NAMESPACE = define_metadata(
+    "asset/namespace", MetadataType.STRING, "Namespace"
+)
 ASSET_CANONICAL_URI = define_metadata(
     "asset/canonical_uri", MetadataType.STRING, "Canonical URI"
 )

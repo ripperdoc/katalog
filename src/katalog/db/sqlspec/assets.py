@@ -9,6 +9,7 @@ from katalog.constants.metadata import (
     ASSET_EXTERNAL_ID,
     ASSET_ID,
     ASSET_LOST,
+    ASSET_NAMESPACE,
     METADATA_REGISTRY_BY_ID,
     MetadataKey,
     MetadataType,
@@ -98,7 +99,7 @@ class SqlspecAssetRepo:
         if limit is not None:
             params["limit"] = limit
         sql = (
-            f"SELECT id, canonical_asset_id, external_id, canonical_uri "
+            f"SELECT id, canonical_asset_id, actor_id, namespace, external_id, canonical_uri "
             f"FROM {ASSET_TABLE} {where_sql} {order_sql} {limit_sql}"
         )
         async with session_scope() as session:
@@ -123,26 +124,43 @@ class SqlspecAssetRepo:
                 existing = await select_one_or_none(
                     active_session,
                     f"""
-                    SELECT id, canonical_uri, canonical_asset_id
+                    SELECT id, canonical_uri, canonical_asset_id, actor_id
                     FROM {ASSET_TABLE}
-                    WHERE external_id = :external_id
+                    WHERE namespace = :namespace AND external_id = :external_id
                     """,
-                    {"external_id": asset.external_id},
+                    {"namespace": asset.namespace, "external_id": asset.external_id},
                 )
                 if existing:
                     asset.id = int(existing["id"])
                     asset.canonical_uri = existing["canonical_uri"]
                     asset.canonical_asset_id = existing.get("canonical_asset_id")
+                    asset.actor_id = existing.get("actor_id")
                 else:
                     was_created = True
+                    if asset.actor_id is None:
+                        asset.actor_id = actor.id
                     await execute(
                         active_session,
                         f"""
-                        INSERT INTO {ASSET_TABLE} (canonical_asset_id, external_id, canonical_uri)
-                        VALUES (:canonical_asset_id, :external_id, :canonical_uri)
+                        INSERT INTO {ASSET_TABLE} (
+                            canonical_asset_id,
+                            actor_id,
+                            namespace,
+                            external_id,
+                            canonical_uri
+                        )
+                        VALUES (
+                            :canonical_asset_id,
+                            :actor_id,
+                            :namespace,
+                            :external_id,
+                            :canonical_uri
+                        )
                         """,
                         {
                             "canonical_asset_id": asset.canonical_asset_id,
+                            "actor_id": asset.actor_id,
+                            "namespace": asset.namespace,
                             "external_id": asset.external_id,
                             "canonical_uri": asset.canonical_uri,
                         },
@@ -156,6 +174,8 @@ class SqlspecAssetRepo:
                     f"""
                     UPDATE {ASSET_TABLE}
                     SET canonical_asset_id = :canonical_asset_id,
+                        actor_id = :actor_id,
+                        namespace = :namespace,
                         external_id = :external_id,
                         canonical_uri = :canonical_uri
                     WHERE id = :id
@@ -163,6 +183,8 @@ class SqlspecAssetRepo:
                     {
                         "id": int(asset.id),
                         "canonical_asset_id": asset.canonical_asset_id,
+                        "actor_id": asset.actor_id,
+                        "namespace": asset.namespace,
                         "external_id": asset.external_id,
                         "canonical_uri": asset.canonical_uri,
                     },
@@ -371,7 +393,8 @@ class SqlspecAssetRepo:
                 )
                 SELECT
                     a.id AS asset_id,
-                    NULL AS asset_actor_id,
+                    a.actor_id AS asset_actor_id,
+                    a.namespace,
                     a.external_id,
                     a.canonical_uri
                 FROM {asset_table} a
@@ -383,7 +406,8 @@ class SqlspecAssetRepo:
                 assets_sql = f"""
                 SELECT
                     a.id AS asset_id,
-                    NULL AS asset_actor_id,
+                    a.actor_id AS asset_actor_id,
+                    a.namespace,
                     a.external_id,
                     a.canonical_uri
                 FROM {asset_table} a
@@ -410,6 +434,7 @@ class SqlspecAssetRepo:
                 asset_entry: dict[str, Any] = {
                     str(ASSET_ID): asset_id,
                     str(ASSET_ACTOR_ID): row["asset_actor_id"],
+                    str(ASSET_NAMESPACE): row["namespace"],
                     str(ASSET_EXTERNAL_ID): row["external_id"],
                     str(ASSET_CANONICAL_URI): row["canonical_uri"],
                 }
@@ -706,6 +731,7 @@ class SqlspecAssetRepo:
                     "sample_asset_ids": asset_ids[:5],
                     str(ASSET_ID): f"group:{row.get('group_value')}",
                     str(ASSET_ACTOR_ID): None,
+                    str(ASSET_NAMESPACE): None,
                     str(ASSET_EXTERNAL_ID): None,
                     str(ASSET_CANONICAL_URI): None,
                 }

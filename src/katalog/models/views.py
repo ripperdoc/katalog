@@ -9,6 +9,7 @@ from katalog.constants.metadata import (
     ASSET_CANONICAL_URI,
     ASSET_ID,
     ASSET_ACTOR_ID,
+    ASSET_NAMESPACE,
     FILE_NAME,
     FILE_PATH,
     FILE_SIZE,
@@ -95,7 +96,12 @@ def default_view() -> ViewSpec:
     """Default view: mirrors the previous list_assets_with_metadata output."""
     columns: list[ColumnSpec] = [
         ColumnSpec.from_metadata(ASSET_ID, sortable=True, width=80),
-        # ColumnSpec.from_metadata(ASSET_ACTOR_ID, sortable=True, filterable=True),
+        ColumnSpec.from_metadata(ASSET_ACTOR_ID, sortable=True, filterable=True),
+        ColumnSpec.from_metadata(
+            ASSET_NAMESPACE,
+            hidden=True,
+            searchable=True,
+        ),
         ColumnSpec.from_metadata(ASSET_EXTERNAL_ID, searchable=True),
         ColumnSpec.from_metadata(
             ASSET_CANONICAL_URI,

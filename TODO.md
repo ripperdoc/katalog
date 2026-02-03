@@ -2,15 +2,9 @@
 
 # Next up
 
-- [ ] Fix AssetTable so ExternalID is clickable to external URL, and instead hide Canonical URL
-- [ ] Google Canonical URI to folders should be different than files
 - [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
       a flatter table for easier querying. E.g. a generated asset_current.
 - [ ] Test harness that uses "real" Actors, Processors to test all CRUD operations
-- [ ] Are sources identified outside of the DB with their name (unique?) or their integer ID? What
-      if we keep an ID the same but dramatically change the definition, e.g a different root folder.
-- [ ] How to handle if two sources give the same canonical ID? they will overwrite eachother, is
-      that ok?
 - [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
       be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
       with an asset
@@ -32,8 +26,6 @@
 - [ ] Google drive actor isn't sending progress updates
 - [ ] How to find Google drive file's root folder? It's either a Shared Drive, "My Drive" or it's in
       Shared with me but not necessarily shown in the GDrive UI.
-- [ ] Replace TortoiseORM with [SQLSpec](https://sqlspec.dev/usage/data_flow.html) for more
-      efficient, decoupled database p usage
 - [ ] Show in errors which actor, asset and/or metadata that was being processed
 - [ ] If folders or shared drives are renamed the Google Drive cache will still use old names. We
       could detect name changes using our metadata system, and update the cache, but at that time we

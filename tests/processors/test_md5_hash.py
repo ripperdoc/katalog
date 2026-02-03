@@ -60,6 +60,7 @@ def make_record() -> Asset:
     return Asset(
         id=1,
         actor_id=1,
+        namespace="test",
         external_id="cid",
         canonical_uri="uri://file",
     )

@@ -86,6 +86,9 @@ API_FIELDS = {
     "version",
 }
 
+# Google Drive folder MIME type.
+GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+
 # Available metadata in Google drive API:
 # https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
 
@@ -97,6 +100,12 @@ FILE_WEB_VIEW_LINK = define_metadata(
     "Web link",
     plugin_id="katalog.sources.googledrive.GoogleDriveClient",
 )
+
+
+def _canonical_uri_for_file(file_id: str, mime_type: str | None) -> str:
+    if mime_type == GOOGLE_DRIVE_FOLDER_MIME:
+        return f"https://drive.google.com/drive/folders/{file_id}"
+    return f"https://drive.google.com/file/d/{file_id}"
 
 
 class GoogleDriveClient(SourcePlugin):
@@ -233,6 +242,9 @@ class GoogleDriveClient(SourcePlugin):
             "version": "0.1",
         }
 
+    def get_namespace(self) -> str:
+        return "gdrive"
+
     def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
         # TODO: provide streaming accessor for Google Drive file contents.
         return None
@@ -245,10 +257,12 @@ class GoogleDriveClient(SourcePlugin):
     ) -> AssetScanResult:
         """Transform a Drive file payload into a AssetScanResult with metadata."""
         file_id = file.get("id", "")
-        canonical_uri = f"https://drive.google.com/file/d/{file_id}"
+        mime_type = file.get("mimeType")
+        canonical_uri = _canonical_uri_for_file(file_id, mime_type)
 
         asset = Asset(
             external_id=file_id,
+            namespace=self.get_namespace(),
             actor_id=self.actor.id,
             canonical_uri=canonical_uri,
         )
@@ -287,7 +301,7 @@ class GoogleDriveClient(SourcePlugin):
             parse_google_drive_datetime(file.get("viewedByMesharedWithMeTimeTime")),
         )
 
-        result.set_metadata(FILE_TYPE, file.get("mimeType"))
+        result.set_metadata(FILE_TYPE, mime_type)
 
         result.set_metadata(HASH_MD5, file.get("md5Checksum"))
 
