@@ -10,7 +10,7 @@ from katalog.constants.metadata import (
     MetadataDef,
     MetadataKey,
 )
-from katalog.models import MetadataRegistry
+from katalog.models import Asset, MetadataRegistry
 
 
 async def setup_db(db_path: Path) -> Path:
@@ -54,6 +54,27 @@ async def setup_db(db_path: Path) -> Path:
     # Ensure composite index for fast latest-metadata lookups.
     for conn_name in ("default", "analysis"):
         conn = Tortoise.get_connection(conn_name)
+        # Lightweight migration for canonical_asset_id (added to assets).
+        asset_table = Asset._meta.db_table
+        tables = await conn.execute_query_dict(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            [asset_table],
+        )
+        if not tables:
+            logger.info(
+                "Skipping asset migration on {conn_name}: table missing",
+                conn_name=conn_name,
+            )
+            continue
+        columns = await conn.execute_query_dict(f"PRAGMA table_info({asset_table})")
+        if not any(col.get("name") == "canonical_asset_id" for col in columns):
+            await conn.execute_script(
+                f"""
+                ALTER TABLE {asset_table} ADD COLUMN canonical_asset_id INTEGER REFERENCES {asset_table}(id);
+                CREATE INDEX IF NOT EXISTS idx_asset_canonical_asset_id ON {asset_table}(canonical_asset_id);
+                """
+            )
+            logger.info("Applied migration: asset.canonical_asset_id")
         await conn.execute_script(
             """
             -- SQLite tuning for high-volume ingest.

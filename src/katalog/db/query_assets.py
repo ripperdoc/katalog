@@ -55,6 +55,13 @@ def build_assets_where(
     return where_sql, filter_params
 
 
+async def _has_canonical_merges(conn, asset_table: str) -> bool:
+    rows = await conn.execute_query_dict(
+        f"SELECT 1 FROM {asset_table} WHERE canonical_asset_id IS NOT NULL LIMIT 1"
+    )
+    return bool(rows)
+
+
 async def list_assets_for_view(
     view: ViewSpec,
     *,
@@ -102,19 +109,38 @@ async def list_assets_for_view(
     metadata_ids = [get_metadata_id(MetadataKey(key)) for key in metadata_keys]
 
     conn = Tortoise.get_connection("default")
+    has_merges = await _has_canonical_merges(conn, asset_table)
 
     # NOTE this approach means we cannot sort by metadata columns
-    assets_sql = f"""
-    SELECT
-        a.id AS asset_id,
-        NULL AS asset_actor_id,
-        a.external_id,
-        a.canonical_uri
-    FROM {asset_table} a
-    {where_sql}
-    ORDER BY {order_by_clause}
-    LIMIT ? OFFSET ?
-    """
+    if has_merges:
+        assets_sql = f"""
+        WITH effective AS (
+            SELECT DISTINCT COALESCE(a.canonical_asset_id, a.id) AS effective_id
+            FROM {asset_table} a
+            {where_sql}
+        )
+        SELECT
+            a.id AS asset_id,
+            NULL AS asset_actor_id,
+            a.external_id,
+            a.canonical_uri
+        FROM {asset_table} a
+        JOIN effective e ON e.effective_id = a.id
+        ORDER BY {order_by_clause}
+        LIMIT ? OFFSET ?
+        """
+    else:
+        assets_sql = f"""
+        SELECT
+            a.id AS asset_id,
+            NULL AS asset_actor_id,
+            a.external_id,
+            a.canonical_uri
+        FROM {asset_table} a
+        {where_sql}
+        ORDER BY {order_by_clause}
+        LIMIT ? OFFSET ?
+        """
     assets_params = list(filter_params) + [limit, offset]
 
     assets_started = time.perf_counter()
@@ -144,47 +170,101 @@ async def list_assets_for_view(
     if page_asset_ids and metadata_ids:
         asset_placeholders = ", ".join("?" for _ in page_asset_ids)
         key_placeholders = ", ".join("?" for _ in metadata_ids)
-        metadata_sql = f"""
-        WITH latest_snap AS (
+        if has_merges:
+            metadata_sql = f"""
+            WITH group_assets AS (
+                SELECT
+                    a.id AS asset_id,
+                    COALESCE(a.canonical_asset_id, a.id) AS effective_id
+                FROM {asset_table} a
+                WHERE a.id IN ({asset_placeholders})
+                   OR a.canonical_asset_id IN ({asset_placeholders})
+            ),
+            latest_snap AS (
+                SELECT
+                    ga.effective_id AS asset_id,
+                    m.metadata_key_id,
+                    MAX(m.changeset_id) AS changeset_id
+                FROM {metadata_table} m
+                JOIN group_assets ga ON ga.asset_id = m.asset_id
+                WHERE
+                    m.removed = 0
+                    AND m.metadata_key_id IN ({key_placeholders})
+                GROUP BY ga.effective_id, m.metadata_key_id
+            ),
+            latest_id AS (
+                SELECT
+                    ga.effective_id AS asset_id,
+                    m.metadata_key_id,
+                    MAX(m.id) AS id
+                FROM {metadata_table} m
+                JOIN group_assets ga ON ga.asset_id = m.asset_id
+                JOIN latest_snap ls
+                    ON ls.asset_id = ga.effective_id
+                    AND ls.metadata_key_id = m.metadata_key_id
+                    AND ls.changeset_id = m.changeset_id
+                WHERE m.removed = 0
+                GROUP BY ga.effective_id, m.metadata_key_id
+            )
+            SELECT
+                li.asset_id,
+                m.metadata_key_id,
+                m.value_type,
+                m.value_text,
+                m.value_int,
+                m.value_real,
+                m.value_datetime,
+                m.value_json,
+                m.value_relation_id,
+                m.value_collection_id
+            FROM {metadata_table} m
+            JOIN latest_id li ON li.id = m.id
+            """
+            metadata_params: list[Any] = (
+                list(page_asset_ids) + list(page_asset_ids) + list(metadata_ids)
+            )
+        else:
+            metadata_sql = f"""
+            WITH latest_snap AS (
+                SELECT
+                    m.asset_id,
+                    m.metadata_key_id,
+                    MAX(m.changeset_id) AS changeset_id
+                FROM {metadata_table} m
+                WHERE
+                    m.removed = 0
+                    AND m.asset_id IN ({asset_placeholders})
+                    AND m.metadata_key_id IN ({key_placeholders})
+                GROUP BY m.asset_id, m.metadata_key_id
+            ),
+            latest_id AS (
+                SELECT
+                    m.asset_id,
+                    m.metadata_key_id,
+                    MAX(m.id) AS id
+                FROM {metadata_table} m
+                JOIN latest_snap ls
+                    ON ls.asset_id = m.asset_id
+                    AND ls.metadata_key_id = m.metadata_key_id
+                    AND ls.changeset_id = m.changeset_id
+                WHERE m.removed = 0
+                GROUP BY m.asset_id, m.metadata_key_id
+            )
             SELECT
                 m.asset_id,
                 m.metadata_key_id,
-                MAX(m.changeset_id) AS changeset_id
+                m.value_type,
+                m.value_text,
+                m.value_int,
+                m.value_real,
+                m.value_datetime,
+                m.value_json,
+                m.value_relation_id,
+                m.value_collection_id
             FROM {metadata_table} m
-            WHERE
-                m.removed = 0
-                AND m.asset_id IN ({asset_placeholders})
-                AND m.metadata_key_id IN ({key_placeholders})
-            GROUP BY m.asset_id, m.metadata_key_id
-        ),
-        latest_id AS (
-            SELECT
-                m.asset_id,
-                m.metadata_key_id,
-                MAX(m.id) AS id
-            FROM {metadata_table} m
-            JOIN latest_snap ls
-                ON ls.asset_id = m.asset_id
-                AND ls.metadata_key_id = m.metadata_key_id
-                AND ls.changeset_id = m.changeset_id
-            WHERE m.removed = 0
-            GROUP BY m.asset_id, m.metadata_key_id
-        )
-        SELECT
-            m.asset_id,
-            m.metadata_key_id,
-            m.value_type,
-            m.value_text,
-            m.value_int,
-            m.value_real,
-            m.value_datetime,
-            m.value_json,
-            m.value_relation_id,
-            m.value_collection_id
-        FROM {metadata_table} m
-        JOIN latest_id li ON li.id = m.id
-        """
-        metadata_params: list[Any] = list(page_asset_ids) + list(metadata_ids)
+            JOIN latest_id li ON li.id = m.id
+            """
+            metadata_params = list(page_asset_ids) + list(metadata_ids)
         metadata_started = time.perf_counter()
         metadata_rows = await conn.execute_query_dict(metadata_sql, metadata_params)
         metadata_query_ms = int((time.perf_counter() - metadata_started) * 1000)
@@ -208,7 +288,13 @@ async def list_assets_for_view(
 
     total_count = None
     if include_total:
-        count_sql = f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_sql}"
+        if has_merges:
+            count_sql = (
+                "SELECT COUNT(DISTINCT COALESCE(a.canonical_asset_id, a.id)) as cnt "
+                f"FROM {asset_table} a {where_sql}"
+            )
+        else:
+            count_sql = f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_sql}"
         count_started = time.perf_counter()
         count_rows = await conn.execute_query_dict(count_sql, filter_params)
         count_query_ms = int((time.perf_counter() - count_started) * 1000)
@@ -254,9 +340,14 @@ async def list_asset_ids_for_query(
     conn = Tortoise.get_connection("default")
     asset_rows = await conn.execute_query_dict(
         f"""
+        WITH effective AS (
+            SELECT DISTINCT COALESCE(a.canonical_asset_id, a.id) AS effective_id
+            FROM {asset_table} a
+            {where_sql}
+        )
         SELECT a.id AS asset_id
         FROM {asset_table} a
-        {where_sql}
+        JOIN effective e ON e.effective_id = a.id
         ORDER BY a.id ASC
         LIMIT ? OFFSET ?
         """,
@@ -282,7 +373,8 @@ async def count_assets_for_query(
 
     conn = Tortoise.get_connection("default")
     count_rows = await conn.execute_query_dict(
-        f"SELECT COUNT(*) as cnt FROM {asset_table} a {where_sql}",
+        "SELECT COUNT(DISTINCT COALESCE(a.canonical_asset_id, a.id)) as cnt "
+        f"FROM {asset_table} a {where_sql}",
         filter_params,
     )
     return int(count_rows[0]["cnt"]) if count_rows else 0

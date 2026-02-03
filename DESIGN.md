@@ -61,6 +61,10 @@ Whenever we deal with data in `katalog` it's usually in the form of assets. Meta
 with a asset, and relationships between assets define things like folders, clusters, duplicates,
 variants, etc.
 
+Assets can be merged into a canonical asset by setting `assets.canonical_asset_id` on the merged
+rows. Query paths use the effective asset id (`COALESCE(canonical_asset_id, id)`) so merged assets
+are treated as one in most views, while still preserving the original asset rows for provenance.
+
 ### Metadata
 
 Each file record can have a large amount of metadata, some common among all files, some specific to

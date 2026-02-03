@@ -10,6 +10,7 @@ from tortoise.fields import (
     CharField,
     DatetimeField,
     ForeignKeyField,
+    ForeignKeyRelation,
     JSONField,
     IntField,
     TextField,
@@ -35,6 +36,10 @@ class DataReader(ABC):
 
 class Asset(Model):
     id = IntField(pk=True)
+    canonical_asset: ForeignKeyRelation["Asset"] = ForeignKeyField(
+        "models.Asset", related_name="merged_assets", null=True, on_delete=RESTRICT
+    )
+    canonical_asset_id: int | None
     external_id = CharField(max_length=255, unique=True)
     canonical_uri = CharField(max_length=1024, unique=False)
     _metadata_cache: list["Metadata"] | None = None
@@ -42,6 +47,7 @@ class Asset(Model):
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": int(self.id),
+            "canonical_asset_id": self.canonical_asset_id,
             "external_id": self.external_id,
             "canonical_uri": self.canonical_uri,
         }
@@ -195,8 +201,8 @@ class Asset(Model):
         return affected
 
     class Meta(Model.Meta):
-        # No Asset indexes yet; list_assets_for_view() is driven by metadata queries.
-        indexes = ()
+        # Index canonical_asset for merge grouping lookups.
+        indexes = ("canonical_asset",)
 
 
 class CollectionRefreshMode(str, Enum):

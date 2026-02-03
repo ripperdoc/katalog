@@ -1,11 +1,9 @@
 import argparse
 import os
-import sys
 import pathlib
+import sys
 
 from loguru import logger
-
-from katalog.config import PORT
 
 
 def main():
@@ -46,6 +44,7 @@ def main():
 
     try:
         import uvicorn
+        from katalog.config import PORT
 
         # Run uvicorn by import string so reload stays disabled by default
         uvicorn.run(
