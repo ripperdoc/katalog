@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { changesetEventsUrl } from "../api/client";
+import { changesetEventsUrl, fetchChangeset } from "../api/client";
 import type { Changeset, ChangesetStatus } from "../types/api";
 
 export interface ChangesetProgress {
@@ -192,6 +192,15 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
         // transient errors: keep progress but close source to avoid loops
         source.close();
         trackers.current.delete(changeset.id);
+        void fetchChangeset(changeset.id)
+          .then((response) => {
+            if (response.changeset.status !== "in_progress") {
+              removeTracker(changeset.id);
+            }
+          })
+          .catch(() => {
+            // ignore fetch failures; keep current progress state
+          });
       };
 
       trackers.current.set(changeset.id, { source, progress });

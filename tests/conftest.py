@@ -12,6 +12,7 @@ from katalog.models import ActorType, OpStatus
 from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.sources.runtime import run_sources
+from katalog.plugins import registry as plugin_registry
 
 
 @pytest_asyncio.fixture
@@ -25,8 +26,10 @@ async def db_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("KATALOG_DATABASE_URL", db_url)
 
     async with test_session(db_url) as session:
+        plugin_registry._INSTANCE_CACHE.clear()
         await sync_config_db()
         yield session
+    plugin_registry._INSTANCE_CACHE.clear()
     await close_db()
 
 

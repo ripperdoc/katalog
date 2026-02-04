@@ -15,6 +15,20 @@ from katalog.api.helpers import ApiError
 
 router = APIRouter()
 
+def _track_changeset(changeset: Changeset) -> None:
+    RUNNING_CHANGESETS[changeset.id] = changeset
+
+
+def _start_tracked_operation(
+    changeset: Changeset, coro_factory
+) -> None:
+    task = changeset.start_operation(coro_factory)
+
+    def _cleanup(_task) -> None:
+        RUNNING_CHANGESETS.pop(changeset.id, None)
+
+    task.add_done_callback(_cleanup)
+
 
 async def run_source(source_id: int) -> Changeset:
     """Scan a single source and run processors for changed assets."""
@@ -34,8 +48,10 @@ async def run_source(source_id: int) -> Changeset:
         message="Source scan", actors=sources, status=OpStatus.IN_PROGRESS
     )
 
-    RUNNING_CHANGESETS[changeset.id] = changeset
-    changeset.start_operation(lambda: run_sources(changeset=changeset, sources=sources))
+    _track_changeset(changeset)
+    _start_tracked_operation(
+        changeset, lambda: run_sources(changeset=changeset, sources=sources)
+    )
 
     return changeset
 
@@ -65,12 +81,12 @@ async def run_processors(
     changeset = await db.begin(
         message="Processor run", actors=processor_actors, status=OpStatus.IN_PROGRESS
     )
-    RUNNING_CHANGESETS[changeset.id] = changeset
-
-    changeset.start_operation(
+    _track_changeset(changeset)
+    _start_tracked_operation(
+        changeset,
         lambda: do_run_processors(
             changeset=changeset, assets=assets, pipeline=processor_pipeline
-        )
+        ),
     )
 
     return changeset
@@ -130,10 +146,9 @@ async def run_analyzer(
         actors=[actor],
         status=OpStatus.IN_PROGRESS,
     )
-    RUNNING_CHANGESETS[changeset.id] = changeset
-
-    changeset.start_operation(
-        lambda: do_run_analyzer(actor, changeset=changeset, scope=scope)
+    _track_changeset(changeset)
+    _start_tracked_operation(
+        changeset, lambda: do_run_analyzer(actor, changeset=changeset, scope=scope)
     )
     return changeset
 

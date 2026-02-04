@@ -113,7 +113,7 @@ class FilesystemClient(SourcePlugin):
                         logger.info(
                             f"Reached max_files limit of {self.max_files}, stopping scan."
                         )
-                        status = OpStatus.CANCELED
+                        status = OpStatus.PARTIAL
                         break
                     seen += 1
 

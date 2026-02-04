@@ -5,17 +5,8 @@
       "name": "Debug server.py",
       "type": "debugpy",
       "request": "launch",
-      "module": "uvicorn",
-      "args": [
-        "katalog.server:app",
-        "--reload",
-        "--reload-dir",
-        "src",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8000"
-      ],
+      "module": "katalog.cli",
+      "args": ["workspace_hg", "--bootstrap-actors", "--reload", "--reload-dir", "src"],
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
         "KATALOG_WORKSPACE": "workspace_test"

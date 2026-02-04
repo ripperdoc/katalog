@@ -128,6 +128,17 @@ async def stream_changeset_events(changeset_id: int):
     )
     if run_state is None and changeset.status != OpStatus.IN_PROGRESS:
         done_event.set()
+    poll_task: asyncio.Task | None = None
+    if run_state is None and changeset.status == OpStatus.IN_PROGRESS:
+        async def _poll_status() -> None:
+            while not done_event.is_set():
+                await asyncio.sleep(1.0)
+                latest = await db.get(id=changeset_id)
+                if latest.status != OpStatus.IN_PROGRESS:
+                    done_event.set()
+                    break
+
+        poll_task = asyncio.create_task(_poll_status())
 
     async def event_generator():
         try:
@@ -154,6 +165,8 @@ async def stream_changeset_events(changeset_id: int):
                     break
         finally:
             event_manager.unsubscribe(changeset_id, queue)
+            if poll_task is not None:
+                poll_task.cancel()
 
     return event_generator()
 

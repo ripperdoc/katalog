@@ -86,7 +86,7 @@ class SqlspecMetadataRepo:
         changeset: Any,
         session: Any | None = None,
     ) -> set["MetadataKey"]:
-        async def _persist(active_session: Any) -> set["MetadataKey"]:
+        async def _persist(active_session: Any, *, commit: bool) -> set["MetadataKey"]:
             existing_metadata = await self.for_asset(
                 asset, include_removed=True, session=active_session
             )
@@ -97,12 +97,14 @@ class SqlspecMetadataRepo:
             )
             if to_create:
                 await self.bulk_create(to_create, session=active_session)
+                if commit:
+                    await active_session.commit()
             return changed_keys
 
         if session is not None:
-            return await _persist(session)
+            return await _persist(session, commit=False)
         async with session_scope() as active:
-            return await _persist(active)
+            return await _persist(active, commit=True)
 
     async def list_active_collection_asset_ids(
         self,
