@@ -428,6 +428,10 @@ class GoogleDriveClient(SourcePlugin):
                     if not ts:
                         raise RuntimeError("Missing time_slice in request user_data")
                     logger.info(
+                        "tasks_progress queued=None running=0 finished={finished} kind=files",
+                        finished=yielded,
+                    )
+                    logger.info(
                         f"From slice {ts} got {counted_files} files (total {yielded} yielded, {ignored} ignored)"
                     )
                     next_page = payload.get("nextPageToken")

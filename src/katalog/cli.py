@@ -34,6 +34,17 @@ def _parse_args() -> argparse.Namespace:
         default=0,
         help="Seed the test workspace with this many fake assets (requires --test-workspace)",
     )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload for the server (uvicorn reload)",
+    )
+    parser.add_argument(
+        "--reload-dir",
+        action="append",
+        default=[],
+        help="Directory to watch for reloads (repeatable, relative to repo root unless absolute)",
+    )
     return parser.parse_args()
 
 
@@ -58,6 +69,10 @@ def _ensure_src_on_path() -> None:
     src_dir = repo_root / "src"
     if src_dir.exists():
         sys.path.insert(0, str(src_dir))
+
+
+def _repo_root() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parents[2]
 
 
 def _validate_workspace(args: argparse.Namespace) -> pathlib.Path:
@@ -108,6 +123,7 @@ async def _seed_test_workspace(ws: pathlib.Path, total_assets: int) -> None:
 def main() -> None:
     args = _parse_args()
     ws = _validate_workspace(args)
+    repo_root = _repo_root()
 
     _set_workspace_env(ws)
     # Change working directory so server reads workspace-local files
@@ -115,9 +131,16 @@ def main() -> None:
     _ensure_src_on_path()
 
     if args.test_workspace:
-        _reset_workspace(ws)
-        if args.seed_assets > 0:
-            asyncio.run(_seed_test_workspace(ws, total_assets=args.seed_assets))
+        db_path = ws / "katalog.db"
+        if db_path.exists():
+            logger.info(
+                "Test workspace already initialized at {db_path}; skipping reset/seed. Delete the DB to re-seed.",
+                db_path=db_path,
+            )
+        else:
+            _reset_workspace(ws)
+            if args.seed_assets > 0:
+                asyncio.run(_seed_test_workspace(ws, total_assets=args.seed_assets))
     elif args.seed_assets > 0:
         raise SystemExit("--seed-assets requires --test-workspace")
 
@@ -125,11 +148,22 @@ def main() -> None:
         import uvicorn
         from katalog.config import PORT
 
+        reload_dirs = None
+        if args.reload_dir:
+            resolved = []
+            for entry in args.reload_dir:
+                path = pathlib.Path(entry)
+                if not path.is_absolute():
+                    path = repo_root / path
+                resolved.append(str(path))
+            reload_dirs = resolved
+
         uvicorn.run(
             "katalog.server:app",
             host="127.0.0.1",
             port=args.port or PORT,
-            reload=False,
+            reload=bool(args.reload),
+            reload_dirs=reload_dirs,
             access_log=False,
         )
     except KeyboardInterrupt:  # pragma: no cover - user initiated shutdown

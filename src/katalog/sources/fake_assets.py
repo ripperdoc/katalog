@@ -205,12 +205,20 @@ class FakeAssetSource(SourcePlugin):
         actor_id = int(self.actor.id)
         rng = Random(self.seed + actor_id)
         scan_result: ScanResult | None = None
+        logger.info(
+            "FakeAssetSource scan starting for actor {actor_id} (total={total}, batch_size={batch_size})",
+            actor_id=actor_id,
+            total=self.total_assets,
+            batch_size=self.batch_size,
+        )
 
         async def iterator() -> AsyncIterator[AssetScanResult]:
             nonlocal status, ignored, scan_result
             previous_asset: Asset | None = None
             emitted = 0
             batch_count = 0
+            batch_index = 0
+            total_assets = max(0, self.total_assets)
             for idx in range(self.total_assets):
                 spec = _generate_asset_spec(rng, actor_id, idx)
                 asset = Asset(
@@ -312,8 +320,40 @@ class FakeAssetSource(SourcePlugin):
                 yield result
 
                 if batch_count >= self.batch_size:
+                    batch_index += 1
+                    remaining = max(0, total_assets - emitted)
+                    logger.info(
+                        "tasks_progress queued={queued} running={running} finished={finished} kind=files",
+                        queued=remaining,
+                        running=0,
+                        finished=emitted,
+                    )
+                    logger.info(
+                        "FakeAssetSource batch {batch_index} emitted {batch_count} assets (emitted={emitted}/{total})",
+                        batch_index=batch_index,
+                        batch_count=batch_count,
+                        emitted=emitted,
+                        total=self.total_assets,
+                    )
                     await _sleep_batch(rng, self.batch_delay_ms, self.batch_jitter_ms)
                     batch_count = 0
+
+            if batch_count > 0:
+                batch_index += 1
+                remaining = max(0, total_assets - emitted)
+                logger.info(
+                    "tasks_progress queued={queued} running={running} finished={finished} kind=files",
+                    queued=remaining,
+                    running=0,
+                    finished=emitted,
+                )
+                logger.info(
+                    "FakeAssetSource batch {batch_index} emitted {batch_count} assets (emitted={emitted}/{total})",
+                    batch_index=batch_index,
+                    batch_count=batch_count,
+                    emitted=emitted,
+                    total=self.total_assets,
+                )
 
             status = OpStatus.COMPLETED
             if emitted == 0 and self.total_assets > 0:
@@ -323,6 +363,13 @@ class FakeAssetSource(SourcePlugin):
                 )
             if scan_result is not None:
                 scan_result.status = status
+            logger.info(
+                "FakeAssetSource scan finished for actor {actor_id} (emitted={emitted}, ignored={ignored}, status={status})",
+                actor_id=actor_id,
+                emitted=emitted,
+                ignored=ignored,
+                status=status.value,
+            )
 
         scan_result = ScanResult(iterator=iterator(), status=status, ignored=ignored)
         return scan_result

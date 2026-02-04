@@ -29,7 +29,17 @@
       "type": "debugpy",
       "request": "launch",
       "module": "katalog.cli",
-      "args": ["workspace_test", "--test-workspace", "--xseed-assets", "2000", "--port", "8000"],
+      "args": [
+        "workspace_test",
+        "--test-workspace",
+        "--seed-assets",
+        "2000",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "src"
+      ],
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       },

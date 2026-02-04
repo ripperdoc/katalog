@@ -30,25 +30,39 @@ function ChangesetProgressBar() {
     current.finished !== null
       ? current.queued + current.running + current.finished
       : null;
+  const hasUnknownTotal =
+    current &&
+    current.queued === null &&
+    current.running !== null &&
+    current.finished !== null;
 
   const finishedCount = current?.finished ?? 0;
   const percent =
     total !== null && total > 0
       ? Math.min(100, Math.max(0, Math.round((finishedCount / total) * 100)))
-      : null;
+      : hasUnknownTotal
+        ? 50
+        : null;
 
+  const kind = current?.kind ?? "tasks";
   const displayMessage =
-    isManual && messageDraft.trim().length > 0 ? messageDraft.trim() : current?.message;
+    isManual && messageDraft.trim().length > 0
+      ? messageDraft.trim()
+      : total === null && current?.logMessage
+        ? current.logMessage
+        : current?.message;
   const label = truncate(
     displayMessage ?? (current ? `Changeset #${current.id}` : "Changeset"),
     28,
   );
   const progressLabel =
     total !== null
-      ? `${percent ?? 0}% (${current.finished}/${total})`
-      : isManual
-        ? "manual edit"
-        : "working…";
+      ? `${percent ?? 0}% (${current.finished}/${total} ${kind})`
+      : hasUnknownTotal
+        ? `50% (${current.finished}/unknown ${kind})`
+        : isManual
+          ? "manual edit"
+          : "working…";
 
   useEffect(() => {
     if (!current) {

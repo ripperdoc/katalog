@@ -325,6 +325,9 @@ def _normalize_changeset_row(row: dict[str, Any]) -> dict[str, Any]:
             row["data"] = json.loads(data)
         except Exception:
             row["data"] = None
+        data = row.get("data")
+    if isinstance(data, dict) and "stats" in data:
+        row["stats"] = data.get("stats")
     status = row.get("status")
     if status is not None and not isinstance(status, OpStatus):
         try:

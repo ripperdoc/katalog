@@ -94,7 +94,7 @@ class Changeset(BaseModel):
     actor_ids: list[int] | None = None
 
     # Local fields not persisted to DB, used for operations
-    stats: ChangesetStats | None = None
+    stats: ChangesetStats | None = Field(default=None, exclude=True)
     tasks: list[asyncio.Task] | None = Field(default=None, exclude=True)
     semaphore: asyncio.Semaphore | None = Field(default=None, exclude=True)
     _tasks_queued: int = 0

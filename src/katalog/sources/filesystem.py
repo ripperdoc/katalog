@@ -106,6 +106,7 @@ class FilesystemClient(SourcePlugin):
         async def inner():
             nonlocal ignored, status
             seen = 0
+            reported = 0
             for dirpath, dirnames, filenames in os.walk(self.root_path):
                 for filename in filenames:
                     if self.max_files and seen >= self.max_files:
@@ -154,6 +155,13 @@ class FilesystemClient(SourcePlugin):
                         )
                         continue
                     yield result
+
+                    if seen - reported >= 500:
+                        reported = seen
+                        logger.info(
+                            "tasks_progress queued=None running=0 finished={finished} kind=files",
+                            finished=seen,
+                        )
 
                 if status == OpStatus.CANCELED:
                     break

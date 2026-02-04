@@ -16,6 +16,7 @@ from katalog.api.schemas import (
     ManualEditResult,
 )
 from katalog.db.metadata import get_metadata_repo
+from loguru import logger
 
 
 router = APIRouter()
@@ -107,6 +108,10 @@ async def manual_edit_asset(asset_id: int, payload: dict[str, Any]) -> ManualEdi
     md_db = get_metadata_repo()
     changed_keys = await md_db.persist_changes(
         changes, asset=asset, changeset=changeset
+    )
+    logger.bind(changeset_id=changeset.id).info(
+        "tasks_progress queued=None running=0 finished={finished} kind=edits",
+        finished=len(metadata_entries),
     )
 
     return ManualEditResult(

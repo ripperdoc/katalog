@@ -13,11 +13,13 @@ import type { Changeset, ChangesetStatus } from "../types/api";
 export interface ChangesetProgress {
   id: number;
   message: string | null;
+  logMessage: string | null;
   status: ChangesetStatus;
   data: Record<string, unknown> | null;
   queued: number | null;
   running: number | null;
   finished: number | null;
+  kind: string | null;
 }
 
 type ProgressUpdate = Partial<ChangesetProgress> & { id: number };
@@ -41,6 +43,8 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
 }) => {
   const [active, setActive] = useState<ChangesetProgress[]>([]);
   const trackers = useRef<Map<number, InternalTracker>>(new Map());
+  const pendingLogUpdates = useRef<Map<number, ProgressUpdate>>(new Map());
+  const logTimers = useRef<Map<number, number>>(new Map());
 
   const removeTracker = useCallback((id: number) => {
     const current = trackers.current.get(id);
@@ -59,11 +63,13 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
           ? {
               id: update.id,
               message: null,
+              logMessage: null,
               status: "in_progress",
               data: null,
               queued: null,
               running: null,
               finished: null,
+              kind: null,
             }
           : prev[idx];
       const merged: ChangesetProgress = { ...base };
@@ -82,16 +88,48 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
   }, []);
 
   const parseProgressLog = (line: string) => {
-    const match = line.match(/tasks_progress\s+queued=(\d+)\s+running=(\d+)\s+finished=(\d+)/);
+    const match = line.match(
+      /tasks_progress\s+queued=(\d+|None)\s+running=(\d+)\s+finished=(\d+)(?:\s+kind=([^\s]+))?/,
+    );
     if (!match) {
       return null;
     }
+    const rawKind = match[4];
+    const kind = rawKind ? rawKind.replace(/^["']|["']$/g, "") : null;
+    const queuedRaw = match[1];
+    const queued = queuedRaw === "None" ? null : Number(queuedRaw);
     return {
-      queued: Number(match[1]),
+      queued,
       running: Number(match[2]),
       finished: Number(match[3]),
+      kind,
     };
   };
+
+  const summarizeLog = (line: string) => {
+    const match = line.match(/\]\s+\w+:\s+(.*)$/);
+    return (match ? match[1] : line).trim();
+  };
+
+  const scheduleLogUpdate = useCallback(
+    (update: ProgressUpdate) => {
+      const current = pendingLogUpdates.current.get(update.id);
+      pendingLogUpdates.current.set(update.id, { ...(current ?? {}), ...update });
+      if (logTimers.current.has(update.id)) {
+        return;
+      }
+      const timerId = window.setTimeout(() => {
+        const pending = pendingLogUpdates.current.get(update.id);
+        if (pending) {
+          upsertProgress(pending);
+        }
+        pendingLogUpdates.current.delete(update.id);
+        logTimers.current.delete(update.id);
+      }, 150);
+      logTimers.current.set(update.id, timerId);
+    },
+    [upsertProgress],
+  );
 
   const startTracking = useCallback(
     (changeset: Changeset) => {
@@ -105,11 +143,13 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
       const progress: ChangesetProgress = {
         id: changeset.id,
         message: changeset.message ?? null,
+        logMessage: null,
         status: changeset.status,
         data: (changeset.data as Record<string, unknown> | null) ?? null,
         queued: null,
         running: null,
         finished: null,
+        kind: null,
       };
       upsertProgress(progress);
 
@@ -119,10 +159,14 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
       const handleLog = (event: MessageEvent) => {
         const line = typeof event.data === "string" ? event.data : String(event.data);
         const parsed = parseProgressLog(line);
-        if (!parsed) {
+        if (parsed) {
+          scheduleLogUpdate({ id: progress.id, ...parsed });
           return;
         }
-        upsertProgress({ id: progress.id, ...parsed });
+        const summary = summarizeLog(line);
+        if (summary.length > 0) {
+          scheduleLogUpdate({ id: progress.id, logMessage: summary });
+        }
       };
 
       const handleChangeset = (event: MessageEvent) => {
