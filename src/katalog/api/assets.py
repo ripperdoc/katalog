@@ -9,7 +9,7 @@ from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
 from katalog.models.query import AssetQuery
 from katalog.models.views import get_view
 from katalog.api.helpers import ApiError
-from katalog.api.query_utils import build_asset_query, filters_to_db_filters
+from katalog.api.query_utils import build_asset_query
 from katalog.api.schemas import (
     AssetsListResponse,
     GroupedAssetsResponse,
@@ -25,11 +25,8 @@ router = APIRouter()
 async def list_assets(query: AssetQuery) -> AssetsListResponse:
     view = get_view(query.view_id or "default")
     db = get_asset_repo()
-    query_db = query.model_copy(
-        update={"filters": filters_to_db_filters(query.filters)}
-    )
     # TODO: metadata_actor_ids support is intentionally skipped for now.
-    return await db.list_assets_for_view_db(view, query=query_db)
+    return await db.list_assets_for_view_db(view, query=query)
 
 
 async def list_grouped_assets(
@@ -42,15 +39,11 @@ async def list_grouped_assets(
 
     view = get_view("default")
     db = get_asset_repo()
-    query_db = query.model_copy(
-        update={"filters": filters_to_db_filters(query.filters)}
-    )
     # TODO: metadata_actor_ids support is intentionally skipped for now.
     return await db.list_grouped_assets_db(
         view,
         group_by=group_by,
-        query=query_db,
-        include_total=True,
+        query=query,
     )
 
 
@@ -135,7 +128,7 @@ async def list_assets_rest(
     metadata_actor_ids: list[int] | None = Query(None),
     metadata_include_removed: bool = Query(False),
     metadata_aggregation: Optional[str] = Query(None),
-    metadata_include_counts: bool = Query(False),
+    metadata_include_counts: bool = Query(True),
 ):
     try:
         query = build_asset_query(
@@ -168,7 +161,7 @@ async def list_grouped_assets_rest(
     metadata_actor_ids: list[int] | None = Query(None),
     metadata_include_removed: bool = Query(False),
     metadata_aggregation: Optional[str] = Query(None),
-    metadata_include_counts: bool = Query(False),
+    metadata_include_counts: bool = Query(True),
 ):
     try:
         query = build_asset_query(

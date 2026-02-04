@@ -39,9 +39,8 @@ if TYPE_CHECKING:
 def _build_assets_where(
     *,
     actor_id: int | None,
-    filters: list[str] | None,
+    filters: list[Any] | None,
     search: str | None,
-    extra_where: tuple[str, list[Any]] | None,
 ) -> tuple[str, list[Any]]:
     conditions, filter_params = filter_conditions(filters)
 
@@ -50,10 +49,6 @@ def _build_assets_where(
             "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.actor_id = ?)"
         )
         filter_params.extend([actor_id])
-
-    if extra_where:
-        conditions.append(extra_where[0])
-        filter_params.extend(extra_where[1])
 
     if search is not None and search.strip():
         fts_query = fts5_query_from_user_text(search)
@@ -277,14 +272,12 @@ class SqlspecAssetRepo:
         self,
         *,
         query: AssetQuery,
-        extra_where: tuple[str, list[Any]] | None = None,
     ) -> int:
         asset_table = ASSET_TABLE
         where_sql, filter_params = _build_assets_where(
             actor_id=None,
             filters=query.filters,
             search=query.search,
-            extra_where=extra_where,
         )
 
         async with session_scope() as session:
@@ -300,7 +293,6 @@ class SqlspecAssetRepo:
         self,
         *,
         query: AssetQuery,
-        extra_where: tuple[str, list[Any]] | None = None,
     ) -> list[int]:
         offset = query.offset
         limit = query.limit
@@ -312,7 +304,6 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
-            extra_where=extra_where,
         )
 
         async with session_scope() as session:
@@ -339,8 +330,6 @@ class SqlspecAssetRepo:
         view: "ViewSpec",
         *,
         query: AssetQuery,
-        include_total: bool = True,
-        extra_where: tuple[str, list[Any]] | None = None,
     ) -> "AssetsListResponse":
         started_at = time.perf_counter()
         assets_query_ms: int | None = None
@@ -371,7 +360,6 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=filters,
             search=search,
-            extra_where=extra_where,
         )
 
         metadata_keys = [
@@ -560,7 +548,7 @@ class SqlspecAssetRepo:
                     asset_entry[key_str] = value
 
             total_count = None
-            if include_total:
+            if query.metadata_include_counts:
                 if has_merges:
                     count_sql = (
                         "SELECT COUNT(DISTINCT COALESCE(a.canonical_asset_id, a.id)) as cnt "
@@ -599,7 +587,6 @@ class SqlspecAssetRepo:
         *,
         group_by: str,
         query: AssetQuery,
-        include_total: bool = True,
     ) -> "GroupedAssetsResponse":
         _ = view
         offset = query.offset
@@ -708,7 +695,7 @@ class SqlspecAssetRepo:
         async with session_scope() as session:
             rows = await select(session, group_sql, params)
             total_groups = None
-            if include_total:
+            if query.metadata_include_counts:
                 count_rows = await select(session, count_sql, count_params)
                 total_groups = int(count_rows[0]["cnt"]) if count_rows else 0
 
@@ -770,25 +757,3 @@ class SqlspecAssetRepo:
             "    )"
         )
         return predicate, [registry_id, group_value]
-
-    def build_collection_membership_filter(
-        self, *, membership_key_id: int, collection_id: int
-    ) -> tuple[str, list[Any]]:
-        predicate = (
-            "a.id IN ("
-            "    WITH latest AS ("
-            "        SELECT"
-            "            m.asset_id,"
-            "            m.removed,"
-            "            ROW_NUMBER() OVER ("
-            "                PARTITION BY m.asset_id, m.value_collection_id"
-            "                ORDER BY m.changeset_id DESC, m.id DESC"
-            "            ) AS rn"
-            f"        FROM {METADATA_TABLE} m"
-            "        WHERE m.metadata_key_id = ?"
-            "          AND m.value_collection_id = ?"
-            "    )"
-            "    SELECT asset_id FROM latest WHERE rn = 1 AND removed = 0"
-            ")"
-        )
-        return predicate, [membership_key_id, collection_id]

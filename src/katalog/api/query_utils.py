@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from katalog.models.query import AssetQuery
 
 
@@ -19,23 +17,6 @@ def parse_sort_params(sort: list[str] | None) -> list[tuple[str, str]] | None:
         if key:
             result.append((key, direction))
     return result or None
-
-
-def filters_to_db_filters(filters: list[str] | None) -> list[str] | None:
-    if not filters:
-        return None
-    converted: list[str] = []
-    for raw in filters:
-        key, operator, value = _parse_filter(raw)
-        payload: dict[str, object] = {"accessor": key, "operator": operator}
-        if operator in {"between", "notBetween", "in", "notIn"}:
-            payload["values"] = _split_values(value)
-        elif operator in {"isEmpty", "isNotEmpty"}:
-            payload["value"] = None
-        else:
-            payload["value"] = value
-        converted.append(json.dumps(payload))
-    return converted or None
 
 
 def build_asset_query(
@@ -71,14 +52,3 @@ def build_asset_query(
         payload["metadata_include_counts"] = metadata_include_counts
     return AssetQuery.model_validate(payload)
 
-
-def _parse_filter(raw: str) -> tuple[str, str, str]:
-    parts = raw.split(" ", 2)
-    if len(parts) != 3:
-        raise ValueError("filter must have form: <key> <operator> <value>")
-    key, operator, value = (part.strip() for part in parts)
-    return key, operator, value
-
-
-def _split_values(value: str) -> list[str]:
-    return [part.strip() for part in value.split(",") if part.strip()]

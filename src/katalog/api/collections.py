@@ -11,11 +11,11 @@ from katalog.models import (
     OpStatus,
     make_metadata,
 )
-from katalog.models.query import AssetQuery
+from katalog.models.query import AssetFilter, AssetQuery
 from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError
-from katalog.api.query_utils import build_asset_query, filters_to_db_filters
+from katalog.api.query_utils import build_asset_query
 from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
 from katalog.db.asset_collections import get_asset_collection_repo
 from katalog.db.assets import get_asset_repo
@@ -104,13 +104,9 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
 
     unique_asset_ids = sorted(set(asset_ids))
     query_total_count = None
-    query_db: AssetQuery | None = None
     if query_payload:
         asset_db = get_asset_repo()
-        query_db = query.model_copy(
-            update={"filters": filters_to_db_filters(query.filters)}
-        )
-        query_total_count = await asset_db.count_assets_for_query(query=query_db)
+        query_total_count = await asset_db.count_assets_for_query(query=query)
 
     # TODO Validate asset ids exist
 
@@ -132,8 +128,6 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
         raise ApiError(status_code=409, detail="Collection id is missing")
 
     if query_payload and query_total_count:
-        if query_db is None:
-            raise ApiError(status_code=409, detail="Collection query is missing")
         actor = await ensure_user_editor()
         if actor.id is None:
             raise ApiError(status_code=409, detail="Actor id is missing")
@@ -148,7 +142,7 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
             membership_key_id=membership_key_id,
             actor_id=actor.id,
             changeset_id=changeset.id,
-            query=query_db,
+            query=query,
         )
     elif unique_asset_ids:
         actor = await ensure_user_editor()
@@ -238,23 +232,21 @@ async def list_collection_assets(
     collection_id_value = collection.id
     if collection_id_value is None:
         raise ApiError(status_code=409, detail="Collection id is missing")
-    membership_key_id = get_metadata_id(COLLECTION_MEMBER)
-    asset_db = get_asset_repo()
-    extra_where = asset_db.build_collection_membership_filter(
-        membership_key_id=membership_key_id,
-        collection_id=collection_id_value,
+    collection_filter = AssetFilter(
+        key=str(COLLECTION_MEMBER),
+        op="equals",
+        value=str(collection_id_value),
     )
 
     try:
-        query_db = query.model_copy(
-            update={"filters": filters_to_db_filters(query.filters)}
-        )
+        filters = list(query.filters or [])
+        filters.append(collection_filter)
+        query_db = query.model_copy(update={"filters": filters})
         # TODO: metadata_actor_ids support is intentionally skipped for now.
+        asset_db = get_asset_repo()
         return await asset_db.list_assets_for_view_db(
             view,
             query=query_db,
-            include_total=True,
-            extra_where=extra_where,
         )
     except ValueError as exc:
         raise ApiError(status_code=400, detail=str(exc))
@@ -409,7 +401,7 @@ async def list_collection_assets_rest(
     metadata_actor_ids: list[int] | None = Query(None),
     metadata_include_removed: bool = Query(False),
     metadata_aggregation: Optional[str] = Query(None),
-    metadata_include_counts: bool = Query(False),
+    metadata_include_counts: bool = Query(True),
 ):
     try:
         query = build_asset_query(

@@ -25,7 +25,8 @@ from katalog.constants.metadata import (
     FILE_ID_PATH,
     FILE_NAME,
     FILE_PATH,
-    FILE_QUOTA_BYTES_USED,
+    FILE_VIEW_URI,
+    FILE_THUMBNAIL_URI,
     FILE_SIZE,
     FILE_TYPE,
     FILE_VERSION,
@@ -81,6 +82,7 @@ API_FIELDS = {
     "permissions",
     "sharingUser",
     "webViewLink",
+    "thumbnailLink",
     "trashedTime",
     "quotaBytesUsed",
     "version",
@@ -94,10 +96,10 @@ GOOGLE_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
 
 QUOTA_QUERIES_PER_SECOND = 200
 
-FILE_WEB_VIEW_LINK = define_metadata(
-    "file/web_view_link",
-    MetadataType.STRING,
-    "Web link",
+FILE_QUOTA_BYTES_USED = define_metadata(
+    "file/quota_bytes_used",
+    MetadataType.INT,
+    "Quota bytes used",
     plugin_id="katalog.sources.googledrive.GoogleDriveClient",
 )
 
@@ -258,7 +260,8 @@ class GoogleDriveClient(SourcePlugin):
         """Transform a Drive file payload into a AssetScanResult with metadata."""
         file_id = file.get("id", "")
         mime_type = file.get("mimeType")
-        canonical_uri = _canonical_uri_for_file(file_id, mime_type)
+        web_view_link = file.get("webViewLink")
+        canonical_uri = web_view_link or _canonical_uri_for_file(file_id, mime_type)
 
         asset = Asset(
             external_id=file_id,
@@ -309,11 +312,9 @@ class GoogleDriveClient(SourcePlugin):
 
         result.set_metadata(FILE_DESCRIPTION, file.get("description"))
 
-        # web_view_link = file.get("webViewLink")
-        # if web_view_link:
-        #     metadata.append(
-        #         make_metadata(self.actor.id, FILE_WEB_VIEW_LINK, web_view_link)
-        #     )
+        result.set_metadata(FILE_VIEW_URI, web_view_link)
+
+        result.set_metadata(FILE_THUMBNAIL_URI, file.get("thumbnailLink"))
 
         result.set_metadata(FLAG_SHARED, int(bool(file.get("shared"))))
 

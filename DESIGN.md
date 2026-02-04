@@ -164,6 +164,35 @@ Example analyzers: mark duplicate files, find similar files, suggest re-organiza
 
 ## Architecture
 
+### Application layers
+
+In order to achieve modularity, the application strives for clean separations of concerns by using a
+layered approach with clearly typed API between them. The current layers are, from "inside to
+outside":
+
+- **Database layer**, `katalog.db` and `katalog.db.<db_engine>` This can use one or more
+  implementations of what is currently called a database repository. We define a Protocol for the
+  API to access the db layer, and then it's an internal concern how this is solved. This allows us
+  to support multiple storage methods and try different database approaches.
+- **Model layer**, `katalog.models`. These classes should be lightweight and agnostic to whatever
+  database engine we use. They should aim for a pure data model using Pydantic, and avoid hosting
+  functions with complicated business logic, unless that logic is only an internal concern, e.g.
+  doesn't reach out to the DB.
+- **API layer**, `katalog.api`. This offers a clean, Pythonic and typed interface to interact with
+  the state of the application. This should mostly match a typical CRUD interface, but expressed as
+  functions that take typed input and returns typed output. It should reference model classes, as
+  well as specific models for input and output such as `AssetQuery` or `ChangesetChangesResponse`.
+  The API layer responsible for validating input, applying defaults and throwing appropriate errors.
+  It handles business logic by calling specialized runtimes, such as `katalog.processors`,
+  `katalog.sources`, etc. and by calling the database layer.
+- **Serialization layer**. This layer is a more special case, but for example we have thin wrappers
+  around the API layer functions to create FastAPI REST endpoints. This layer is responsible for
+  serializing and deserializing input to match the API layers typed objects, but should otherwise do
+  as little as possible.
+- **Client layer**. We can have multiple different client implementations interacting with the
+  application, such as a Web UI or a CLI. They should have in common that they all interact with the
+  same typed API layer or if needed, a serialization layer.
+
 ### Workspace model
 
 A given user may have multiple workspaces. A workspace represents a separate database and all

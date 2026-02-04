@@ -142,7 +142,6 @@ class SqlspecAssetCollectionRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
-            extra_where=None,
         )
         insert_sql = f"""
         INSERT INTO {METADATA_TABLE} (

@@ -42,21 +42,17 @@ class AssetRepo(Protocol):
         self,
         *,
         query: AssetQuery,
-        extra_where: tuple[str, list[Any]] | None = None,
     ) -> int: ...
     async def list_asset_ids_for_query(
         self,
         *,
         query: AssetQuery,
-        extra_where: tuple[str, list[Any]] | None = None,
     ) -> list[int]: ...
     async def list_assets_for_view_db(
         self,
         view: ViewSpec,
         *,
         query: AssetQuery,
-        include_total: bool = True,
-        extra_where: tuple[str, list[Any]] | None = None,
     ) -> AssetsListResponse: ...
     async def list_grouped_assets_db(
         self,
@@ -64,13 +60,9 @@ class AssetRepo(Protocol):
         *,
         group_by: str,
         query: AssetQuery,
-        include_total: bool = True,
     ) -> GroupedAssetsResponse: ...
     def build_group_member_filter(
         self, group_by: str, group_value: str
-    ) -> tuple[str, list[Any]]: ...
-    def build_collection_membership_filter(
-        self, *, membership_key_id: int, collection_id: int
     ) -> tuple[str, list[Any]]: ...
 
 

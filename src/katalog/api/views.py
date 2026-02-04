@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from katalog.db.assets import get_asset_repo
-from katalog.api.query_utils import build_asset_query, filters_to_db_filters
+from katalog.api.query_utils import build_asset_query
 from katalog.models.query import AssetQuery
 from katalog.models.views import ViewSpec, get_view, list_views
 from katalog.api.helpers import ApiError
@@ -30,14 +30,11 @@ async def list_assets_for_view(
         raise ApiError(status_code=404, detail="View not found")
 
     try:
-        query_db = query.model_copy(
-            update={"filters": filters_to_db_filters(query.filters)}
-        )
         # TODO: metadata_actor_ids support is intentionally skipped for now.
         db = get_asset_repo()
         return await db.list_assets_for_view_db(
             view,
-            query=query_db,
+            query=query,
         )
     except ValueError as exc:
         raise ApiError(status_code=400, detail=str(exc))
@@ -66,7 +63,7 @@ async def list_assets_for_view_rest(
     metadata_actor_ids: list[int] | None = Query(None),
     metadata_include_removed: bool = Query(False),
     metadata_aggregation: Optional[str] = Query(None),
-    metadata_include_counts: bool = Query(False),
+    metadata_include_counts: bool = Query(True),
 ):
     try:
         query = build_asset_query(

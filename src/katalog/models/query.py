@@ -93,13 +93,20 @@ class EditableMetadataSchemaResponse(BaseModel):
     uiSchema: dict[str, Any]
 
 
+class AssetFilter(BaseModel):
+    key: str
+    op: str
+    value: str | None = None
+    values: list[str] | None = None
+
+
 class AssetQuery(BaseModel):
     """Query options for listing assets with metadata projections."""
 
     view_id: str | None = None
 
     # Asset filters/sorts/search.
-    filters: list[str] | None = None
+    filters: list[AssetFilter] | None = None
     search: str | None = None
     sort: list[tuple[str, str]] | None = None
     group_by: str | None = None
@@ -112,7 +119,7 @@ class AssetQuery(BaseModel):
     metadata_actor_ids: list[int] | None = None
     metadata_include_removed: bool = False
     metadata_aggregation: Literal["latest", "array", "objects"] = "latest"
-    metadata_include_counts: bool = False
+    metadata_include_counts: bool = True
 
     @field_validator("view_id")
     @classmethod
@@ -131,6 +138,36 @@ class AssetQuery(BaseModel):
             raise ValueError("metadata_actor_ids must contain positive integers")
         return value
 
+    @field_validator("filters", mode="before")
+    @classmethod
+    def _parse_filters(cls, value: Any) -> list[AssetFilter] | None:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            parsed: list[AssetFilter] = []
+            for item in value:
+                if isinstance(item, AssetFilter):
+                    parsed.append(item)
+                    continue
+                if isinstance(item, str):
+                    key, operator, raw_value = _parse_filter(item)
+                    if operator in {"between", "notBetween", "in", "notIn"}:
+                        parsed.append(
+                            AssetFilter(
+                                key=key,
+                                op=operator,
+                                values=_split_values(raw_value),
+                            )
+                        )
+                    elif operator in {"isEmpty", "isNotEmpty"}:
+                        parsed.append(AssetFilter(key=key, op=operator))
+                    else:
+                        parsed.append(AssetFilter(key=key, op=operator, value=raw_value))
+                else:
+                    parsed.append(AssetFilter.model_validate(item))
+            return parsed
+        return [AssetFilter.model_validate(value)]
+
 
     @model_validator(mode="after")
     def _validate_query(self) -> "AssetQuery":
@@ -140,8 +177,10 @@ class AssetQuery(BaseModel):
         column_map = view.column_map()
 
         if self.filters:
-            for raw in self.filters:
-                key, operator, value = _parse_filter(raw)
+            for filt in self.filters:
+                key = filt.key
+                operator = filt.op
+                value = filt.value or ""
                 column = column_map.get(key)
                 if column is None:
                     raise ValueError(f"Unknown filter key: {key}")
@@ -151,7 +190,7 @@ class AssetQuery(BaseModel):
                         f"Operator {operator} not valid for {key} ({column.value_type})"
                     )
                 if operator in {"between", "notBetween", "in", "notIn"}:
-                    if "," not in value:
+                    if not filt.values:
                         raise ValueError(
                             f"Operator {operator} requires comma-separated values"
                         )
@@ -188,6 +227,10 @@ def _parse_filter(raw: str) -> tuple[str, str, str]:
     if value == "":
         raise ValueError("filter value is required")
     return key, operator, value
+
+
+def _split_values(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _allowed_operators(value_type: MetadataType) -> set[str]:

@@ -169,9 +169,7 @@ ASSET_ACTOR_ID = define_metadata("asset/actor_id", MetadataType.INT, "Actor ID")
 ASSET_EXTERNAL_ID = define_metadata(
     "asset/external_id", MetadataType.STRING, "External ID"
 )
-ASSET_NAMESPACE = define_metadata(
-    "asset/namespace", MetadataType.STRING, "Namespace"
-)
+ASSET_NAMESPACE = define_metadata("asset/namespace", MetadataType.STRING, "Namespace")
 ASSET_CANONICAL_URI = define_metadata(
     "asset/canonical_uri", MetadataType.STRING, "Canonical URI"
 )
@@ -183,9 +181,7 @@ FILE_ORIGINAL_NAME = define_metadata(
     "file/original_filename", MetadataType.STRING, "Original filename"
 )
 FILE_PATH = define_metadata("file/path", MetadataType.STRING, "Path")
-FILE_QUOTA_BYTES_USED = define_metadata(
-    "file/quota_bytes_used", MetadataType.INT, "Quota bytes used"
-)
+
 FILE_TYPE = define_metadata("file/type", MetadataType.STRING, "MIME Type")
 FILE_EXTENSION = define_metadata(
     "file/extension", MetadataType.STRING, "File extension"
@@ -195,6 +191,10 @@ FILE_VERSION = define_metadata("file/version", MetadataType.INT, "Version")
 FILE_DOWNLOAD_URI = define_metadata(
     "file/download_uri", MetadataType.STRING, "Download URI"
 )  # e.g. from Linux user.xdg.origin.url or macOS com.apple.metadata:kMDItemWhereFroms
+FILE_VIEW_URI = define_metadata("file/web_view_link", MetadataType.STRING, "View URI")
+FILE_THUMBNAIL_URI = define_metadata(
+    "file/thumbnail_link", MetadataType.STRING, "Thumbnail URI"
+)
 FILE_URI = define_metadata("file/uri", MetadataType.STRING, "URI")
 FILE_TITLE = define_metadata(
     "file/title", MetadataType.STRING, "Title"

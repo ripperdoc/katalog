@@ -28,7 +28,6 @@ from katalog.constants.metadata import (
     FILE_ID_PATH,
     FILE_NAME,
     FILE_PATH,
-    FILE_QUOTA_BYTES_USED,
     FILE_SIZE,
     FILE_TAGS,
     FILE_TITLE,
@@ -239,7 +238,6 @@ class FakeAssetSource(SourcePlugin):
                 result.set_metadata(FILE_TYPE, spec.file_type)
                 result.set_metadata(FILE_SIZE, spec.file_size)
                 result.set_metadata(FILE_VERSION, rng.randint(1, 12))
-                result.set_metadata(FILE_QUOTA_BYTES_USED, spec.file_size)
                 result.set_metadata(FILE_TITLE, _title_from_name(spec.file_name))
                 result.set_metadata(FILE_DESCRIPTION, _make_description(rng, spec))
                 result.set_metadata(FILE_COMMENT, _make_comment(rng))
