@@ -11,13 +11,14 @@ from katalog.api.collections import (
     list_collection_assets,
     remove_collection_assets,
 )
+from katalog.models.query import AssetQuery
 
 
 @pytest.mark.asyncio
 async def test_remove_asset_from_collection(seeded_assets):
     _ = seeded_assets
 
-    assets_payload = await list_assets()
+    assets_payload = await list_assets(AssetQuery.model_validate({"view_id": "default"}))
     items = assets_payload.items
     assert len(items) >= 2
 
@@ -31,13 +32,13 @@ async def test_remove_asset_from_collection(seeded_assets):
 
     list_payload = await list_collection_assets(
         collection_id=collection_id,
-        view_id="default",
-        offset=0,
-        limit=1000,
-        sort=None,
-        columns=None,
-        search=None,
-        filters=None,
+        query=AssetQuery.model_validate(
+            {
+                "view_id": "default",
+                "offset": 0,
+                "limit": 1000,
+            }
+        ),
     )
     assert list_payload.stats.total == 2
     assert len(list_payload.items) == 2
@@ -60,13 +61,13 @@ async def test_remove_asset_from_collection(seeded_assets):
 
     list_payload = await list_collection_assets(
         collection_id=collection_id,
-        view_id="default",
-        offset=0,
-        limit=1000,
-        sort=None,
-        columns=None,
-        search=None,
-        filters=None,
+        query=AssetQuery.model_validate(
+            {
+                "view_id": "default",
+                "offset": 0,
+                "limit": 1000,
+            }
+        ),
     )
     assert list_payload.stats.total == 1
     assert len(list_payload.items) == 1

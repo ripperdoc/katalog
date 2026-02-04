@@ -4,6 +4,7 @@ from typing import Any, Protocol
 
 from katalog.db.sqlspec.asset_collections import SqlspecAssetCollectionRepo
 from katalog.models.assets import AssetCollection
+from katalog.models.query import AssetQuery
 
 
 class AssetCollectionRepo(Protocol):
@@ -25,9 +26,7 @@ class AssetCollectionRepo(Protocol):
         membership_key_id: int,
         actor_id: int,
         changeset_id: int,
-        query_actor_id: int | None,
-        filters: list[str] | None,
-        search: str | None,
+        query: AssetQuery,
     ) -> int: ...
 
 

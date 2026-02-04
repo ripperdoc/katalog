@@ -24,6 +24,7 @@ dependencies = [
 [tool.uv]
 # Optional: configuration for uv if needed
 package = true
+cache-dir = ".uv_cache"
 
 [dependency-groups]
 dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler", "pyright"]

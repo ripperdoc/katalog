@@ -2,6 +2,8 @@
 
 # Next up
 
+- [ ] More clearly define the query arguments and output shapes from the asset listing queries, and
+      make them share more logic.
 - [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
       a flatter table for easier querying. E.g. a generated asset_current.
 - [ ] Test harness that uses "real" Actors, Processors to test all CRUD operations

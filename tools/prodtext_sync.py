@@ -5,12 +5,9 @@ from pathlib import Path
 from typing import Dict, Iterable, Tuple
 
 from markdown import markdown as markdown_to_html
-from markdownify import (
-    MarkdownConverter,
-    abstract_inline_conversion,
-    markdownify as html_to_markdown,
-)
+from markdownify import MarkdownConverter
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 LANGUAGE_FIELDS: Dict[str, Tuple[str, str, str]] = {
     "swedish": ("Titel (SV)", "Inledande text (SV)", "Full text (SV)"),
@@ -72,7 +69,9 @@ def export_csv_to_markdown(csv_path: Path, output_dir: Path) -> None:
                 continue
 
             for lang_key, fields in LANGUAGE_FIELDS.items():
-                title_html, initial_html, full_html = (row.get(field, "") for field in fields)
+                title_html, initial_html, full_html = (
+                    row.get(field, "") for field in fields
+                )
                 if not any([title_html, initial_html, full_html]):
                     continue
 
@@ -155,7 +154,7 @@ def clamp_initial_text(value: str, limit: int = 350) -> str:
 def suggest_updates(
     client: OpenAI, model: str, title: str, initial: str, full: str
 ) -> Tuple[str, str]:
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {
             "role": "system",
             "content": (
@@ -205,7 +204,11 @@ def refine_markdown_files(input_dir: Path, model: str, api_key: str | None) -> N
             content = file_path.read_text(encoding=DEFAULT_ENCODING)
             title, initial_md, full_md = parse_markdown_document(content)
             new_title, new_initial = suggest_updates(
-                client=client, model=model, title=title, initial=initial_md, full=full_md
+                client=client,
+                model=model,
+                title=title,
+                initial=initial_md,
+                full=full_md,
             )
             updated = build_markdown_document(new_title, new_initial, full_md)
             file_path.write_text(updated, encoding=DEFAULT_ENCODING)
@@ -299,12 +302,12 @@ def main(argv: Iterable[str] | None = None) -> None:
 class EmphasisConverter(MarkdownConverter):
     # Use underscores for italics and asterisks for bold.
     def convert_em(self, el, text, parent_tags):
-        return abstract_inline_conversion(lambda _self: "_")(self, el, text, parent_tags)
+        return f"_{text}_" if text else ""
 
     convert_i = convert_em
 
     def convert_b(self, el, text, parent_tags):
-        return abstract_inline_conversion(lambda _self: "**")(self, el, text, parent_tags)
+        return f"**{text}**" if text else ""
 
     convert_strong = convert_b
 

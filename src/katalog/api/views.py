@@ -3,6 +3,8 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from katalog.db.assets import get_asset_repo
+from katalog.api.query_utils import build_asset_query, filters_to_db_filters
+from katalog.models.query import AssetQuery
 from katalog.models.views import ViewSpec, get_view, list_views
 from katalog.api.helpers import ApiError
 from katalog.api.schemas import AssetsListResponse
@@ -20,13 +22,7 @@ async def get_view_api(view_id: str) -> ViewSpec:
 
 async def list_assets_for_view(
     view_id: str,
-    actor_id: Optional[int],
-    offset: int,
-    limit: int,
-    sort: Optional[tuple[str, str]],
-    columns: list[str] | None,
-    search: Optional[str],
-    filters: list[str] | None,
+    query: AssetQuery,
 ) -> AssetsListResponse:
     try:
         view = get_view(view_id)
@@ -34,16 +30,14 @@ async def list_assets_for_view(
         raise ApiError(status_code=404, detail="View not found")
 
     try:
+        query_db = query.model_copy(
+            update={"filters": filters_to_db_filters(query.filters)}
+        )
+        # TODO: metadata_actor_ids support is intentionally skipped for now.
         db = get_asset_repo()
         return await db.list_assets_for_view_db(
             view,
-            actor_id=actor_id,
-            offset=offset,
-            limit=limit,
-            sort=sort,
-            filters=filters,
-            columns=set(columns) if columns else None,
-            search=search,
+            query=query_db,
         )
     except ValueError as exc:
         raise ApiError(status_code=400, detail=str(exc))
@@ -64,29 +58,29 @@ async def get_view_rest(view_id: str):
 @router.get("/views/{view_id}/assets")
 async def list_assets_for_view_rest(
     view_id: str,
-    actor_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    sort: Optional[str] = Query(None),
-    columns: list[str] | None = Query(None),
+    sort: list[str] | None = Query(None),
     search: Optional[str] = Query(None),
     filters: list[str] | None = Query(None),
+    metadata_actor_ids: list[int] | None = Query(None),
+    metadata_include_removed: bool = Query(False),
+    metadata_aggregation: Optional[str] = Query(None),
+    metadata_include_counts: bool = Query(False),
 ):
-    sort_tuple: tuple[str, str] | None = None
-    if sort:
-        if ":" in sort:
-            col, direction = sort.split(":", 1)
-        else:
-            col, direction = sort, "asc"
-        sort_tuple = (col, direction)
-
-    return await list_assets_for_view(
-        view_id=view_id,
-        actor_id=actor_id,
-        offset=offset,
-        limit=limit,
-        sort=sort_tuple,
-        columns=columns,
-        search=search,
-        filters=filters,
-    )
+    try:
+        query = build_asset_query(
+            view_id=view_id,
+            offset=offset,
+            limit=limit,
+            sort=sort,
+            filters=filters,
+            search=search,
+            metadata_actor_ids=metadata_actor_ids,
+            metadata_include_removed=metadata_include_removed,
+            metadata_aggregation=metadata_aggregation,
+            metadata_include_counts=metadata_include_counts,
+        )
+    except Exception as exc:
+        raise ApiError(status_code=400, detail=str(exc)) from exc
+    return await list_assets_for_view(view_id=view_id, query=query)

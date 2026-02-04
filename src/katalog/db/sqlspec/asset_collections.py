@@ -12,6 +12,7 @@ from katalog.db.utils import build_where, datetime_to_iso, to_utc_datetime
 from katalog.constants.metadata import MetadataType
 from katalog.db.sqlspec.assets import _build_assets_where
 from katalog.models.assets import AssetCollection, CollectionRefreshMode
+from katalog.models.query import AssetQuery
 
 
 class SqlspecAssetCollectionRepo:
@@ -135,14 +136,12 @@ class SqlspecAssetCollectionRepo:
         membership_key_id: int,
         actor_id: int,
         changeset_id: int,
-        query_actor_id: int | None,
-        filters: list[str] | None,
-        search: str | None,
+        query: AssetQuery,
     ) -> int:
         where_sql, filter_params = _build_assets_where(
-            actor_id=query_actor_id,
-            filters=filters,
-            search=search,
+            actor_id=None,
+            filters=query.filters,
+            search=query.search,
             extra_where=None,
         )
         insert_sql = f"""

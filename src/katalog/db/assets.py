@@ -4,6 +4,7 @@ from typing import Any, Protocol, Sequence, TYPE_CHECKING
 
 from katalog.db.sqlspec.assets import SqlspecAssetRepo
 from katalog.models.assets import Asset
+from katalog.models.query import AssetQuery
 
 
 class AssetRepo(Protocol):
@@ -40,32 +41,20 @@ class AssetRepo(Protocol):
     async def count_assets_for_query(
         self,
         *,
-        actor_id: int | None,
-        filters: list[str] | None,
-        search: str | None,
+        query: AssetQuery,
         extra_where: tuple[str, list[Any]] | None = None,
     ) -> int: ...
     async def list_asset_ids_for_query(
         self,
         *,
-        actor_id: int | None = None,
-        filters: list[str] | None = None,
-        search: str | None = None,
+        query: AssetQuery,
         extra_where: tuple[str, list[Any]] | None = None,
-        offset: int = 0,
-        limit: int = 1000,
     ) -> list[int]: ...
     async def list_assets_for_view_db(
         self,
         view: ViewSpec,
         *,
-        actor_id: int | None = None,
-        offset: int = 0,
-        limit: int = 100,
-        sort: tuple[str, str] | None = None,
-        filters: list[str] | None = None,
-        columns: set[str] | None = None,
-        search: str | None = None,
+        query: AssetQuery,
         include_total: bool = True,
         extra_where: tuple[str, list[Any]] | None = None,
     ) -> AssetsListResponse: ...
@@ -74,11 +63,7 @@ class AssetRepo(Protocol):
         view: ViewSpec,
         *,
         group_by: str,
-        actor_id: int | None = None,
-        offset: int = 0,
-        limit: int = 50,
-        filters: list[str] | None = None,
-        search: str | None = None,
+        query: AssetQuery,
         include_total: bool = True,
     ) -> GroupedAssetsResponse: ...
     def build_group_member_filter(

@@ -195,7 +195,7 @@ function CollectionDetailRoute() {
     }: {
       offset: number;
       limit: number;
-      sort?: string;
+      sort?: [string, "asc" | "desc"][];
       filters?: string[];
       search?: string;
     }) => {

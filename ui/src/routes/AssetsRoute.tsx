@@ -13,7 +13,7 @@ function AssetsRoute() {
   const [lastParams, setLastParams] = useState<{
     offset: number;
     limit: number;
-    sort?: string;
+    sort?: [string, "asc" | "desc"][];
     filters?: string[];
     search?: string;
   } | null>(null);
@@ -30,7 +30,7 @@ function AssetsRoute() {
     }: {
       offset: number;
       limit: number;
-      sort?: string;
+      sort?: [string, "asc" | "desc"][];
       filters?: string[];
       search?: string;
     }) =>

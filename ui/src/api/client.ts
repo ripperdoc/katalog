@@ -37,40 +37,32 @@ async function handleResponse(response: Response) {
 export async function fetchViewAssets(
   viewId: string,
   {
-    actorId,
     offset = 0,
     limit = 100,
     sort,
     filters,
     search,
-    columns,
   }: {
-    actorId?: number;
     offset?: number;
     limit?: number;
-    sort?: string | undefined;
+    sort?: [string, "asc" | "desc"][] | undefined;
     filters?: string[] | undefined;
     search?: string | undefined;
-    columns?: string[] | undefined;
   },
 ): Promise<ViewAssetsResponse> {
   const params = new URLSearchParams();
   params.set("offset", String(offset));
   params.set("limit", String(limit));
-  if (actorId !== undefined) {
-    params.set("actor_id", String(actorId));
-  }
-  if (sort) {
-    params.set("sort", sort);
+  if (sort && sort.length > 0) {
+    sort.forEach(([key, direction]) => {
+      params.append("sort", `${key}:${direction}`);
+    });
   }
   if (filters && filters.length > 0) {
     filters.forEach((f) => params.append("filters", f));
   }
   if (search) {
     params.set("search", search);
-  }
-  if (columns && columns.length > 0) {
-    columns.forEach((col) => params.append("columns", col));
   }
   const response = await fetch(`${API_BASE}/views/${encodeURIComponent(viewId)}/assets?${params}`, {
     headers: { Accept: "application/json" },
@@ -294,7 +286,7 @@ export async function fetchCollectionAssets(
     viewId?: string;
     offset?: number;
     limit?: number;
-    sort?: string | undefined;
+    sort?: [string, "asc" | "desc"][] | undefined;
     filters?: string[] | undefined;
     search?: string | undefined;
   },
@@ -303,8 +295,10 @@ export async function fetchCollectionAssets(
   params.set("offset", String(offset));
   params.set("limit", String(limit));
   params.set("view_id", viewId);
-  if (sort) {
-    params.set("sort", sort);
+  if (sort && sort.length > 0) {
+    sort.forEach(([key, direction]) => {
+      params.append("sort", `${key}:${direction}`);
+    });
   }
   if (filters && filters.length > 0) {
     filters.forEach((f) => params.append("filters", f));

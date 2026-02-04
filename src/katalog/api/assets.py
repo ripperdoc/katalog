@@ -6,8 +6,10 @@ from katalog.constants.metadata import MetadataKey
 from katalog.db.assets import get_asset_repo
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
+from katalog.models.query import AssetQuery
 from katalog.models.views import get_view
 from katalog.api.helpers import ApiError
+from katalog.api.query_utils import build_asset_query, filters_to_db_filters
 from katalog.api.schemas import (
     AssetsListResponse,
     GroupedAssetsResponse,
@@ -19,70 +21,35 @@ from katalog.db.metadata import get_metadata_repo
 router = APIRouter()
 
 
-async def list_assets(actor_id: Optional[int] = None) -> AssetsListResponse:
-    view = get_view("default")
+async def list_assets(query: AssetQuery) -> AssetsListResponse:
+    view = get_view(query.view_id or "default")
     db = get_asset_repo()
-    return await db.list_assets_for_view_db(view, actor_id=actor_id)
+    query_db = query.model_copy(
+        update={"filters": filters_to_db_filters(query.filters)}
+    )
+    # TODO: metadata_actor_ids support is intentionally skipped for now.
+    return await db.list_assets_for_view_db(view, query=query_db)
 
 
 async def list_grouped_assets(
     group_by: str,
-    group_value: Optional[str] = None,
-    actor_id: Optional[int] = None,
-    offset: int = 0,
-    limit: int = 50,
-    filters: list[str] | None = None,
-    search: Optional[str] = None,
+    query: AssetQuery,
 ) -> GroupedAssetsResponse:
     """
-    Grouped asset listing:
-    - Without group_value: returns group aggregates (row_kind='group').
-    - With group_value: returns assets within that group (row_kind='asset').
+    Grouped asset listing: returns group aggregates (row_kind='group').
     """
 
     view = get_view("default")
-
-    if group_value is None:
-        db = get_asset_repo()
-        return await db.list_grouped_assets_db(
-            view,
-            group_by=group_by,
-            actor_id=actor_id,
-            offset=offset,
-            limit=limit,
-            filters=filters,
-            search=search,
-            include_total=True,
-        )
-
     db = get_asset_repo()
-    extra_where = db.build_group_member_filter(group_by, group_value)
-    members = await db.list_assets_for_view_db(
-        view,
-        actor_id=actor_id,
-        offset=offset,
-        limit=limit,
-        sort=None,
-        filters=filters,
-        columns=None,
-        search=search,
-        include_total=True,
-        extra_where=extra_where,
+    query_db = query.model_copy(
+        update={"filters": filters_to_db_filters(query.filters)}
     )
-    items: list[dict[str, Any]] = []
-    for item in members.items:
-        row = item.model_dump(by_alias=True)
-        row["row_kind"] = "asset"
-        row["group_key"] = group_by
-        row["group_value"] = group_value
-        items.append(row)
-    return GroupedAssetsResponse(
-        mode="members",
+    # TODO: metadata_actor_ids support is intentionally skipped for now.
+    return await db.list_grouped_assets_db(
+        view,
         group_by=group_by,
-        group_value=group_value,
-        items=items,
-        stats=members.stats.model_dump(mode="json"),
-        pagination=members.pagination,
+        query=query_db,
+        include_total=True,
     )
 
 
@@ -154,34 +121,67 @@ async def update_asset() -> None:
 
 
 @router.get("/assets")
-async def list_assets_rest(actor_id: Optional[int] = None):
-    return await list_assets(actor_id=actor_id)
+async def list_assets_rest(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    sort: list[str] | None = Query(None),
+    filters: list[str] | None = Query(None),
+    search: Optional[str] = Query(None),
+    metadata_actor_ids: list[int] | None = Query(None),
+    metadata_include_removed: bool = Query(False),
+    metadata_aggregation: Optional[str] = Query(None),
+    metadata_include_counts: bool = Query(False),
+):
+    try:
+        query = build_asset_query(
+            view_id="default",
+            offset=offset,
+            limit=limit,
+            sort=sort,
+            filters=filters,
+            search=search,
+            metadata_actor_ids=metadata_actor_ids,
+            metadata_include_removed=metadata_include_removed,
+            metadata_aggregation=metadata_aggregation,
+            metadata_include_counts=metadata_include_counts,
+        )
+    except Exception as exc:
+        raise ApiError(status_code=400, detail=str(exc)) from exc
+    return await list_assets(query=query)
 
 
 @router.get("/assets/grouped")
 async def list_grouped_assets_rest(
     group_by: str = Query(
-        ..., description="Grouping key, e.g. 'hash/md5' or 'a.actor_id'"
+        ..., description="Grouping key, e.g. 'hash/md5' or 'asset/actor_id'"
     ),
-    group_value: Optional[str] = Query(
-        None,
-        description="When set, returns members of this group value instead of the group list.",
-    ),
-    actor_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
+    sort: list[str] | None = Query(None),
     filters: list[str] | None = Query(None),
     search: Optional[str] = Query(None),
+    metadata_actor_ids: list[int] | None = Query(None),
+    metadata_include_removed: bool = Query(False),
+    metadata_aggregation: Optional[str] = Query(None),
+    metadata_include_counts: bool = Query(False),
 ):
-    return await list_grouped_assets(
-        group_by=group_by,
-        group_value=group_value,
-        actor_id=actor_id,
-        offset=offset,
-        limit=limit,
-        filters=filters,
-        search=search,
-    )
+    try:
+        query = build_asset_query(
+            view_id="default",
+            offset=offset,
+            limit=limit,
+            sort=sort,
+            filters=filters,
+            search=search,
+            group_by=group_by,
+            metadata_actor_ids=metadata_actor_ids,
+            metadata_include_removed=metadata_include_removed,
+            metadata_aggregation=metadata_aggregation,
+            metadata_include_counts=metadata_include_counts,
+        )
+    except Exception as exc:
+        raise ApiError(status_code=400, detail=str(exc)) from exc
+    return await list_grouped_assets(group_by=group_by, query=query)
 
 
 @router.post("/assets")

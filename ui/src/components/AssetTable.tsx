@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
-  CellClickProps,
   ColumnType,
+  FilterCondition,
   HeaderObject,
   SimpleTable,
   TableFilterState,
@@ -110,6 +110,39 @@ const normalizeSort = (
   return { accessor, direction: "asc" };
 };
 
+const normalizeFilterValue = (value: unknown): string => {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+};
+
+const serializeFilter = (filter: FilterCondition): string | null => {
+  const accessor = filter.accessor ? String(filter.accessor) : "";
+  const operator = filter.operator ? String(filter.operator) : "";
+  if (!accessor || !operator) {
+    return null;
+  }
+  if (operator === "isEmpty" || operator === "isNotEmpty") {
+    return `${accessor} ${operator} true`;
+  }
+  if (operator === "between" || operator === "notBetween" || operator === "in" || operator === "notIn") {
+    const rawValues = filter.values ?? (filter.value !== undefined ? [filter.value] : []);
+    const values = rawValues.map(normalizeFilterValue).filter((value) => value.length > 0);
+    if (values.length === 0) {
+      return null;
+    }
+    return `${accessor} ${operator} ${values.join(",")}`;
+  }
+  if (filter.value === undefined || filter.value === null) {
+    return null;
+  }
+  return `${accessor} ${operator} ${normalizeFilterValue(filter.value)}`;
+};
+
 export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
   const assetIdKey = "asset/id";
   const externalIdKey = "asset/external_id";
@@ -142,7 +175,7 @@ export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject
 type FetchArgs = {
   offset: number;
   limit: number;
-  sort?: string | undefined;
+  sort?: [string, "asc" | "desc"][] | undefined;
   filters?: string[] | undefined;
   search?: string | undefined;
 };
@@ -208,20 +241,26 @@ const AssetTable = ({
       const effectiveSearch = (searchOverride ?? searchRef.current).trim();
       const sortParam =
         effectiveSort && effectiveSort.accessor && effectiveSort.direction
-          ? `${effectiveSort.accessor}:${effectiveSort.direction}`
+          ? ([[effectiveSort.accessor, effectiveSort.direction]] as [
+              string,
+              "asc" | "desc",
+            ][])
           : undefined;
-      const filterParams = new URLSearchParams();
+      const filterParams: string[] = [];
       Object.values(effectiveFilters || {}).forEach((filter) => {
-        filterParams.append("filters", JSON.stringify(filter));
+        const normalized = serializeFilter(filter);
+        if (normalized) {
+          filterParams.push(normalized);
+        }
       });
       const searchParam = effectiveSearch.length > 0 ? effectiveSearch : undefined;
-      const requestKey = JSON.stringify({
-        page,
-        limit,
-        sort: sortParam,
-        filters: filterParams.getAll("filters"),
-        search: searchParam,
-      });
+        const requestKey = JSON.stringify({
+          page,
+          limit,
+          sort: sortParam,
+          filters: filterParams,
+          search: searchParam,
+        });
       if (!forceReload && lastRequestRef.current === requestKey) {
         return;
       }
@@ -233,7 +272,7 @@ const AssetTable = ({
           offset: (page - 1) * limit,
           limit,
           sort: sortParam,
-          filters: filterParams.getAll("filters"),
+          filters: filterParams,
           search: searchParam,
         });
         const fetchedRecords = (response.items ?? []).map((item) => ({
@@ -254,7 +293,7 @@ const AssetTable = ({
             offset: (page - 1) * limit,
             limit,
             sort: sortParam,
-            filters: filterParams.getAll("filters"),
+            filters: filterParams,
             search: effectiveSearch.length > 0 ? effectiveSearch : undefined,
           },
         });

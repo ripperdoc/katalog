@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from loguru import logger
 
 from katalog.constants.metadata import COLLECTION_MEMBER, get_metadata_id
@@ -11,9 +11,11 @@ from katalog.models import (
     OpStatus,
     make_metadata,
 )
+from katalog.models.query import AssetQuery
 from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError
+from katalog.api.query_utils import build_asset_query, filters_to_db_filters
 from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
 from katalog.db.asset_collections import get_asset_collection_repo
 from katalog.db.assets import get_asset_repo
@@ -90,52 +92,25 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
         )
 
     if query_payload:
-        view_id = str(query_payload.get("view_id") or "default")
         try:
-            get_view(view_id)
-        except KeyError:
-            raise ApiError(status_code=404, detail="View not found")
-
-        sort = query_payload.get("sort")
-        if sort is not None and not isinstance(sort, str):
-            raise ApiError(status_code=400, detail="source.query.sort must be a string")
-
-        filters = query_payload.get("filters")
-        if filters is not None and not isinstance(filters, list):
+            query = AssetQuery.model_validate(query_payload)
+        except ValidationError as exc:
             raise ApiError(
-                status_code=400, detail="source.query.filters must be a list"
-            )
-
-        search = query_payload.get("search")
-        if search is not None and not isinstance(search, str):
-            raise ApiError(
-                status_code=400, detail="source.query.search must be a string"
-            )
-
-        actor_id = query_payload.get("actor_id")
-        if actor_id is not None:
-            try:
-                actor_id = int(actor_id)
-            except Exception:
-                raise ApiError(
-                    status_code=400, detail="source.query.actor_id must be an integer"
-                )
+                status_code=400,
+                detail={"message": "Invalid source.query", "errors": exc.errors()},
+            ) from exc
     else:
-        view_id = "default"
-        sort = None
-        filters = None
-        search = None
-        actor_id = None
+        query = AssetQuery.model_validate({"view_id": "default"})
 
     unique_asset_ids = sorted(set(asset_ids))
     query_total_count = None
+    query_db: AssetQuery | None = None
     if query_payload:
         asset_db = get_asset_repo()
-        query_total_count = await asset_db.count_assets_for_query(
-            actor_id=actor_id,
-            filters=filters,
-            search=search,
+        query_db = query.model_copy(
+            update={"filters": filters_to_db_filters(query.filters)}
         )
+        query_total_count = await asset_db.count_assets_for_query(query=query_db)
 
     # TODO Validate asset ids exist
 
@@ -157,6 +132,8 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
         raise ApiError(status_code=409, detail="Collection id is missing")
 
     if query_payload and query_total_count:
+        if query_db is None:
+            raise ApiError(status_code=409, detail="Collection query is missing")
         actor = await ensure_user_editor()
         if actor.id is None:
             raise ApiError(status_code=409, detail="Actor id is missing")
@@ -171,9 +148,7 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
             membership_key_id=membership_key_id,
             actor_id=actor.id,
             changeset_id=changeset.id,
-            query_actor_id=actor_id,
-            filters=filters,
-            search=search,
+            query=query_db,
         )
     elif unique_asset_ids:
         actor = await ensure_user_editor()
@@ -248,13 +223,7 @@ async def update_collection(
 
 async def list_collection_assets(
     collection_id: int,
-    view_id: str,
-    offset: int,
-    limit: int,
-    sort: Optional[tuple[str, str]],
-    columns: list[str] | None,
-    search: Optional[str],
-    filters: list[str] | None,
+    query: AssetQuery,
 ) -> AssetsListResponse:
     db = get_asset_collection_repo()
     collection = await db.get_or_none(id=collection_id)
@@ -262,7 +231,7 @@ async def list_collection_assets(
         raise ApiError(status_code=404, detail="Collection not found")
 
     try:
-        view = get_view(view_id)
+        view = get_view(query.view_id or "default")
     except KeyError:
         raise ApiError(status_code=404, detail="View not found")
 
@@ -277,14 +246,13 @@ async def list_collection_assets(
     )
 
     try:
+        query_db = query.model_copy(
+            update={"filters": filters_to_db_filters(query.filters)}
+        )
+        # TODO: metadata_actor_ids support is intentionally skipped for now.
         return await asset_db.list_assets_for_view_db(
             view,
-            offset=offset,
-            limit=limit,
-            sort=sort,
-            filters=filters,
-            columns=set(columns) if columns else None,
-            search=search,
+            query=query_db,
             include_total=True,
             extra_where=extra_where,
         )
@@ -432,30 +400,35 @@ async def update_collection_rest(collection_id: int, request: Request):
 @router.get("/collections/{collection_id}/assets")
 async def list_collection_assets_rest(
     collection_id: int,
-    view_id: str = Query("default"),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    sort: Optional[str] = Query(None),
-    columns: list[str] | None = Query(None),
+    view_id: str = Query("default"),
+    sort: list[str] | None = Query(None),
     search: Optional[str] = Query(None),
     filters: list[str] | None = Query(None),
+    metadata_actor_ids: list[int] | None = Query(None),
+    metadata_include_removed: bool = Query(False),
+    metadata_aggregation: Optional[str] = Query(None),
+    metadata_include_counts: bool = Query(False),
 ):
-    sort_tuple: tuple[str, str] | None = None
-    if sort:
-        if ":" in sort:
-            col, direction = sort.split(":", 1)
-        else:
-            col, direction = sort, "asc"
-        sort_tuple = (col, direction)
+    try:
+        query = build_asset_query(
+            view_id=view_id,
+            offset=offset,
+            limit=limit,
+            sort=sort,
+            filters=filters,
+            search=search,
+            metadata_actor_ids=metadata_actor_ids,
+            metadata_include_removed=metadata_include_removed,
+            metadata_aggregation=metadata_aggregation,
+            metadata_include_counts=metadata_include_counts,
+        )
+    except Exception as exc:
+        raise ApiError(status_code=400, detail=str(exc)) from exc
     return await list_collection_assets(
         collection_id=collection_id,
-        view_id=view_id,
-        offset=offset,
-        limit=limit,
-        sort=sort_tuple,
-        columns=columns,
-        search=search,
-        filters=filters,
+        query=query,
     )
 
 

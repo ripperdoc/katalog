@@ -22,6 +22,7 @@ from katalog.db.utils import build_where
 from typing import TYPE_CHECKING
 
 from katalog.models.assets import Asset
+from katalog.models.query import AssetQuery
 from katalog.models.query import AssetsListResponse, GroupedAssetsResponse
 from katalog.models.views import ViewSpec
 from katalog.db.metadata import get_metadata_repo
@@ -275,16 +276,14 @@ class SqlspecAssetRepo:
     async def count_assets_for_query(
         self,
         *,
-        actor_id: int | None,
-        filters: list[str] | None,
-        search: str | None,
+        query: AssetQuery,
         extra_where: tuple[str, list[Any]] | None = None,
     ) -> int:
         asset_table = ASSET_TABLE
         where_sql, filter_params = _build_assets_where(
-            actor_id=actor_id,
-            filters=filters,
-            search=search,
+            actor_id=None,
+            filters=query.filters,
+            search=query.search,
             extra_where=extra_where,
         )
 
@@ -300,21 +299,19 @@ class SqlspecAssetRepo:
     async def list_asset_ids_for_query(
         self,
         *,
-        actor_id: int | None = None,
-        filters: list[str] | None = None,
-        search: str | None = None,
+        query: AssetQuery,
         extra_where: tuple[str, list[Any]] | None = None,
-        offset: int = 0,
-        limit: int = 1000,
     ) -> list[int]:
+        offset = query.offset
+        limit = query.limit
         if limit < 0 or offset < 0:
             raise ValueError("offset and limit must be non-negative")
 
         asset_table = ASSET_TABLE
         where_sql, filter_params = _build_assets_where(
-            actor_id=actor_id,
-            filters=filters,
-            search=search,
+            actor_id=None,
+            filters=query.filters,
+            search=query.search,
             extra_where=extra_where,
         )
 
@@ -341,13 +338,7 @@ class SqlspecAssetRepo:
         self,
         view: "ViewSpec",
         *,
-        actor_id: int | None = None,
-        offset: int = 0,
-        limit: int = 100,
-        sort: tuple[str, str] | None = None,
-        filters: list[str] | None = None,
-        columns: set[str] | None = None,
-        search: str | None = None,
+        query: AssetQuery,
         include_total: bool = True,
         extra_where: tuple[str, list[Any]] | None = None,
     ) -> "AssetsListResponse":
@@ -355,6 +346,13 @@ class SqlspecAssetRepo:
         assets_query_ms: int | None = None
         metadata_query_ms: int | None = None
         count_query_ms: int | None = None
+
+        offset = query.offset
+        limit = query.limit
+        sort = query.sort[0] if query.sort else None
+        filters = query.filters
+        columns = None
+        search = query.search
 
         if limit < 0 or offset < 0:
             raise ValueError("offset and limit must be non-negative")
@@ -370,7 +368,7 @@ class SqlspecAssetRepo:
         asset_table = ASSET_TABLE
         metadata_table = METADATA_TABLE
         where_sql, filter_params = _build_assets_where(
-            actor_id=actor_id,
+            actor_id=None,
             filters=filters,
             search=search,
             extra_where=extra_where,
@@ -600,24 +598,19 @@ class SqlspecAssetRepo:
         view: "ViewSpec",
         *,
         group_by: str,
-        actor_id: int | None = None,
-        offset: int = 0,
-        limit: int = 50,
-        filters: list[str] | None = None,
-        search: str | None = None,
+        query: AssetQuery,
         include_total: bool = True,
     ) -> "GroupedAssetsResponse":
         _ = view
+        offset = query.offset
+        limit = query.limit
+        filters = query.filters
+        search = query.search
+        group_by = query.group_by or group_by
         field_expr, field_type = _resolve_group_field(group_by)
         started_at = time.perf_counter()
 
         conditions, filter_params = filter_conditions(filters)
-        if actor_id is not None:
-            conditions.insert(
-                0,
-                "EXISTS (SELECT 1 FROM metadata m WHERE m.asset_id = a.id AND m.actor_id = ?)",
-            )
-            filter_params.insert(0, actor_id)
         if search is not None and search.strip():
             fts_query = fts5_query_from_user_text(search)
             if not fts_query:

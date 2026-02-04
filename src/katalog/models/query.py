@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from katalog.constants.metadata import MetadataType
+from katalog.models.views import get_view
 
 
 class Pagination(BaseModel):
@@ -88,3 +91,150 @@ class EditableMetadataSchemaResponse(BaseModel):
 
     schema_: dict[str, Any] = Field(alias="schema")
     uiSchema: dict[str, Any]
+
+
+class AssetQuery(BaseModel):
+    """Query options for listing assets with metadata projections."""
+
+    view_id: str | None = None
+
+    # Asset filters/sorts/search.
+    filters: list[str] | None = None
+    search: str | None = None
+    sort: list[tuple[str, str]] | None = None
+    group_by: str | None = None
+
+    # Pagination.
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, gt=0)
+
+    # Metadata projection controls.
+    metadata_actor_ids: list[int] | None = None
+    metadata_include_removed: bool = False
+    metadata_aggregation: Literal["latest", "array", "objects"] = "latest"
+    metadata_include_counts: bool = False
+
+    @field_validator("view_id")
+    @classmethod
+    def _validate_view_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        get_view(value)
+        return value
+
+    @field_validator("metadata_actor_ids")
+    @classmethod
+    def _validate_metadata_actor_ids(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return value
+        if any(actor_id <= 0 for actor_id in value):
+            raise ValueError("metadata_actor_ids must contain positive integers")
+        return value
+
+
+    @model_validator(mode="after")
+    def _validate_query(self) -> "AssetQuery":
+        if self.view_id is None:
+            self.view_id = "default"
+        view = get_view(self.view_id)
+        column_map = view.column_map()
+
+        if self.filters:
+            for raw in self.filters:
+                key, operator, value = _parse_filter(raw)
+                column = column_map.get(key)
+                if column is None:
+                    raise ValueError(f"Unknown filter key: {key}")
+                allowed = _allowed_operators(column.value_type)
+                if operator not in allowed:
+                    raise ValueError(
+                        f"Operator {operator} not valid for {key} ({column.value_type})"
+                    )
+                if operator in {"between", "notBetween", "in", "notIn"}:
+                    if "," not in value:
+                        raise ValueError(
+                            f"Operator {operator} requires comma-separated values"
+                        )
+                if operator in {"isEmpty", "isNotEmpty"} and value.strip() == "":
+                    raise ValueError(
+                        f"Operator {operator} requires a value placeholder"
+                    )
+
+        if self.sort:
+            for item in self.sort:
+                if len(item) != 2:
+                    raise ValueError("sort entries must be (key, direction)")
+                key, direction = item
+                if key not in column_map:
+                    raise ValueError(f"Unknown sort key: {key}")
+                if direction not in {"asc", "desc"}:
+                    raise ValueError("sort direction must be asc or desc")
+
+        if self.group_by is not None and self.group_by not in column_map:
+            raise ValueError(f"Unknown group_by key: {self.group_by}")
+
+        return self
+
+
+def _parse_filter(raw: str) -> tuple[str, str, str]:
+    parts = raw.split(" ", 2)
+    if len(parts) != 3:
+        raise ValueError("filter must have form: <key> <operator> <value>")
+    key, operator, value = (part.strip() for part in parts)
+    if not key:
+        raise ValueError("filter key is required")
+    if not operator:
+        raise ValueError("filter operator is required")
+    if value == "":
+        raise ValueError("filter value is required")
+    return key, operator, value
+
+
+def _allowed_operators(value_type: MetadataType) -> set[str]:
+    string_ops = {
+        "equals",
+        "notEquals",
+        "contains",
+        "notContains",
+        "startsWith",
+        "endsWith",
+        "isEmpty",
+        "isNotEmpty",
+    }
+    number_ops = {
+        "equals",
+        "notEquals",
+        "greaterThan",
+        "lessThan",
+        "greaterThanOrEqual",
+        "lessThanOrEqual",
+        "between",
+        "notBetween",
+        "isEmpty",
+        "isNotEmpty",
+    }
+    bool_ops = {"equals", "isEmpty", "isNotEmpty"}
+    date_ops = {
+        "equals",
+        "notEquals",
+        "before",
+        "after",
+        "between",
+        "notBetween",
+        "isEmpty",
+        "isNotEmpty",
+    }
+    enum_ops = {"in", "notIn", "isEmpty", "isNotEmpty"}
+    json_ops = {"equals", "notEquals", "isEmpty", "isNotEmpty"}
+
+    if value_type == MetadataType.STRING:
+        return string_ops
+    if value_type in {MetadataType.INT, MetadataType.FLOAT}:
+        return number_ops
+    if value_type == MetadataType.DATETIME:
+        return date_ops
+    if value_type in {MetadataType.RELATION, MetadataType.COLLECTION}:
+        return enum_ops
+    if value_type == MetadataType.JSON:
+        return json_ops
+    return bool_ops

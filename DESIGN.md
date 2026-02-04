@@ -554,34 +554,41 @@ plugin code.
 - Exceptions from `run` should be reserved for unexpected failures; the runtime treats those as
   `ERROR` and logs them.
 
-## How to treat asset, provider and metadata:
+## Asset listings with metadata
 
-First - a table view is just a way to browse many assets. The only way to operate on complete data
-is to load a specific asset with all the metadata rows for it. Any table view we make is a
-compromise of showing specific information. This is because at the basic data model level, an asset
-always has a list of metadata rows.
+Our underlying metadata model is very rich, e.g. complex. A single asset is associated with many
+rows of metadata, that represents multiple actors, changesets and metadata keys, and the value for
+each metadata key can take many types. The UI, and many exports, expects a tabular structure where
+each asset is a row, and there is no trivial way to compress the metadata into this single row.
 
-To see this in a table, we can:
+Assuming each metadata has an array of metadata rows, they can be filtered in the following ways:
 
-- Show the latest, singular value
-  - Hint that we have X more current results
-  - Hint that we have Y removed results?
-- Show the current values from all or specific provider(s) as an inline list
-- Show the removed values from all or specific provider(s) as an inline list
+- Fully returned, unfiltered
+- or, only show current data (e.g. subtracting tombstoned/removed values)
+- and/or only show data from specific actors (instead of all)
 
-To query this table, we can:
+This filtering could be done in either backend or frontend, but already have the logic for it the
+backend in MetadataChanges.
 
-- Filter assets where a `metadata` has a value `value` that matches `operator` (eg equal, greater
-  than, smaller than)
-- Filter assets where `actor`, `changeset` is something
-- Filter asset where text matches (the corresponding asset doc)
+Still, even if we filter metadata values, we would still have many rows of metadata per asset row.
+So we also need to consider how to compress this data:
+
+- We can return the latest of the (filtered) metadata values (default), and the number of total
+  values
+- We can return the values as a JSON array, and the client can render in a suitable way
+
+Now, on top of this, we want to offer clients the ability to further modify the asset query:
+
+- Filter assets based on zero or more conditions, described as `<metadata_key> <operator> <value>`
+  (eg equal, greater than, smaller than). This includes conditions on not-really-metadata such as
+  `asset.actor` and `asset.changeset`
+  - Listing assets in a collection is just a type of metadata filtering
+- Filter asset with full text search (on the corresponding asset "document")
+- Sorted by one or more metadata keys
 - Group assets by a metadata value
   - How do we handle that a metadata key can have multiple values?
-- How to sort assets? Every metadata can be a list, so how can we sort assets by date if date can be
-  multiple? Maybe we sort by "latest" value.
 - Paginate results (e.g. limit/offset)
-- Listing assets in a collection (a special case of filtering by a metadata value)
-- Control which columns are presented in the result
+- Control which columns are presented in the result, using a view
 
 Edge cases:
 
