@@ -4,6 +4,7 @@ import os
 import pathlib
 import shutil
 import sys
+import tomllib
 
 from loguru import logger
 
@@ -33,6 +34,11 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Seed the test workspace with this many fake assets (requires --test-workspace)",
+    )
+    parser.add_argument(
+        "--bootstrap-actors",
+        action="store_true",
+        help="Bootstrap actors from katalog.toml if no database exists",
     )
     parser.add_argument(
         "--reload",
@@ -120,6 +126,98 @@ async def _seed_test_workspace(ws: pathlib.Path, total_assets: int) -> None:
     await changeset.finalize(status=status)
 
 
+def _collect_actor_entries(config: dict) -> list[dict]:
+    if "actors" in config:
+        actors = config.get("actors") or []
+        if not isinstance(actors, list):
+            raise ValueError("katalog.toml: 'actors' must be a list")
+        return actors
+
+    legacy_lists = []
+    for key in ("sources", "processors", "analyzers"):
+        items = config.get(key) or []
+        if not isinstance(items, list):
+            raise ValueError(f"katalog.toml: '{key}' must be a list")
+        legacy_lists.extend(items)
+    if legacy_lists:
+        logger.warning(
+            "katalog.toml uses legacy keys (sources/processors/analyzers). "
+            "Prefer a single [[actors]] list."
+        )
+    return legacy_lists
+
+
+def _parse_actor_entry(entry: dict, index: int) -> tuple[str, str, dict, bool]:
+    if not isinstance(entry, dict):
+        raise ValueError(f"katalog.toml: actor #{index + 1} must be a table")
+    plugin_id = entry.get("plugin_id")
+    if not plugin_id:
+        raise ValueError(f"katalog.toml: actor #{index + 1} is missing 'plugin_id'")
+    name = entry.get("name") or plugin_id
+    if "name" not in entry:
+        logger.warning(
+            "katalog.toml: actor #{index} missing name; using plugin_id as name",
+            index=index + 1,
+        )
+    disabled = bool(entry.get("disabled")) if entry.get("disabled") is not None else False
+    if "config" in entry:
+        config = entry.get("config") or {}
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"katalog.toml: actor #{index + 1} config must be a table"
+            )
+    else:
+        reserved = {"name", "plugin_id", "disabled"}
+        config = {k: v for k, v in entry.items() if k not in reserved}
+    return name, plugin_id, config, disabled
+
+
+async def _bootstrap_actors_from_toml(ws: pathlib.Path) -> None:
+    from katalog.api.actors import ActorCreate, create_actor
+    from katalog.db.metadata import sync_config_db
+    from katalog.plugins.registry import refresh_plugins
+
+    toml_path = ws / "katalog.toml"
+    if not toml_path.exists():
+        logger.warning(
+            "No katalog.toml found in workspace {ws}; skipping bootstrap.",
+            ws=ws,
+        )
+        return
+
+    try:
+        raw = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"Invalid katalog.toml syntax: {exc}") from exc
+
+    actor_entries = _collect_actor_entries(raw)
+    if not actor_entries:
+        logger.warning("katalog.toml has no actors to bootstrap")
+        return
+
+    refresh_plugins()
+    await sync_config_db()
+
+    created = 0
+    for index, entry in enumerate(actor_entries):
+        name, plugin_id, config, disabled = _parse_actor_entry(entry, index)
+        payload = ActorCreate(
+            name=name,
+            plugin_id=plugin_id,
+            config=config or None,
+            disabled=disabled,
+        )
+        actor = await create_actor(payload)
+        logger.info(
+            "Bootstrapped actor '{name}' ({plugin_id})",
+            name=actor.name,
+            plugin_id=actor.plugin_id,
+        )
+        created += 1
+
+    logger.info("Bootstrapped {count} actors from katalog.toml", count=created)
+
+
 def main() -> None:
     args = _parse_args()
     ws = _validate_workspace(args)
@@ -137,12 +235,28 @@ def main() -> None:
                 "Test workspace already initialized at {db_path}; skipping reset/seed. Delete the DB to re-seed.",
                 db_path=db_path,
             )
+            if args.bootstrap_actors:
+                logger.warning(
+                    "Not bootstrapping actors from katalog.toml; existing DB found at {db_path}.",
+                    db_path=db_path,
+                )
         else:
             _reset_workspace(ws)
+            if args.bootstrap_actors:
+                asyncio.run(_bootstrap_actors_from_toml(ws))
             if args.seed_assets > 0:
                 asyncio.run(_seed_test_workspace(ws, total_assets=args.seed_assets))
     elif args.seed_assets > 0:
         raise SystemExit("--seed-assets requires --test-workspace")
+    elif args.bootstrap_actors:
+        db_path = ws / "katalog.db"
+        if db_path.exists():
+            logger.warning(
+                "Not bootstrapping actors from katalog.toml; existing DB found at {db_path}.",
+                db_path=db_path,
+            )
+        else:
+            asyncio.run(_bootstrap_actors_from_toml(ws))
 
     try:
         import uvicorn
