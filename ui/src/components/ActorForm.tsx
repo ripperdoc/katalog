@@ -18,6 +18,7 @@ type ActorFormProps = {
   onSubmit: () => void;
   canSubmit: boolean;
   submitting: boolean;
+  showSubmit?: boolean;
   submitLabel?: string;
   submittingLabel?: string;
 };
@@ -37,6 +38,7 @@ function ActorForm({
   onSubmit,
   canSubmit,
   submitting,
+  showSubmit = true,
   submitLabel = "Save",
   submittingLabel = "Saving...",
 }: ActorFormProps) {
@@ -64,7 +66,7 @@ function ActorForm({
           >
             {plugins.map((plugin) => (
               <option key={plugin.plugin_id} value={plugin.plugin_id}>
-                {plugin.title ?? plugin.plugin_id} ({plugin.type.toLowerCase()})
+                {plugin.title ?? plugin.plugin_id} ({plugin.actor_type.toLowerCase()})
               </option>
             ))}
           </select>
@@ -128,6 +130,7 @@ function ActorForm({
               )}
               {!formDisabled && (
                 <Form
+                  className="config-form"
                   schema={schema as any}
                   formData={configData}
                   onChange={(evt) => onConfigChange(evt.formData as Record<string, unknown>)}
@@ -174,16 +177,18 @@ function ActorForm({
           </div>
         </div>
       )}
-      <div className="button-row form-actions">
-        <button
-          type="button"
-          className="app-btn btn-primary"
-          disabled={!canSubmit || submitting}
-          onClick={onSubmit}
-        >
-          {submitting ? submittingLabel : submitLabel}
-        </button>
-      </div>
+      {showSubmit && (
+        <div className="button-row form-actions">
+          <button
+            type="button"
+            className="app-btn btn-save"
+            disabled={!canSubmit || submitting}
+            onClick={onSubmit}
+          >
+            {submitting ? submittingLabel : submitLabel}
+          </button>
+        </div>
+      )}
     </>
   );
 }

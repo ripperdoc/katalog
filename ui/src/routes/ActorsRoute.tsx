@@ -105,7 +105,7 @@ function ActorsRoute() {
 
   const filteredPlugins = useCallback(
     (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER" | "EDITOR") =>
-      plugins.filter((p) => p.type === ptype),
+      plugins.filter((p) => p.actor_type === ptype),
     [plugins],
   );
 
@@ -167,7 +167,7 @@ function ActorsRoute() {
                     {runAllEnabled && (
                       <button
                         type="button"
-                        className="app-btn btn-primary"
+                        className="app-btn btn-action"
                         onClick={async () => {
                           setError(null);
                           try {
@@ -198,7 +198,7 @@ function ActorsRoute() {
                     )}
                     <button
                       type="button"
-                      className="app-btn btn-primary"
+                      className="app-btn btn-save"
                       onClick={() =>
                         navigate(
                           `/actors/new?type=${

@@ -73,7 +73,7 @@ export interface Actor {
 
 export interface PluginSpec {
   plugin_id: string;
-  type: string;
+  actor_type: string;
   title: string;
   description: string | null;
   origin: string;

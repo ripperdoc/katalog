@@ -150,7 +150,7 @@ function ChangesetProgressBar() {
           {isManual && (
             <button
               type="button"
-              className="btn-primary"
+              className="app-btn btn-save"
               onClick={() => void handleFinish()}
               disabled={finishing || cancelling}
             >

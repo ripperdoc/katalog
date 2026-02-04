@@ -120,12 +120,23 @@ function AssetsRoute() {
   const selectedCount = selectedAssetIds.size;
   const saveLabel =
     selectedCount > 0
-      ? `Save ${selectedCount.toLocaleString()} to collection`
-      : "Save all to collection";
+      ? `Add ${selectedCount.toLocaleString()} to collection`
+      : "Add all to collection";
 
   return (
     <>
-      <AppHeader />
+      <AppHeader>
+        <div className="panel-actions">
+          <button
+            className="app-btn btn-save"
+            type="button"
+            onClick={() => void handleSaveCollection()}
+            disabled={saving}
+          >
+            {saving ? "Saving…" : saveLabel}
+          </button>
+        </div>
+      </AppHeader>
       <main className="app-main app-main--locked">
         <AssetTable
           title="Assets"
@@ -134,16 +145,6 @@ function AssetsRoute() {
           onLoadComplete={handleLoadComplete}
           onSelectionChange={setSelectedAssetIds}
           searchPlaceholder="Search all assets…"
-          actions={
-            <button
-              className="btn-primary"
-              type="button"
-              onClick={() => void handleSaveCollection()}
-              disabled={saving}
-            >
-              {saving ? "Saving…" : saveLabel}
-            </button>
-          }
         />
       </main>
     </>

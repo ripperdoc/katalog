@@ -153,10 +153,10 @@ function ActorDetailRoute() {
       <AppHeader
         breadcrumbLabel={formName || actor?.name || (actorId ? `Actor ${actorId}` : null)}
       >
-        <div className="button-row">
+        <div className="panel-actions">
           {actor && (
             <button
-              className="app-btn btn-primary"
+              className="app-btn"
               type="button"
               onClick={() => void handleToggleDisabled()}
               disabled={toggling || loading}
@@ -166,7 +166,7 @@ function ActorDetailRoute() {
           )}
           {actor?.type !== "EDITOR" && (
             <button
-              className="btn-primary"
+              className="app-btn btn-action"
               type="button"
               onClick={triggerScan}
               disabled={scanning || loading || Boolean(actor?.disabled)}
@@ -174,6 +174,14 @@ function ActorDetailRoute() {
               {scanning ? "Starting..." : "Scan"}
             </button>
           )}
+          <button
+            className="app-btn btn-save"
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={!canSave || saving}
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
         </div>
       </AppHeader>
       <main className="app-main">
@@ -202,6 +210,7 @@ function ActorDetailRoute() {
                   submitting={saving}
                   submitLabel="Save"
                   submittingLabel="Saving..."
+                  showSubmit={false}
                 />
               </div>
               <div className="file-card">

@@ -21,7 +21,7 @@ const Sidebar = ({ isOpen, title, subtitle, onClose, children }: SidebarProps) =
             <h3>{title}</h3>
             {subtitle && <p>{subtitle}</p>}
           </div>
-          <button className="app-btn btn-primary" type="button" onClick={onClose}>
+          <button className="app-btn" type="button" onClick={onClose}>
             Close
           </button>
         </header>

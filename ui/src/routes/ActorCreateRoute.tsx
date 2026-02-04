@@ -18,6 +18,7 @@ function ActorCreateRoute() {
   const [configToml, setConfigToml] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const defaultNameRef = useRef<string>("");
 
   const typeFilter = useMemo(() => {
     const t = params.get("type");
@@ -39,7 +40,7 @@ function ActorCreateRoute() {
     try {
       const res = await fetchPlugins();
       const list = res.plugins ?? [];
-      const filtered = typeFilter ? list.filter((p) => p.type === typeFilter) : list;
+      const filtered = typeFilter ? list.filter((p) => p.actor_type === typeFilter) : list;
       setPlugins(filtered);
       const defaultPlugin =
         filtered.find((p) => p.plugin_id === USER_EDITOR_PLUGIN_ID) || filtered[0];
@@ -62,6 +63,11 @@ function ActorCreateRoute() {
       if (!pluginId) {
         setSchema(null);
         return;
+      }
+      const nextDefault = pluginId.split(".").pop() || pluginId;
+      if (!name || name === defaultNameRef.current) {
+        setName(nextDefault);
+        defaultNameRef.current = nextDefault;
       }
       try {
         const res = await fetchPluginConfigSchema(pluginId);
@@ -116,6 +122,16 @@ function ActorCreateRoute() {
   return (
     <>
       <AppHeader breadcrumbLabel="New Actor">
+        <div className="panel-actions">
+          <button
+            type="button"
+            className="app-btn btn-save"
+            onClick={() => void handleSubmit()}
+            disabled={!pluginId || loading}
+          >
+            {loading ? "Saving..." : "Create"}
+          </button>
+        </div>
       </AppHeader>
       <main className="app-main">
         <section className="panel">
@@ -136,8 +152,7 @@ function ActorCreateRoute() {
               onSubmit={() => void handleSubmit()}
               canSubmit={Boolean(pluginId)}
               submitting={loading}
-              submitLabel="Create"
-              submittingLabel="Saving..."
+              showSubmit={false}
             />
           </div>
         </section>

@@ -218,10 +218,10 @@ function ChangesetDetailRoute() {
   return (
     <>
       <AppHeader breadcrumbLabel={changesetId ? `Changeset ${changesetId}` : null}>
-        <div className="button-row">
+        <div className="panel-actions">
           {isRunning && (
             <button
-              className="app-btn btn-primary"
+              className="app-btn danger"
               type="button"
               onClick={requestCancel}
               disabled={cancelling}
@@ -259,16 +259,6 @@ function ChangesetDetailRoute() {
                 <div className="panel-header" style={{ padding: 0, marginBottom: "0.5rem" }}>
                   <div>
                     <h3>Changes</h3>
-                  </div>
-                  <div className="panel-actions">
-                    <button
-                      type="button"
-                      className="app-btn btn-primary"
-                      onClick={() => void loadChanges(changesPage)}
-                      disabled={changesLoading}
-                    >
-                      {changesLoading ? "Loading..." : "Reload"}
-                    </button>
                   </div>
                 </div>
                 {changesError && <p className="error">{changesError}</p>}

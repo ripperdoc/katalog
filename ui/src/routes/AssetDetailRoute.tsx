@@ -153,10 +153,10 @@ function AssetDetailRoute() {
   return (
     <>
       <AppHeader breadcrumbLabel={assetLabel}>
-        <div className="button-row">
+        <div className="panel-actions">
           {!activeChangeset && (
             <button
-              className="btn-primary"
+              className="app-btn btn-action"
               type="button"
               onClick={() => void startManual()}
               disabled={loading}
@@ -166,10 +166,20 @@ function AssetDetailRoute() {
           )}
           {activeChangeset && (
             <>
-              <button type="button" onClick={() => void finishChangeset()} disabled={loading}>
+              <button
+                type="button"
+                className="app-btn btn-save"
+                onClick={() => void finishChangeset()}
+                disabled={loading}
+              >
                 Finish changes
               </button>
-              <button type="button" onClick={() => void discardChangeset()} disabled={loading}>
+              <button
+                type="button"
+                className="app-btn danger"
+                onClick={() => void discardChangeset()}
+                disabled={loading}
+              >
                 Discard changeset
               </button>
             </>

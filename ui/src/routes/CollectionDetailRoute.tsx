@@ -292,7 +292,7 @@ function CollectionDetailRoute() {
             </button>
           )}
           <button
-            className="btn-primary"
+            className="app-btn btn-action"
             type="button"
             onClick={() => setShowAnalyzerSidebar(true)}
           >
@@ -307,7 +307,7 @@ function CollectionDetailRoute() {
             {deleting ? "Deleting…" : "Delete"}
           </button>
           <button
-            className="btn-primary"
+            className="app-btn btn-save"
             type="button"
             onClick={() => void handleSaveMeta()}
             disabled={saving}

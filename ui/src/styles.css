@@ -353,6 +353,11 @@ form {
   margin-bottom: 1.5rem;
 }
 
+.config-form {
+  display: block;
+  margin-bottom: 0;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -401,7 +406,27 @@ button {
 }
 
 .btn-primary {
-  background-color: #2563eb;
+  background-color: #1d4ed8;
+  color: #ffffff;
+}
+
+.app-btn {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.app-btn.btn-action {
+  background-color: #1d4ed8;
+  color: #ffffff;
+}
+
+.app-btn.btn-save {
+  background-color: #93c5fd;
+  color: #0f172a;
+}
+
+.app-btn.danger {
+  background-color: #dc2626;
   color: #ffffff;
 }
 

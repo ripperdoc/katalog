@@ -57,18 +57,7 @@ function CollectionsRoute() {
 
   return (
     <>
-      <AppHeader>
-        <div className="panel-actions">
-          <button
-            className="btn-primary"
-            type="button"
-            onClick={() => void loadCollections()}
-            disabled={loading}
-          >
-            {loading ? "Loading..." : "Reload"}
-          </button>
-        </div>
-      </AppHeader>
+      <AppHeader />
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}

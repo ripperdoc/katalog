@@ -58,18 +58,7 @@ function ChangesetsRoute() {
 
   return (
     <>
-      <AppHeader>
-        <div className="panel-actions">
-          <button
-            type="button"
-            className="app-btn btn-primary"
-            onClick={() => loadChangesets()}
-            disabled={loading}
-          >
-            {loading ? "Loading..." : "Refresh"}
-          </button>
-        </div>
-      </AppHeader>
+      <AppHeader />
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}

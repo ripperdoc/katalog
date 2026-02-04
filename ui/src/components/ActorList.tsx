@@ -67,7 +67,7 @@ const ActorList = ({
             {showRun && (
               <button
                 type="button"
-                className="app-btn btn-primary"
+                className="app-btn btn-action"
                 onClick={() => onRun?.(actor)}
                 disabled={runDisabled || actor.disabled}
                 title={
