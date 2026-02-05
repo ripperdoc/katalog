@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ColumnType,
   FilterCondition,
@@ -11,8 +11,14 @@ import {
 import { Asset, ColumnDefinition, MetadataValueEntry, ViewAssetsResponse } from "../types/api";
 import "simple-table-core/styles.css";
 import AssetCell from "./AssetCell";
+import { ActorCellPure } from "./ActorCell";
 import ExternalIdCell from "./ExternalIdCell";
 import TableFooter from "./TableFooter";
+import { useRegistry } from "../utils/registry";
+
+const ASSET_ID_KEY = "asset/id";
+const ACTOR_ID_KEY = "asset/actor_id";
+const EXTERNAL_ID_KEY = "asset/external_id";
 
 const valueGetter = (props: ValueGetterProps) => {
   const value = props.row[props.accessor];
@@ -144,9 +150,6 @@ const serializeFilter = (filter: FilterCondition): string | null => {
 };
 
 export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
-  const assetIdKey = "asset/id";
-  const externalIdKey = "asset/external_id";
-
   const rv = schema
     .filter((column) => !column.hidden)
     .map((column, index) => ({
@@ -163,9 +166,9 @@ export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject
           ? (props: ValueFormatterProps) => formatBytes(valueGetter(props))
           : valueFormatter,
       cellRenderer:
-        column.id === externalIdKey
+        column.id === EXTERNAL_ID_KEY
           ? ExternalIdCell
-          : column.id === assetIdKey
+          : column.id === ASSET_ID_KEY
             ? AssetCell
             : undefined,
     }));
@@ -205,10 +208,11 @@ const AssetTable = ({
   actions,
   searchPlaceholder = "Search…",
 }: AssetTableProps) => {
+  const { data: registryData } = useRegistry();
   const [records, setRecords] = useState<Asset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [headers, setHeaders] = useState<HeaderObject[]>([]);
+  const [schema, setSchema] = useState<ColumnDefinition[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [pagination, setPagination] = useState<{ limit: number; page: number }>({
     limit: defaultLimit,
@@ -219,12 +223,31 @@ const AssetTable = ({
   const [filters, setFilters] = useState<TableFilterState>({});
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
+  const [useServerFilters, setUseServerFilters] = useState<boolean>(true);
+  const [useServerSort, setUseServerSort] = useState<boolean>(true);
   const searchRef = useRef("");
   const lastRequestRef = useRef<string | null>(null);
 
   useEffect(() => {
     searchRef.current = searchQuery;
   }, [searchQuery]);
+
+  const headers = useMemo<HeaderObject[]>(() => {
+    if (!schema.length) {
+      return [];
+    }
+    const baseHeaders = buildHeadersFromSchema(schema);
+    return baseHeaders.map((header) =>
+      header.accessor === ACTOR_ID_KEY
+        ? {
+            ...header,
+            cellRenderer: (props) => (
+              <ActorCellPure {...props} actorsById={registryData?.actorsById} />
+            ),
+          }
+        : header,
+    );
+  }, [schema, registryData]);
 
   const loadPage = useCallback(
     async (
@@ -240,27 +263,29 @@ const AssetTable = ({
       const effectiveFilters = filtersOverride ?? filters;
       const effectiveSearch = (searchOverride ?? searchRef.current).trim();
       const sortParam =
-        effectiveSort && effectiveSort.accessor && effectiveSort.direction
+        useServerSort && effectiveSort && effectiveSort.accessor && effectiveSort.direction
           ? ([[effectiveSort.accessor, effectiveSort.direction]] as [
               string,
               "asc" | "desc",
             ][])
           : undefined;
       const filterParams: string[] = [];
-      Object.values(effectiveFilters || {}).forEach((filter) => {
-        const normalized = serializeFilter(filter);
-        if (normalized) {
-          filterParams.push(normalized);
-        }
-      });
-      const searchParam = effectiveSearch.length > 0 ? effectiveSearch : undefined;
-        const requestKey = JSON.stringify({
-          page,
-          limit,
-          sort: sortParam,
-          filters: filterParams,
-          search: searchParam,
+      if (useServerFilters) {
+        Object.values(effectiveFilters || {}).forEach((filter) => {
+          const normalized = serializeFilter(filter);
+          if (normalized) {
+            filterParams.push(normalized);
+          }
         });
+      }
+      const searchParam = effectiveSearch.length > 0 ? effectiveSearch : undefined;
+      const requestKey = JSON.stringify({
+        page,
+        limit,
+        sort: sortParam,
+        filters: filterParams,
+        search: searchParam,
+      });
       if (!forceReload && lastRequestRef.current === requestKey) {
         return;
       }
@@ -280,7 +305,7 @@ const AssetTable = ({
           id: item["asset/id"] ?? item.id,
         }));
         setRecords(fetchedRecords);
-        setHeaders(buildHeadersFromSchema(response.schema ?? []));
+        setSchema(response.schema ?? []);
         setPagination({
           limit,
           page,
@@ -305,7 +330,15 @@ const AssetTable = ({
         setLoading(false);
       }
     },
-    [pagination.limit, sort, filters, fetchPage, onLoadComplete],
+    [
+      pagination.limit,
+      sort,
+      filters,
+      fetchPage,
+      onLoadComplete,
+      useServerFilters,
+      useServerSort,
+    ],
   );
 
   useEffect(() => {
@@ -321,21 +354,29 @@ const AssetTable = ({
 
   return (
     <section className="panel">
-      {/* <header className="panel-header">
+      <header className="panel-header">
         <div>
           <h2>{title}</h2>
           {subtitle && <p>{subtitle}</p>}
         </div>
         <div className="panel-actions">
           {actions}
-          <button
-            className="btn-primary"
-            type="button"
-            onClick={() => void loadPage(1, undefined, sort, filters, searchQuery, true)}
-            disabled={loading}
-          >
-            {loading ? "Loading..." : "Reload"}
-          </button>
+          <label className="toggle-inline">
+            <input
+              type="checkbox"
+              checked={useServerFilters}
+              onChange={(event) => setUseServerFilters(event.target.checked)}
+            />
+            Server filters
+          </label>
+          <label className="toggle-inline">
+            <input
+              type="checkbox"
+              checked={useServerSort}
+              onChange={(event) => setUseServerSort(event.target.checked)}
+            />
+            Server sort
+          </label>
         </div>
       </header>
       <div className="search-bar">
@@ -348,7 +389,7 @@ const AssetTable = ({
           aria-label="Search"
         />
       </div>
-      {error && <p className="error">{error}</p>} */}
+      {error && <p className="error">{error}</p>}
 
       <div className="table-container">
         <SimpleTable
@@ -363,6 +404,8 @@ const AssetTable = ({
           serverSidePagination={true}
           enableRowSelection={true}
           totalRowCount={total ?? records.length}
+          externalSortHandling={useServerSort}
+          externalFilterHandling={useServerFilters}
           footerRenderer={(props) => (
             <TableFooter
               {...props}
@@ -389,28 +432,32 @@ const AssetTable = ({
             setSelectedAssetIds(nextSelected);
             onSelectionChange?.(nextSelected);
           }}
-          // externalSortHandling={true}
-          // externalFilterHandling={true}
-          // onSortChange={(sortArg) => {
-          //   const normalized = normalizeSort(sortArg);
-          //   if (!normalized) {
-          //     setSort(null);
-          //     void loadPage(1, undefined, null, filters);
-          //     return;
-          //   }
-          //   setSort(normalized);
-          //   void loadPage(1, undefined, normalized, filters);
-          // }}
-          // onFilterChange={(state) => {
-          //   const nextFilters = state || {};
-          //   const currentSig = JSON.stringify(filters || {});
-          //   const nextSig = JSON.stringify(nextFilters || {});
-          //   if (currentSig === nextSig) {
-          //     return;
-          //   }
-          //   setFilters(nextFilters);
-          //   void loadPage(1, undefined, sort, nextFilters);
-          // }}
+          onSortChange={(sortArg) => {
+            const normalized = normalizeSort(sortArg);
+            if (!normalized) {
+              setSort(null);
+              if (useServerSort) {
+                void loadPage(1, undefined, null, filters);
+              }
+              return;
+            }
+            setSort(normalized);
+            if (useServerSort) {
+              void loadPage(1, undefined, normalized, filters);
+            }
+          }}
+          onFilterChange={(state) => {
+            const nextFilters = state || {};
+            const currentSig = JSON.stringify(filters || {});
+            const nextSig = JSON.stringify(nextFilters || {});
+            if (currentSig === nextSig) {
+              return;
+            }
+            setFilters(nextFilters);
+            if (useServerFilters) {
+              void loadPage(1, undefined, sort, nextFilters);
+            }
+          }}
         />
       </div>
     </section>

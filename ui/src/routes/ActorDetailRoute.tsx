@@ -150,9 +150,7 @@ function ActorDetailRoute() {
 
   return (
     <>
-      <AppHeader
-        breadcrumbLabel={formName || actor?.name || (actorId ? `Actor ${actorId}` : null)}
-      >
+      <AppHeader breadcrumbLabel={formName || actor?.name || (actorId ? `Actor ${actorId}` : null)}>
         <div className="panel-actions">
           {actor && (
             <button
@@ -171,7 +169,7 @@ function ActorDetailRoute() {
               onClick={triggerScan}
               disabled={scanning || loading || Boolean(actor?.disabled)}
             >
-              {scanning ? "Starting..." : "Scan"}
+              {scanning ? "Starting..." : "Run"}
             </button>
           )}
           <button

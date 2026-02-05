@@ -6,6 +6,7 @@ from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.tables import METADATA_TABLE
 from katalog.db.sqlspec.sql_helpers import select
 from katalog.models.metadata import _metadata_to_row, _normalize_metadata_row, Metadata
+from katalog.constants.metadata import ASSET_SEARCH_DOC, get_metadata_id
 
 if TYPE_CHECKING:
     from katalog.constants.metadata import MetadataKey
@@ -87,6 +88,8 @@ class SqlspecMetadataRepo:
         existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
     ) -> set["MetadataKey"]:
+        search_doc_id = get_metadata_id(ASSET_SEARCH_DOC)
+
         async def _persist(active_session: Any, *, commit: bool) -> set["MetadataKey"]:
             if existing_metadata is None:
                 loaded_metadata = await self.for_asset(
@@ -100,7 +103,38 @@ class SqlspecMetadataRepo:
                 existing_metadata=loaded_metadata,
             )
             if to_create:
-                await self.bulk_create(to_create, session=active_session)
+                search_rows: list[dict[str, Any]] = []
+                normal_rows: list[Metadata] = []
+                delete_rows: list[dict[str, Any]] = []
+                for entry in to_create:
+                    if entry.metadata_key_id == search_doc_id:
+                        if entry.removed or entry.value is None:
+                            if entry.asset_id is not None:
+                                delete_rows.append({"rowid": int(entry.asset_id)})
+                            continue
+                        if entry.asset_id is not None:
+                            search_rows.append(
+                                {
+                                    "rowid": int(entry.asset_id),
+                                    "doc": str(entry.value),
+                                }
+                            )
+                        continue
+                    normal_rows.append(entry)
+
+                if normal_rows:
+                    await self.bulk_create(normal_rows, session=active_session)
+                if search_rows:
+                    await active_session.execute_many(
+                        "INSERT OR REPLACE INTO asset_search(rowid, doc) "
+                        "VALUES (:rowid, :doc)",
+                        search_rows,
+                    )
+                if delete_rows:
+                    await active_session.execute_many(
+                        "DELETE FROM asset_search WHERE rowid = :rowid",
+                        delete_rows,
+                    )
                 if commit:
                     await active_session.commit()
             return changed_keys

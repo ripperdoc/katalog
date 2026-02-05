@@ -26,76 +26,6 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 
 
-async def _persist_scan_only_item(
-    *,
-    item: AssetScanResult,
-    changeset: Changeset,
-    seen_assets: set[int],
-    session,
-) -> None:
-    if changeset.stats is None:
-        changeset.stats = ChangesetStats()
-    stats = changeset.stats
-    # Ensure asset row exists and changeset markers are updated.
-    db = get_asset_repo()
-    was_created = await db.save_record(
-        item.asset, changeset=changeset, actor=item.actor, session=session
-    )
-    if item.asset.id is not None:
-        seen_assets.add(int(item.asset.id))
-    if was_created:
-        stats.assets_added += 1
-        # Newly created assets cannot have existing metadata.
-        item.asset._metadata_cache = []
-        loaded_metadata = []
-    else:
-        loaded_metadata = await db.load_metadata(
-            item.asset, include_removed=True, session=session
-        )
-
-    # Mark asset as seen in this changeset for this actor.
-    item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
-
-    changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
-    md_db = get_metadata_repo()
-    changes = await md_db.persist_changes(
-        changes,
-        asset=item.asset,
-        changeset=changeset,
-        existing_metadata=loaded_metadata,
-        session=session,
-    )
-    if changes:
-        stats.assets_changed += 1
-
-
-def _prepare_scan_only_item(
-    *,
-    item: AssetScanResult,
-    changeset: Changeset,
-    seen_assets: set[int],
-    loaded_metadata: list[Metadata],
-) -> tuple[list[Metadata], bool]:
-    if changeset.stats is None:
-        changeset.stats = ChangesetStats()
-    stats = changeset.stats
-    if item.asset.id is not None:
-        seen_assets.add(int(item.asset.id))
-
-    # Mark asset as seen in this changeset for this actor.
-    item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
-
-    changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
-    to_create, _changed_keys = changes.prepare_persist(
-        asset=item.asset,
-        changeset=changeset,
-        existing_metadata=loaded_metadata,
-    )
-    if to_create:
-        stats.assets_changed += 1
-    return to_create, bool(to_create)
-
-
 async def _flush_scan_only_batch(
     *,
     batch: list[AssetScanResult],
@@ -131,12 +61,17 @@ async def _flush_scan_only_batch(
                         )
                     )
 
-                to_create, _changed = _prepare_scan_only_item(
-                    item=item,
-                    changeset=changeset,
-                    seen_assets=seen_assets,
-                    loaded_metadata=loaded_metadata,
+                item.metadata.append(
+                    make_metadata(ASSET_LOST, None, actor_id=item.actor.id)
                 )
+                changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
+                to_create, _changed = changes.prepare_persist(
+                    asset=item.asset,
+                    changeset=changeset,
+                    existing_metadata=loaded_metadata,
+                )
+                if to_create:
+                    stats.assets_changed += 1
                 if to_create:
                     all_metadata.extend(to_create)
 

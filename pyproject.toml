@@ -44,6 +44,7 @@ md5 = "katalog.processors.md5_hash:MD5HashProcessor"
 mime = "katalog.processors.mime_type:MimeTypeProcessor"
 name_readability = "katalog.processors.name_readability:NameReadabilityProcessor"
 flag_hidden = "katalog.processors.flag_hidden:HiddenFlagProcessor"
+search_index = "katalog.processors.search_index:SearchIndexProcessor"
 
 [project.entry-points."katalog.analyzer"]
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"

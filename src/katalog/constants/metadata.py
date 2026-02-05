@@ -38,6 +38,7 @@ class MetadataDef(BaseModel):
     width: int | None = None  # For UI display purposes
     skip_false: bool = False  # Skip persisting falsey values when staging metadata
     clear_on_false: bool = False  # Tombstone existing values when staging falsey values
+    searchable: bool | None = None  # None means infer from value_type
 
     @field_serializer("key")
     def _serialize_key(self, value: MetadataKey) -> str:
@@ -114,6 +115,7 @@ def define_metadata(
     width: int | None = None,
     skip_false: bool = False,
     clear_on_false: bool = False,
+    searchable: bool | None = None,
     plugin_id: str = CORE_PLUGIN_PATH,
 ) -> MetadataKey:
     key = MetadataKey(name)
@@ -127,6 +129,7 @@ def define_metadata(
         width=width,
         skip_false=skip_false,
         clear_on_false=clear_on_false,
+        searchable=searchable,
     )
     return key
 
@@ -178,6 +181,9 @@ ASSET_EXTERNAL_ID = define_metadata(
 ASSET_NAMESPACE = define_metadata("asset/namespace", MetadataType.STRING, "Namespace")
 ASSET_CANONICAL_URI = define_metadata(
     "asset/canonical_uri", MetadataType.STRING, "Canonical URI"
+)
+ASSET_SEARCH_DOC = define_metadata(
+    "asset/search_doc", MetadataType.STRING, "Search document"
 )
 
 # Built-in metadata

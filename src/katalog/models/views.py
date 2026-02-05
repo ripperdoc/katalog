@@ -96,7 +96,9 @@ def default_view() -> ViewSpec:
     """Default view: mirrors the previous list_assets_with_metadata output."""
     columns: list[ColumnSpec] = [
         ColumnSpec.from_metadata(ASSET_ID, sortable=True, width=80),
-        ColumnSpec.from_metadata(ASSET_ACTOR_ID, sortable=True, filterable=True),
+        ColumnSpec.from_metadata(
+            ASSET_ACTOR_ID, sortable=True, filterable=True, width=120
+        ),
         ColumnSpec.from_metadata(
             ASSET_NAMESPACE,
             hidden=True,
@@ -108,8 +110,8 @@ def default_view() -> ViewSpec:
             hidden=True,
             searchable=True,
         ),
-        ColumnSpec.from_metadata(FILE_PATH, filterable=True, width=400),
-        ColumnSpec.from_metadata(FILE_NAME, filterable=True),
+        ColumnSpec.from_metadata(FILE_PATH, filterable=True, searchable=True, width=400),
+        ColumnSpec.from_metadata(FILE_NAME, filterable=True, searchable=True),
         ColumnSpec.from_metadata(FILE_SIZE, filterable=True, width=80),
         ColumnSpec.from_metadata(FILE_TYPE, filterable=True),
         ColumnSpec.from_metadata(TIME_CREATED, filterable=True, width=210),
