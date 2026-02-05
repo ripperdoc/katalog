@@ -352,7 +352,9 @@ class SqlspecAssetRepo:
         if unknown:
             raise ValueError(f"Unknown columns requested: {sorted(unknown)}")
 
-        order_by_clause = sort_conditions(sort, view)
+        order_by_clause = sort_conditions(
+            sort, view, metadata_aggregation=query.metadata_aggregation
+        )
 
         asset_table = ASSET_TABLE
         metadata_table = METADATA_TABLE

@@ -112,7 +112,7 @@ def default_view() -> ViewSpec:
         ),
         ColumnSpec.from_metadata(FILE_PATH, filterable=True, searchable=True, width=400),
         ColumnSpec.from_metadata(FILE_NAME, filterable=True, searchable=True),
-        ColumnSpec.from_metadata(FILE_SIZE, filterable=True, width=80),
+        ColumnSpec.from_metadata(FILE_SIZE, filterable=True, sortable=True, width=80),
         ColumnSpec.from_metadata(FILE_TYPE, filterable=True),
         ColumnSpec.from_metadata(TIME_CREATED, filterable=True, width=210),
         ColumnSpec.from_metadata(TIME_MODIFIED, filterable=True, width=210),
