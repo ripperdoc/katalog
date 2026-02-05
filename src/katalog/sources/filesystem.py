@@ -195,12 +195,7 @@ class FilesystemClient(SourcePlugin):
 
 
 def _looks_hidden(path: Path) -> bool:
-    """Return True when the path appears to be hidden on the current platform."""
-    dotted_component = any(
-        part.startswith(".") for part in path.parts if part not in {"", ".", ".."}
-    )
-    if dotted_component:
-        return True
+    """Return True when filesystem metadata marks the path as hidden."""
     if os.name == "nt":
         FILE_ATTRIBUTE_HIDDEN = 0x02
         try:
@@ -210,6 +205,14 @@ def _looks_hidden(path: Path) -> bool:
         if attrs == -1:
             return False
         return bool(attrs & FILE_ATTRIBUTE_HIDDEN)
+    try:
+        stat = path.lstat()
+    except Exception:
+        return False
+    st_flags = getattr(stat, "st_flags", 0)
+    if st_flags:
+        UF_HIDDEN = 0x00008000
+        return bool(st_flags & UF_HIDDEN)
     return False
 
 

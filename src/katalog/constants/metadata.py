@@ -36,6 +36,8 @@ class MetadataDef(BaseModel):
     title: str = ""
     description: str = ""
     width: int | None = None  # For UI display purposes
+    skip_false: bool = False  # Skip persisting falsey values when staging metadata
+    clear_on_false: bool = False  # Tombstone existing values when staging falsey values
 
     @field_serializer("key")
     def _serialize_key(self, value: MetadataKey) -> str:
@@ -110,6 +112,8 @@ def define_metadata(
     title: str = "",
     description: str = "",
     width: int | None = None,
+    skip_false: bool = False,
+    clear_on_false: bool = False,
     plugin_id: str = CORE_PLUGIN_PATH,
 ) -> MetadataKey:
     key = MetadataKey(name)
@@ -121,6 +125,8 @@ def define_metadata(
         title=title,
         description=description,
         width=width,
+        skip_false=skip_false,
+        clear_on_false=clear_on_false,
     )
     return key
 
@@ -291,15 +297,53 @@ WARNING_NAME_CONVENTIONS = define_metadata(
 )
 
 FLAG_FAVORITE = define_metadata(
-    "flag/starred", MetadataType.INT, "Favorited", width=100
+    "flag/starred",
+    MetadataType.INT,
+    "Favorited",
+    width=100,
+    skip_false=True,
+    clear_on_false=True,
 )
-FLAG_HIDDEN = define_metadata("flag/hidden", MetadataType.INT, "Hidden", width=100)
-FLAG_REVIEW = define_metadata("flag/review", MetadataType.INT, "Review", width=100)
+FLAG_HIDDEN = define_metadata(
+    "flag/hidden",
+    MetadataType.INT,
+    "Hidden",
+    width=100,
+    skip_false=True,
+    clear_on_false=True,
+)
+FLAG_REVIEW = define_metadata(
+    "flag/review",
+    MetadataType.INT,
+    "Review",
+    width=100,
+    skip_false=True,
+    clear_on_false=True,
+)
 FLAG_REJECTED = define_metadata(
-    "flag/rejected", MetadataType.INT, "Rejecedt", width=100
+    "flag/rejected",
+    MetadataType.INT,
+    "Rejecedt",
+    width=100,
+    skip_false=True,
+    clear_on_false=True,
 )
-FLAG_SHARED = define_metadata("flag/shared", MetadataType.INT, "Shared", width=100)
-FLAG_TRASHED = define_metadata("flag/trashed", MetadataType.INT, "Trashed", width=100)
+FLAG_SHARED = define_metadata(
+    "flag/shared",
+    MetadataType.INT,
+    "Shared",
+    width=100,
+    skip_false=True,
+    clear_on_false=True,
+)
+FLAG_TRASHED = define_metadata(
+    "flag/trashed",
+    MetadataType.INT,
+    "Trashed",
+    width=100,
+    skip_false=True,
+    clear_on_false=True,
+)
 
 
 # Content fingerprints (used for similarity / deduplication)

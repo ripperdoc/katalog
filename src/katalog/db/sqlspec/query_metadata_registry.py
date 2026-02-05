@@ -72,14 +72,18 @@ async def sync_metadata_registry() -> None:
     # Reload to capture generated IDs and rebuild mappings.
     METADATA_REGISTRY_BY_ID.clear()
     for row in rows:
+        key = MetadataKey(row["key"])
+        existing = METADATA_REGISTRY.get(key)
         updated = MetadataDef(
             plugin_id=row["plugin_id"],
-            key=MetadataKey(row["key"]),
+            key=key,
             registry_id=int(row["id"]),
             value_type=MetadataType(int(row["value_type"])),
             title=row.get("title") or "",
             description=row.get("description") or "",
             width=row.get("width"),
+            skip_false=existing.skip_false if existing else False,
+            clear_on_false=existing.clear_on_false if existing else False,
         )
         METADATA_REGISTRY[updated.key] = updated
         if updated.registry_id is not None:

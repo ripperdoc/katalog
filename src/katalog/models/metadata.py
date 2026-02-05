@@ -7,6 +7,7 @@ from typing import Any, Iterable, Sequence, TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field, field_serializer
 
 from katalog.constants.metadata import (
+    MetadataDef,
     MetadataKey,
     MetadataScalar,
     MetadataType,
@@ -409,12 +410,21 @@ class MetadataChanges(BaseModel):
         changed_keys: set[MetadataKey] = set()
 
         clear_groups: set[tuple[int, int]] = set()
+        skip_entries: set[int] = set()
         for md in staged:
             if md.actor_id is None:
                 raise ValueError("Metadata actor_id is not set for persistence")
             if md.metadata_key_id is None:
                 raise ValueError("Metadata metadata_key_id is not set for persistence")
             group_key = (int(md.metadata_key_id), int(md.actor_id))
+            definition = get_metadata_def_by_id(int(md.metadata_key_id))
+            if self._should_clear_on_false(definition, md):
+                clear_groups.add(group_key)
+                skip_entries.add(id(md))
+                continue
+            if self._should_skip_false(definition, md):
+                skip_entries.add(id(md))
+                continue
             if md.fingerprint() is None and not md.removed:
                 clear_groups.add(group_key)
 
@@ -471,6 +481,8 @@ class MetadataChanges(BaseModel):
                     changed_keys.add(existing_entry.key)
 
         for md in staged:
+            if id(md) in skip_entries:
+                continue
             if md.fingerprint() is None and not md.removed:
                 continue
             if md.asset_id is None:
@@ -491,6 +503,20 @@ class MetadataChanges(BaseModel):
             changed_keys.add(md.key)
 
         return to_create, changed_keys
+
+    @staticmethod
+    def _should_skip_false(definition: MetadataDef, md: "Metadata") -> bool:
+        if md.removed or not definition.skip_false:
+            return False
+        value = md.value
+        return value in (0, False)
+
+    @staticmethod
+    def _should_clear_on_false(definition: MetadataDef, md: "Metadata") -> bool:
+        if md.removed or not definition.clear_on_false:
+            return False
+        value = md.value
+        return value in (0, False)
 
 
 def _metadata_to_row(entry: Metadata) -> dict[str, Any]:
