@@ -7,8 +7,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { changesetEventsUrl, fetchChangeset } from "../api/client";
-import type { Changeset, ChangesetStatus } from "../types/api";
+import type { Changeset, ChangesetEvent, ChangesetStatus } from "../types/api";
+import { subscribeChangesetEvents } from "../utils/changesetEvents";
 
 export interface ChangesetProgress {
   id: number;
@@ -34,8 +34,7 @@ interface ProgressContextValue {
 const ChangesetProgressContext = createContext<ProgressContextValue | undefined>(undefined);
 
 interface InternalTracker {
-  source: EventSource;
-  progress: ChangesetProgress;
+  cleanup: () => void;
 }
 
 export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -43,13 +42,11 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
 }) => {
   const [active, setActive] = useState<ChangesetProgress[]>([]);
   const trackers = useRef<Map<number, InternalTracker>>(new Map());
-  const pendingLogUpdates = useRef<Map<number, ProgressUpdate>>(new Map());
-  const logTimers = useRef<Map<number, number>>(new Map());
 
   const removeTracker = useCallback((id: number) => {
     const current = trackers.current.get(id);
     if (current) {
-      current.source.close();
+      current.cleanup();
       trackers.current.delete(id);
     }
     setActive((prev) => prev.filter((item) => item.id !== id));
@@ -87,48 +84,53 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
     });
   }, []);
 
-  const parseProgressLog = (line: string) => {
-    const match = line.match(
-      /tasks_progress\s+queued=(\d+|None)\s+running=(\d+)\s+finished=(\d+)(?:\s+kind=([^\s]+))?/,
-    );
-    if (!match) {
-      return null;
-    }
-    const rawKind = match[4];
-    const kind = rawKind ? rawKind.replace(/^["']|["']$/g, "") : null;
-    const queuedRaw = match[1];
-    const queued = queuedRaw === "None" ? null : Number(queuedRaw);
-    return {
-      queued,
-      running: Number(match[2]),
-      finished: Number(match[3]),
-      kind,
-    };
-  };
+  const handleStatusEvent = useCallback(
+    (payload: Changeset) => {
+      upsertProgress({
+        id: payload.id,
+        message: payload.message ?? null,
+        status: payload.status,
+        data: (payload.data as Record<string, unknown> | null) ?? null,
+      });
+      if (payload.status !== "in_progress") {
+        removeTracker(payload.id);
+      }
+    },
+    [removeTracker, upsertProgress],
+  );
 
-  const summarizeLog = (line: string) => {
-    const match = line.match(/\]\s+\w+:\s+(.*)$/);
-    return (match ? match[1] : line).trim();
-  };
-
-  const scheduleLogUpdate = useCallback(
-    (update: ProgressUpdate) => {
-      const current = pendingLogUpdates.current.get(update.id);
-      pendingLogUpdates.current.set(update.id, { ...(current ?? {}), ...update });
-      if (logTimers.current.has(update.id)) {
+  const handleEvent = useCallback(
+    (evt: ChangesetEvent) => {
+      if (evt.event === "changeset_progress") {
+        const payload = evt.payload ?? {};
+        upsertProgress({
+          id: evt.changeset_id,
+          queued:
+            typeof payload["queued"] === "number" ? (payload["queued"] as number) : null,
+          running:
+            typeof payload["running"] === "number" ? (payload["running"] as number) : null,
+          finished:
+            typeof payload["finished"] === "number" ? (payload["finished"] as number) : null,
+          kind: typeof payload["kind"] === "string" ? (payload["kind"] as string) : null,
+        });
         return;
       }
-      const timerId = window.setTimeout(() => {
-        const pending = pendingLogUpdates.current.get(update.id);
-        if (pending) {
-          upsertProgress(pending);
+      if (evt.event === "log") {
+        const payload = evt.payload ?? {};
+        const message = payload["message"];
+        if (typeof message === "string" && message.trim().length > 0) {
+          upsertProgress({
+            id: evt.changeset_id,
+            logMessage: message,
+          });
         }
-        pendingLogUpdates.current.delete(update.id);
-        logTimers.current.delete(update.id);
-      }, 150);
-      logTimers.current.set(update.id, timerId);
+        return;
+      }
+      if (evt.event === "changeset_status" || evt.event === "changeset_start") {
+        handleStatusEvent(evt.payload as Changeset);
+      }
     },
-    [upsertProgress],
+    [handleStatusEvent, upsertProgress],
   );
 
   const startTracking = useCallback(
@@ -153,59 +155,10 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
       };
       upsertProgress(progress);
 
-      const url = changesetEventsUrl(changeset.id);
-      const source = new EventSource(url);
-
-      const handleLog = (event: MessageEvent) => {
-        const line = typeof event.data === "string" ? event.data : String(event.data);
-        const parsed = parseProgressLog(line);
-        if (parsed) {
-          scheduleLogUpdate({ id: progress.id, ...parsed });
-          return;
-        }
-        const summary = summarizeLog(line);
-        if (summary.length > 0) {
-          scheduleLogUpdate({ id: progress.id, logMessage: summary });
-        }
-      };
-
-      const handleChangeset = (event: MessageEvent) => {
-        try {
-          const payload = JSON.parse(event.data) as Changeset;
-          upsertProgress({
-            id: payload.id,
-            message: payload.message ?? progress.message,
-            status: payload.status,
-            data: (payload.data as Record<string, unknown> | null) ?? progress.data,
-          });
-          if (payload.status !== "in_progress") {
-            removeTracker(payload.id);
-          }
-        } catch {
-          // ignore malformed update
-        }
-      };
-
-      source.addEventListener("log", handleLog);
-      source.addEventListener("changeset", handleChangeset);
-      source.onerror = () => {
-        // transient errors: keep progress but close source to avoid loops
-        source.close();
-        trackers.current.delete(changeset.id);
-        void fetchChangeset(changeset.id)
-          .then((response) => {
-            if (response.changeset.status !== "in_progress") {
-              removeTracker(changeset.id);
-            }
-          })
-          .catch(() => {
-            // ignore fetch failures; keep current progress state
-          });
-      };
-
-      trackers.current.set(changeset.id, { source, progress });
+      const cleanup = subscribeChangesetEvents(changeset.id, handleEvent);
+      trackers.current.set(changeset.id, { cleanup });
     },
-    [removeTracker, upsertProgress],
+    [handleEvent, handleStatusEvent, removeTracker, upsertProgress],
   );
 
   const stopTracking = useCallback(
@@ -226,7 +179,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
 
   useEffect(
     () => () => {
-      trackers.current.forEach((tracker) => tracker.source.close());
+      trackers.current.forEach((tracker) => tracker.cleanup());
       trackers.current.clear();
     },
     [],

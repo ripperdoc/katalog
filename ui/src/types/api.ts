@@ -125,8 +125,15 @@ export interface ChangesetListResponse {
 
 export interface ChangesetResponse {
   changeset: Changeset;
-  logs: string[];
+  logs: ChangesetEvent[];
   running: boolean;
+}
+
+export interface ChangesetEvent {
+  event: string;
+  changeset_id: number;
+  ts: string;
+  payload: Record<string, unknown>;
 }
 
 export interface DeleteChangesetResponse {

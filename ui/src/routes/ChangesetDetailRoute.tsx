@@ -1,16 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import {
-  cancelChangeset,
-  fetchChangeset,
-  fetchChangesetChanges,
-  deleteChangeset,
-  changesetEventsUrl,
-} from "../api/client";
-import type { Changeset, ChangesetChangeRecord } from "../types/api";
+import { cancelChangeset, fetchChangeset, fetchChangesetChanges, deleteChangeset } from "../api/client";
+import type { Changeset, ChangesetChangeRecord, ChangesetEvent } from "../types/api";
 import AppHeader from "../components/AppHeader";
 import { HeaderObject, SimpleTable } from "simple-table-core";
 import "simple-table-core/styles.css";
+import { subscribeChangesetEvents } from "../utils/changesetEvents";
 
 function ChangesetDetailRoute() {
   const { changesetId } = useParams();
@@ -27,12 +22,8 @@ function ChangesetDetailRoute() {
   const [changesTotal, setChangesTotal] = useState<number | null>(null);
   const [changesPage, setChangesPage] = useState<number>(1);
   const changesLimit = 200;
-  const streamRef = useRef<EventSource | null>(null);
 
-  const isRunning = useMemo(
-    () => changeset?.status === "in_progress" && changeset?.running !== false,
-    [changeset?.status, changeset?.running],
-  );
+  const statusRef = useRef<Changeset["status"] | null>(null);
 
   const loadChangeset = useCallback(async () => {
     if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
@@ -44,7 +35,15 @@ function ChangesetDetailRoute() {
     try {
       const response = await fetchChangeset(changesetIdNum);
       setChangeset(response.changeset);
-      setLogs(response.logs ?? []);
+      statusRef.current = response.changeset.status;
+      const logLines =
+        response.logs
+          ?.filter((evt) => evt.event === "log")
+          .map((evt) => {
+            const message = evt.payload?.["message"];
+            return typeof message === "string" ? message : JSON.stringify(evt.payload);
+          }) ?? [];
+      setLogs(logLines);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -96,46 +95,32 @@ function ChangesetDetailRoute() {
     if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
       return;
     }
-    const url = changesetEventsUrl(changesetIdNum);
-    const source = new EventSource(url);
-    streamRef.current = source;
-
-    const handleLog = (event: MessageEvent) => {
-      const message = typeof event.data === "string" ? event.data : JSON.stringify(event.data);
-      setLogs((prev) => (prev.includes(message) ? prev : [...prev, message]));
-    };
-
-    const handleChangeset = (event: MessageEvent) => {
-      try {
-        const payload = JSON.parse(event.data) as Changeset;
-        setChangeset(payload);
-        if (payload.status !== "in_progress") {
-          source.close();
-          streamRef.current = null;
+    const cleanup = subscribeChangesetEvents(
+      changesetIdNum,
+      (payload: ChangesetEvent) => {
+        if (payload.event === "log") {
+          const message = payload.payload?.["message"];
+          const line = typeof message === "string" ? message : JSON.stringify(payload.payload);
+          setLogs((prev) => (prev.includes(line) ? prev : [...prev, line]));
+          return;
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    };
-
-    source.addEventListener("log", handleLog);
-    source.addEventListener("changeset", handleChangeset);
-    source.onerror = () => {
-      setError((prev) => prev ?? "Stream disconnected");
-      // If already finished, close to avoid reconnect loops.
-      if (!isRunning) {
-        source.close();
-        streamRef.current = null;
-      }
-    };
+        if (payload.event === "changeset_status" || payload.event === "changeset_start") {
+          const next = payload.payload as Changeset;
+          setChangeset(next);
+          statusRef.current = next.status;
+        }
+      },
+      () => {
+        if (statusRef.current === "in_progress") {
+          setError((prev) => prev ?? "Stream disconnected");
+        }
+      },
+    );
 
     return () => {
-      source.removeEventListener("log", handleLog);
-      source.removeEventListener("changeset", handleChangeset);
-      source.close();
-      streamRef.current = null;
+      cleanup();
     };
-  }, [changesetIdNum, isRunning]);
+  }, [changesetIdNum]);
 
   const requestCancel = async () => {
     if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
@@ -214,6 +199,9 @@ function ChangesetDetailRoute() {
       valueFormatter: ({ row }) => (row["removed"] ? "yes" : "no"),
     },
   ];
+
+  const isRunning =
+    changeset?.status === "in_progress" && changeset?.running !== false;
 
   return (
     <>

@@ -1,11 +1,16 @@
 import asyncio
+import json
 from collections import deque
+from datetime import datetime, timezone
+from typing import Any
+
 from loguru import logger
 
 
-def sse_event(event: str, data: str) -> str:
-    payload = "\n".join(f"data: {line}" for line in data.splitlines())
-    return f"event: {event}\n{payload}\n\n"
+def sse_event(event: dict[str, Any]) -> str:
+    event_name = event.get("event", "message")
+    data = json.dumps(event, default=str)
+    return f"event: {event_name}\ndata: {data}\n\n"
 
 
 class ChangesetEventManager:
@@ -13,8 +18,8 @@ class ChangesetEventManager:
 
     def __init__(self, *, max_events: int = 200):
         self.max_events = max_events
-        self.buffers: dict[int, deque[str]] = {}
-        self.listeners: dict[int, set[asyncio.Queue[str]]] = {}
+        self.buffers: dict[int, deque[dict[str, Any]]] = {}
+        self.listeners: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self._sink_added = False
 
@@ -33,33 +38,99 @@ class ChangesetEventManager:
         self._sink_added = True
 
     def _handle_message(self, message) -> None:
-        changeset_id = message.record["extra"].get("changeset_id")
+        extra = message.record["extra"]
+        changeset_id = extra.get("changeset_id")
         if changeset_id is None:
             return
-        ts = message.record["time"].strftime("%Y-%m-%d %H:%M:%S")
-        text = f"[{ts}] {message.record['level'].name}: {message.record['message']}"
         if self.loop is None:
             return
-        self.loop.call_soon_threadsafe(self._append, int(changeset_id), text)
+        ts = message.record["time"].astimezone(timezone.utc).isoformat()
+        events: list[dict[str, Any]] = []
 
-    def _append(self, changeset_id: int, text: str) -> None:
+        progress = extra.get("changeset_progress")
+        if isinstance(progress, dict):
+            events.append(
+                self.make_event(
+                    int(changeset_id),
+                    "changeset_progress",
+                    payload=progress,
+                    ts=ts,
+                )
+            )
+
+        status = extra.get("changeset_status")
+        if isinstance(status, dict):
+            events.append(
+                self.make_event(
+                    int(changeset_id),
+                    "changeset_status",
+                    payload=status,
+                    ts=ts,
+                )
+            )
+
+        events.append(
+            self.make_event(
+                int(changeset_id),
+                "log",
+                payload={
+                    "level": message.record["level"].name,
+                    "message": message.record["message"],
+                },
+                ts=ts,
+            )
+        )
+        for event in events:
+            self.loop.call_soon_threadsafe(self._append, int(changeset_id), event)
+
+    def make_event(
+        self,
+        changeset_id: int,
+        event: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        ts: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = ts or datetime.now(timezone.utc).isoformat()
+        return {
+            "event": event,
+            "changeset_id": changeset_id,
+            "ts": timestamp,
+            "payload": payload or {},
+        }
+
+    def emit(
+        self,
+        changeset_id: int,
+        event: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        if self.loop is None:
+            return
+        message = self.make_event(changeset_id, event, payload=payload)
+        self.loop.call_soon_threadsafe(self._append, changeset_id, message)
+
+    def _append(self, changeset_id: int, event: dict[str, Any]) -> None:
         buf = self.buffers.setdefault(changeset_id, deque(maxlen=self.max_events))
-        buf.append(text)
+        buf.append(event)
         for queue in self.listeners.get(changeset_id, set()):
-            queue.put_nowait(text)
+            queue.put_nowait(event)
 
-    def subscribe(self, changeset_id: int) -> tuple[list[str], asyncio.Queue[str]]:
+    def subscribe(
+        self, changeset_id: int
+    ) -> tuple[list[dict[str, Any]], asyncio.Queue[dict[str, Any]]]:
         buffer = self.buffers.setdefault(changeset_id, deque(maxlen=self.max_events))
-        queue: asyncio.Queue[str] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.listeners.setdefault(changeset_id, set()).add(queue)
         return list(buffer), queue
 
-    def unsubscribe(self, changeset_id: int, queue: asyncio.Queue[str]) -> None:
+    def unsubscribe(self, changeset_id: int, queue: asyncio.Queue[dict[str, Any]]) -> None:
         listeners = self.listeners.get(changeset_id)
         if listeners and queue in listeners:
             listeners.remove(queue)
             if not listeners:
                 self.listeners.pop(changeset_id, None)
 
-    def get_buffer(self, changeset_id: int) -> list[str]:
+    def get_buffer(self, changeset_id: int) -> list[dict[str, Any]]:
         return list(self.buffers.get(changeset_id, []))

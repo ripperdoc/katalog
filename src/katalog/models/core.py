@@ -137,6 +137,21 @@ class Changeset(BaseModel):
             running=self._tasks_running,
             finished=self._tasks_finished,
         )
+        try:
+            from katalog.api.state import event_manager
+
+            event_manager.emit(
+                int(self.id),
+                "changeset_progress",
+                payload={
+                    "queued": self._tasks_queued,
+                    "running": self._tasks_running,
+                    "finished": self._tasks_finished,
+                    "kind": None,
+                },
+            )
+        except Exception:
+            logger.exception("Failed to emit changeset progress event")
 
     def start_operation(
         self,
@@ -167,6 +182,16 @@ class Changeset(BaseModel):
         async def runner():
             try:
                 with context_cm:
+                    try:
+                        from katalog.api.state import event_manager
+
+                        event_manager.emit(
+                            int(self.id),
+                            "changeset_start",
+                            payload=self.model_dump(mode="json"),
+                        )
+                    except Exception:
+                        logger.exception("Failed to emit changeset start event")
                     result = await coro_factory()
                 final_status = (
                     result if isinstance(result, OpStatus) else success_status
@@ -176,6 +201,8 @@ class Changeset(BaseModel):
                 await self.finalize(status=OpStatus.CANCELED)
                 raise
             except Exception as exc:  # noqa: BLE001
+                with context_cm:
+                    logger.exception("Changeset operation failed")
                 data = dict(self.data or {})
                 data["error_message"] = str(exc)
                 data["error_traceback"] = traceback.format_exc()
@@ -292,6 +319,16 @@ class Changeset(BaseModel):
 
         db = get_changeset_repo()
         await db.save(self, update_data=data_payload)
+        try:
+            from katalog.api.state import event_manager
+
+            event_manager.emit(
+                int(self.id),
+                "changeset_status",
+                payload=self.model_dump(mode="json"),
+            )
+        except Exception:
+            logger.exception("Failed to emit changeset status event")
 
 
 class ChangesetActor(BaseModel):

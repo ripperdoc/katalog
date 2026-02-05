@@ -6,10 +6,10 @@
       "type": "debugpy",
       "request": "launch",
       "module": "katalog.cli",
-      "args": ["workspace_hg", "--bootstrap-actors", "--reload", "--reload-dir", "src"],
+      "args": ["server", "--reload", "--reload-dir", "src"],
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "KATALOG_WORKSPACE": "workspace_test"
+        "KATALOG_WORKSPACE": "workspace_pdx"
       },
       "jinja": true,
       "justMyCode": true,
@@ -21,18 +21,17 @@
       "request": "launch",
       "module": "katalog.cli",
       "args": [
-        "workspace_test",
-        "--test-workspace",
-        "--seed-assets",
-        "2000",
-        "--port",
-        "8000",
+        "server",
         "--reload",
         "--reload-dir",
-        "src"
+        "src",
+        "--test-workspace",
+        "--seed-assets",
+        "2000"
       ],
       "env": {
-        "PYTHONPATH": "${workspaceFolder}"
+        "PYTHONPATH": "${workspaceFolder}",
+        "KATALOG_WORKSPACE": "workspace_test"
       },
       "jinja": true,
       "justMyCode": true,

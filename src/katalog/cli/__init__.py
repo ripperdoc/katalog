@@ -251,6 +251,8 @@ def _run_server(
             reload_dirs=reload_dirs,
             access_log=False,
         )
+        # Ensure the CLI process exits cleanly after uvicorn shuts down (esp. under debugpy).
+        raise SystemExit(0)
     except KeyboardInterrupt:  # pragma: no cover - user initiated shutdown
         logger.info("Received interrupt signal, shutting down")
         sys.exit(0)

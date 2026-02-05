@@ -1,5 +1,5 @@
 import asyncio
-import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
@@ -59,7 +59,7 @@ async def list_changesets() -> list[Changeset]:
 
 async def get_changeset(
     changeset_id: int,
-) -> tuple[Changeset, list[str], bool]:
+) -> tuple[Changeset, list[dict[str, object]], bool]:
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
@@ -115,6 +115,27 @@ async def update_changeset(changeset_id: int, payload: ChangesetUpdate) -> Chang
     return changeset
 
 
+def _status_event_for(changeset: Changeset) -> dict[str, object]:
+    payload = changeset.model_dump(mode="json")
+    ts = datetime.now(timezone.utc).isoformat()
+    return {
+        "event": "changeset_status",
+        "changeset_id": changeset.id,
+        "ts": ts,
+        "payload": payload,
+    }
+
+
+def _heartbeat_event(changeset_id: int) -> dict[str, object]:
+    ts = datetime.now(timezone.utc).isoformat()
+    return {
+        "event": "heartbeat",
+        "changeset_id": changeset_id,
+        "ts": ts,
+        "payload": {},
+    }
+
+
 async def stream_changeset_events(changeset_id: int):
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
@@ -142,26 +163,31 @@ async def stream_changeset_events(changeset_id: int):
 
     async def event_generator():
         try:
-            for line in history:
-                yield sse_event("log", line)
+            for event in history:
+                yield sse_event(event)
+            yield sse_event(_status_event_for(changeset))
             while True:
                 done_waiter = asyncio.create_task(done_event.wait())
-                log_waiter = asyncio.create_task(queue.get())
+                event_waiter = asyncio.create_task(queue.get())
                 done, pending = await asyncio.wait(
-                    {done_waiter, log_waiter}, return_when=asyncio.FIRST_COMPLETED
+                    {done_waiter, event_waiter},
+                    timeout=10,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:
                     task.cancel()
-                if log_waiter in done:
-                    message = log_waiter.result()
-                    yield sse_event("log", message)
+                if not done:
+                    yield sse_event(_heartbeat_event(changeset_id))
+                    continue
+                if event_waiter in done:
+                    message = event_waiter.result()
+                    yield sse_event(message)
                 else:
-                    log_waiter.cancel()
+                    event_waiter.cancel()
                 if done_waiter in done:
                     latest = await db.get(id=changeset_id)
                     await db.load_actor_ids(latest)
-                    payload = latest.model_dump(mode="json")
-                    yield sse_event("changeset", json.dumps(payload))
+                    yield sse_event(_status_event_for(latest))
                     break
         finally:
             event_manager.unsubscribe(changeset_id, queue)
