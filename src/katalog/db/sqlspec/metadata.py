@@ -84,16 +84,20 @@ class SqlspecMetadataRepo:
         *,
         asset: Any,
         changeset: Any,
+        existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
     ) -> set["MetadataKey"]:
         async def _persist(active_session: Any, *, commit: bool) -> set["MetadataKey"]:
-            existing_metadata = await self.for_asset(
-                asset, include_removed=True, session=active_session
-            )
+            if existing_metadata is None:
+                loaded_metadata = await self.for_asset(
+                    asset, include_removed=True, session=active_session
+                )
+            else:
+                loaded_metadata = existing_metadata
             to_create, changed_keys = changes.prepare_persist(
                 asset=asset,
                 changeset=changeset,
-                existing_metadata=existing_metadata,
+                existing_metadata=loaded_metadata,
             )
             if to_create:
                 await self.bulk_create(to_create, session=active_session)

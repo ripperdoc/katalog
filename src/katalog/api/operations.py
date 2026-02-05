@@ -30,8 +30,8 @@ def _start_tracked_operation(
     task.add_done_callback(_cleanup)
 
 
-async def run_source(source_id: int) -> Changeset:
-    """Scan a single source and run processors for changed assets."""
+async def run_source(source_id: int, *, finalize: bool = False) -> Changeset:
+    """Scan a single source and optionally wait for the changeset to complete."""
 
     db = get_actor_repo()
     source = await db.get_or_none(id=source_id, type=ActorType.SOURCE)
@@ -45,13 +45,19 @@ async def run_source(source_id: int) -> Changeset:
 
     db = get_changeset_repo()
     changeset = await db.begin(
-        message="Source scan", actors=sources, status=OpStatus.IN_PROGRESS
+        message="Source scan",
+        actors=sources,
+        status=OpStatus.IN_PROGRESS,
     )
 
-    _track_changeset(changeset)
-    _start_tracked_operation(
-        changeset, lambda: run_sources(changeset=changeset, sources=sources)
-    )
+    if finalize:
+        status = await run_sources(changeset=changeset, sources=sources)
+        await changeset.finalize(status=status)
+    else:
+        _track_changeset(changeset)
+        _start_tracked_operation(
+            changeset, lambda: run_sources(changeset=changeset, sources=sources)
+        )
 
     return changeset
 

@@ -29,6 +29,7 @@ class MetadataRepo(Protocol):
         *,
         asset: Any,
         changeset: Any,
+        existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
     ) -> set[MetadataKey]: ...
     async def list_active_collection_asset_ids(

@@ -154,6 +154,15 @@ class FakeAssetSource(SourcePlugin):
             default=True,
             description="Attach collection metadata to emitted assets",
         )
+        use_queue: bool = Field(
+            default=False,
+            description="Emit assets through an internal queue (decouples producer/consumer)",
+        )
+        queue_maxsize: int = Field(
+            default=0,
+            ge=0,
+            description="Max size for scan queue; 0 means unbounded (no backpressure)",
+        )
 
     config_model = ConfigModel
 
@@ -168,6 +177,8 @@ class FakeAssetSource(SourcePlugin):
         self.seed = cfg.seed
         self.include_collection = cfg.include_collection
         self.namespace = cfg.namespace
+        self.use_queue = cfg.use_queue
+        self.queue_maxsize = cfg.queue_maxsize
 
         self._collection: AssetCollection | None = None
 
@@ -211,7 +222,7 @@ class FakeAssetSource(SourcePlugin):
             batch_size=self.batch_size,
         )
 
-        async def iterator() -> AsyncIterator[AssetScanResult]:
+        async def result_stream() -> AsyncIterator[AssetScanResult]:
             nonlocal status, ignored, scan_result
             previous_asset: Asset | None = None
             emitted = 0
@@ -368,6 +379,38 @@ class FakeAssetSource(SourcePlugin):
                 ignored=ignored,
                 status=status.value,
             )
+
+        async def iterator() -> AsyncIterator[AssetScanResult]:
+            if not self.use_queue:
+                async for entry in result_stream():
+                    yield entry
+                return
+
+            result_queue: asyncio.Queue[AssetScanResult | BaseException | None] = (
+                asyncio.Queue(maxsize=self.queue_maxsize)
+            )
+
+            async def _produce() -> None:
+                try:
+                    async for entry in result_stream():
+                        await result_queue.put(entry)
+                except BaseException as exc:  # noqa: BLE001
+                    await result_queue.put(exc)
+                finally:
+                    await result_queue.put(None)
+
+            producer = asyncio.create_task(_produce())
+            try:
+                while True:
+                    item = await result_queue.get()
+                    if item is None:
+                        break
+                    if isinstance(item, BaseException):
+                        raise item
+                    yield item
+            finally:
+                producer.cancel()
+                await asyncio.gather(producer, return_exceptions=True)
 
         scan_result = ScanResult(iterator=iterator(), status=status, ignored=ignored)
         return scan_result

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 from enum import Enum, IntEnum
 from time import time
-from datetime import datetime
+from datetime import UTC, datetime
 import traceback
 from typing import Any, Awaitable, Callable
 
@@ -126,6 +126,14 @@ class Changeset(BaseModel):
         self.task = None
         self.cancel_event = None
         self.done_event = None
+
+    def started_at(self) -> datetime:
+        """Return the changeset start time derived from its millisecond ID."""
+        return datetime.fromtimestamp(self.id / 1000.0, tz=UTC)
+
+    def started_at_iso(self) -> str:
+        """Return the changeset start time as an ISO-8601 string."""
+        return self.started_at().isoformat()
 
     def log_task_progress(self) -> None:
         """

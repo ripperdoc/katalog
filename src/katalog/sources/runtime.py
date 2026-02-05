@@ -1,11 +1,14 @@
 from __future__ import annotations
 from loguru import logger
+import time
 from typing import cast
-from katalog.db.sqlspec.sql_helpers import execute
+from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.tables import METADATA_TABLE
 
 from katalog.models import (
     MetadataChanges,
+    Metadata,
     make_metadata,
     Actor,
     ActorType,
@@ -56,10 +59,41 @@ async def _persist_scan_only_item(
     changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
     md_db = get_metadata_repo()
     changes = await md_db.persist_changes(
-        changes, asset=item.asset, changeset=changeset, session=session
+        changes,
+        asset=item.asset,
+        changeset=changeset,
+        existing_metadata=loaded_metadata,
+        session=session,
     )
     if changes:
         stats.assets_changed += 1
+
+
+def _prepare_scan_only_item(
+    *,
+    item: AssetScanResult,
+    changeset: Changeset,
+    seen_assets: set[int],
+    loaded_metadata: list[Metadata],
+) -> tuple[list[Metadata], bool]:
+    if changeset.stats is None:
+        changeset.stats = ChangesetStats()
+    stats = changeset.stats
+    if item.asset.id is not None:
+        seen_assets.add(int(item.asset.id))
+
+    # Mark asset as seen in this changeset for this actor.
+    item.metadata.append(make_metadata(ASSET_LOST, None, actor_id=item.actor.id))
+
+    changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
+    to_create, _changed_keys = changes.prepare_persist(
+        asset=item.asset,
+        changeset=changeset,
+        existing_metadata=loaded_metadata,
+    )
+    if to_create:
+        stats.assets_changed += 1
+    return to_create, bool(to_create)
 
 
 async def _flush_scan_only_batch(
@@ -73,13 +107,42 @@ async def _flush_scan_only_batch(
     async with session_scope() as session:
         await execute(session, "BEGIN")
         try:
+            all_metadata: list[Metadata] = []
             for item in batch:
-                await _persist_scan_only_item(
+                if changeset.stats is None:
+                    changeset.stats = ChangesetStats()
+                stats = changeset.stats
+                # Ensure asset row exists and changeset markers are updated.
+                db = get_asset_repo()
+                was_created = await db.save_record(
+                    item.asset, changeset=changeset, actor=item.actor, session=session
+                )
+                if item.asset.id is not None:
+                    seen_assets.add(int(item.asset.id))
+                if was_created:
+                    stats.assets_added += 1
+                    # Newly created assets cannot have existing metadata.
+                    item.asset._metadata_cache = []
+                    loaded_metadata: list[Metadata] = []
+                else:
+                    loaded_metadata = list(
+                        await db.load_metadata(
+                            item.asset, include_removed=True, session=session
+                        )
+                    )
+
+                to_create, _changed = _prepare_scan_only_item(
                     item=item,
                     changeset=changeset,
                     seen_assets=seen_assets,
-                    session=session,
+                    loaded_metadata=loaded_metadata,
                 )
+                if to_create:
+                    all_metadata.extend(to_create)
+
+            if all_metadata:
+                md_db = get_metadata_repo()
+                await md_db.bulk_create(all_metadata, session=session)
             await execute(session, "COMMIT")
         except Exception:
             await execute(session, "ROLLBACK")
@@ -118,6 +181,12 @@ async def run_sources(
         stats = ChangesetStats()
         changeset.stats = stats
 
+    persist_time_s = 0.0
+    persist_batches = 0
+    first_persist_start: float | None = None
+    scan_started = time.perf_counter()
+    scan_iter_finished: float | None = None
+
     for source in sources:
         if source.id is None:
             raise ValueError("Source actor is missing id")
@@ -133,6 +202,14 @@ async def run_sources(
             continue
 
         source_plugin = cast(SourcePlugin, await get_actor_instance(source))
+        existing_actor_metadata = False
+        async with session_scope() as session:
+            rows = await select(
+                session,
+                f"SELECT 1 FROM {METADATA_TABLE} WHERE actor_id = ? LIMIT 1",
+                [int(source.id)],
+            )
+            existing_actor_metadata = bool(rows)
         scan_result = await source_plugin.scan()
 
         persisted_assets = 0
@@ -178,9 +255,14 @@ async def run_sources(
                 pending.append(result)
                 if len(pending) >= tx_chunk_size:
                     batch_size = len(pending)
+                    if first_persist_start is None:
+                        first_persist_start = time.perf_counter()
+                    persist_started = time.perf_counter()
                     await _flush_scan_only_batch(
                         batch=pending, changeset=changeset, seen_assets=seen_assets
                     )
+                    persist_time_s += time.perf_counter() - persist_started
+                    persist_batches += 1
                     persisted_assets += batch_size
 
                     if persisted_assets % log_every_assets == 0:
@@ -193,10 +275,17 @@ async def run_sources(
                         )
 
         if not has_processors:
+            scan_iter_finished = time.perf_counter()
             batch_size = len(pending)
-            await _flush_scan_only_batch(
-                batch=pending, changeset=changeset, seen_assets=seen_assets
-            )
+            if batch_size:
+                if first_persist_start is None:
+                    first_persist_start = time.perf_counter()
+                persist_started = time.perf_counter()
+                await _flush_scan_only_batch(
+                    batch=pending, changeset=changeset, seen_assets=seen_assets
+                )
+                persist_time_s += time.perf_counter() - persist_started
+                persist_batches += 1
             persisted_assets += batch_size
 
             # Final progress log for scan-only mode.
@@ -215,15 +304,16 @@ async def run_sources(
                     source=f"{source.id}:{source.name}",
                     tasks=len(changeset.tasks),
                 )
-        db = get_asset_repo()
-        lost_count = await db.mark_unseen_as_lost(
-            changeset=changeset,
-            actor_ids=[int(source.id)],
-            seen_asset_ids=list(seen_assets),
-        )
-        if lost_count:
-            stats.assets_lost += lost_count
-            stats.assets_changed += lost_count
+        if existing_actor_metadata:
+            db = get_asset_repo()
+            lost_count = await db.mark_unseen_as_lost(
+                changeset=changeset,
+                actor_ids=[int(source.id)],
+                seen_asset_ids=list(seen_assets),
+            )
+            if lost_count:
+                stats.assets_lost += lost_count
+                stats.assets_changed += lost_count
         ignored = scan_result.ignored
         if ignored:
             stats.assets_seen += ignored
@@ -231,5 +321,31 @@ async def run_sources(
         if len(sources) == 1:
             # Assume the changeset status is that of the single source
             final_status = scan_result.status
+
+        if not has_processors:
+            scan_finished = time.perf_counter()
+            persist_first_delay_s = (
+                first_persist_start - scan_started
+                if first_persist_start is not None
+                else None
+            )
+            persist_after_scan_s = (
+                scan_finished - scan_iter_finished
+                if scan_iter_finished is not None
+                else None
+            )
+            data_payload = dict(changeset.data or {})
+            data_payload["scan_metrics"] = {
+                "scan_seconds": scan_finished - scan_started,
+                "persist_seconds": persist_time_s,
+                "persist_batches": persist_batches,
+                "persist_first_delay_seconds": persist_first_delay_s,
+                "persist_after_scan_seconds": persist_after_scan_s,
+                "assets_seen": stats.assets_seen,
+                "assets_saved": stats.assets_saved,
+                "assets_added": stats.assets_added,
+                "assets_changed": stats.assets_changed,
+            }
+            changeset.data = data_payload
 
     return final_status
