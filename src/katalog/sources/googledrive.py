@@ -392,7 +392,7 @@ class GoogleDriveClient(SourcePlugin):
 
                     for file in files:
                         if self.max_files and (yielded + ignored) >= self.max_files:
-                            scan_status = OpStatus.CANCELED
+                            scan_status = OpStatus.PARTIAL
                             break
                         file_id = file.get("id")
                         if not file_id:
@@ -436,7 +436,7 @@ class GoogleDriveClient(SourcePlugin):
                         f"From slice {ts} got {counted_files} files (total {yielded} yielded, {ignored} ignored)"
                     )
                     next_page = payload.get("nextPageToken")
-                    if not next_page or scan_status == OpStatus.CANCELED:
+                    if not next_page or scan_status != OpStatus.IN_PROGRESS:
                         # This query slice is done, allow another one to start
                         concurrent = max(0, concurrent - 1)
                         logger.debug(

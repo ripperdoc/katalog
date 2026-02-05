@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import os
 import pathlib
@@ -6,52 +5,18 @@ import shutil
 import sys
 import tomllib
 
+import typer
 from loguru import logger
 
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="katalog", description="Start katalog server for a workspace"
-    )
-    parser.add_argument(
-        "workspace",
-        nargs="?",
-        help="Path to workspace folder to use (also settable via KATALOG_WORKSPACE)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Port to bind the server to (default: config PORT)",
-    )
-    parser.add_argument(
-        "--test-workspace",
-        action="store_true",
-        help="Reset the workspace database and actor cache before starting the server",
-    )
-    parser.add_argument(
-        "--seed-assets",
-        type=int,
-        default=0,
-        help="Seed the test workspace with this many fake assets (requires --test-workspace)",
-    )
-    parser.add_argument(
-        "--bootstrap-actors",
-        action="store_true",
-        help="Bootstrap actors from katalog.toml if no database exists",
-    )
-    parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="Enable auto-reload for the server (uvicorn reload)",
-    )
-    parser.add_argument(
-        "--reload-dir",
-        action="append",
-        default=[],
-        help="Directory to watch for reloads (repeatable, relative to repo root unless absolute)",
-    )
-    return parser.parse_args()
+app = typer.Typer(help="Katalog CLI")
+actors_app = typer.Typer(help="Manage actors")
+assets_app = typer.Typer(help="Manage assets")
+collections_app = typer.Typer(help="Manage collections")
+changesets_app = typer.Typer(help="Manage changesets")
+app.add_typer(actors_app, name="actors")
+app.add_typer(assets_app, name="assets")
+app.add_typer(collections_app, name="collections")
+app.add_typer(changesets_app, name="changesets")
 
 
 def _reset_workspace(ws: pathlib.Path) -> None:
@@ -71,25 +36,24 @@ def _set_workspace_env(ws: pathlib.Path) -> None:
 
 def _ensure_src_on_path() -> None:
     here = pathlib.Path(__file__).resolve()
-    repo_root = here.parents[2]
+    repo_root = here.parents[3]
     src_dir = repo_root / "src"
     if src_dir.exists():
         sys.path.insert(0, str(src_dir))
 
 
 def _repo_root() -> pathlib.Path:
-    return pathlib.Path(__file__).resolve().parents[2]
+    return pathlib.Path(__file__).resolve().parents[3]
 
 
-def _validate_workspace(args: argparse.Namespace) -> pathlib.Path:
-    workspace_input = args.workspace or os.environ.get("KATALOG_WORKSPACE")
+def _resolve_workspace(workspace: str | None) -> pathlib.Path:
+    workspace_input = workspace or os.environ.get("KATALOG_WORKSPACE")
     if not workspace_input:
-        raise SystemExit("provide a workspace path or set KATALOG_WORKSPACE")
+        raise typer.BadParameter("provide a workspace path or set KATALOG_WORKSPACE")
 
     ws = pathlib.Path(workspace_input).expanduser().resolve()
     if not ws.exists() or not ws.is_dir():
-        logger.error(f"Workspace '{ws}' does not exist or is not a directory")
-        sys.exit(2)
+        raise typer.BadParameter(f"workspace '{ws}' does not exist or is not a directory")
     return ws
 
 
@@ -218,9 +182,16 @@ async def _bootstrap_actors_from_toml(ws: pathlib.Path) -> None:
     logger.info("Bootstrapped {count} actors from katalog.toml", count=created)
 
 
-def main() -> None:
-    args = _parse_args()
-    ws = _validate_workspace(args)
+def _run_server(
+    ws: pathlib.Path,
+    *,
+    port: int | None,
+    test_workspace: bool,
+    seed_assets: int,
+    bootstrap_actors: bool,
+    reload: bool,
+    reload_dir: list[str],
+) -> None:
     repo_root = _repo_root()
 
     _set_workspace_env(ws)
@@ -228,27 +199,27 @@ def main() -> None:
     os.chdir(str(ws))
     _ensure_src_on_path()
 
-    if args.test_workspace:
+    if test_workspace:
         db_path = ws / "katalog.db"
         if db_path.exists():
             logger.info(
                 "Test workspace already initialized at {db_path}; skipping reset/seed. Delete the DB to re-seed.",
                 db_path=db_path,
             )
-            if args.bootstrap_actors:
+            if bootstrap_actors:
                 logger.warning(
                     "Not bootstrapping actors from katalog.toml; existing DB found at {db_path}.",
                     db_path=db_path,
                 )
         else:
             _reset_workspace(ws)
-            if args.bootstrap_actors:
+            if bootstrap_actors:
                 asyncio.run(_bootstrap_actors_from_toml(ws))
-            if args.seed_assets > 0:
-                asyncio.run(_seed_test_workspace(ws, total_assets=args.seed_assets))
-    elif args.seed_assets > 0:
+            if seed_assets > 0:
+                asyncio.run(_seed_test_workspace(ws, total_assets=seed_assets))
+    elif seed_assets > 0:
         raise SystemExit("--seed-assets requires --test-workspace")
-    elif args.bootstrap_actors:
+    elif bootstrap_actors:
         db_path = ws / "katalog.db"
         if db_path.exists():
             logger.warning(
@@ -263,9 +234,9 @@ def main() -> None:
         from katalog.config import PORT
 
         reload_dirs = None
-        if args.reload_dir:
+        if reload_dir:
             resolved = []
-            for entry in args.reload_dir:
+            for entry in reload_dir:
                 path = pathlib.Path(entry)
                 if not path.is_absolute():
                     path = repo_root / path
@@ -275,8 +246,8 @@ def main() -> None:
         uvicorn.run(
             "katalog.server:app",
             host="127.0.0.1",
-            port=args.port or PORT,
-            reload=bool(args.reload),
+            port=port or PORT,
+            reload=bool(reload),
             reload_dirs=reload_dirs,
             access_log=False,
         )
@@ -288,5 +259,85 @@ def main() -> None:
         sys.exit(1)
 
 
-if __name__ == "__main__":
-    main()
+@app.callback(invoke_without_command=True)
+def cli(
+    ctx: typer.Context,
+    workspace_opt: str | None = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Path to workspace folder to use",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output JSON instead of formatted text",
+    ),
+) -> None:
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+    if "--help" in sys.argv or "-h" in sys.argv:
+        return
+
+    ws = _resolve_workspace(workspace_opt)
+    _set_workspace_env(ws)
+    ctx.obj = {"workspace": ws, "json": json_output}
+
+
+@app.command("server")
+def server(
+    ctx: typer.Context,
+    port: int | None = typer.Option(
+        None,
+        "--port",
+        help="Port to bind the server to (default: config PORT)",
+    ),
+    test_workspace: bool = typer.Option(
+        False,
+        "--test-workspace",
+        help="Reset the workspace database and actor cache before starting the server",
+    ),
+    seed_assets: int = typer.Option(
+        0,
+        "--seed-assets",
+        help="Seed the test workspace with this many fake assets (requires --test-workspace)",
+    ),
+    bootstrap_actors: bool = typer.Option(
+        False,
+        "--bootstrap-actors",
+        help="Bootstrap actors from katalog.toml if no database exists",
+    ),
+    reload: bool = typer.Option(
+        False,
+        "--reload",
+        help="Enable auto-reload for the server (uvicorn reload)",
+    ),
+    reload_dir: list[str] = typer.Option(
+        [],
+        "--reload-dir",
+        help="Directory to watch for reloads (repeatable, relative to repo root unless absolute)",
+    ),
+) -> None:
+    ws = ctx.obj["workspace"]
+    _ensure_src_on_path()
+    _run_server(
+        ws,
+        port=port,
+        test_workspace=test_workspace,
+        seed_assets=seed_assets,
+        bootstrap_actors=bootstrap_actors,
+        reload=reload,
+        reload_dir=reload_dir,
+    )
+
+
+from . import actors as _actors  # noqa: E402,F401
+from . import assets as _assets  # noqa: E402,F401
+from . import collections as _collections  # noqa: E402,F401
+from . import changesets as _changesets  # noqa: E402,F401
+
+
+def main() -> None:
+    app()

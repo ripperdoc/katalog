@@ -10,6 +10,7 @@
 - Always ask the user if a requirement appears unclear.
 - If solving a bug, explain root cause in addition to fixing the bug.
 - Run tests using `pytest` CLI or try it in terminal to verify issues or check that code is working
+- The `katalog` CLI can be a fast, easy way to run API-level checks against a workspace
 - Don't write tests unless explicitly asked for it
 - Avoid code bloat and complexity by following these rules of thumb:
   - Better to modify an existing API / method / property than add a similar but different one. Ask

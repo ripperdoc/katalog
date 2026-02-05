@@ -20,6 +20,23 @@ carries true value, and users (with or without AI help) can easily create snippe
 ingest, process or analyze parts or all of that data. Often a thin wrapper around best-practice
 open-source tools and SDKs.
 
+## CLI (Quick Start)
+
+The `katalog` command now includes both server and client modes.
+
+Start the server:
+
+```bash
+katalog -w /path/to/workspace server
+```
+
+Use client commands (no server needed) to call the API layer directly:
+
+```bash
+katalog -w /path/to/workspace actors list
+katalog -w /path/to/workspace actors show 1
+```
+
 ## Example use cases
 
 - Catalogue (scan) all digital assets you've created across both local and remote storage actors
@@ -127,7 +144,7 @@ the FastAPI backend for local exploration.
 1. Start the backend via the CLI so FastAPI exposes `http://localhost:8000`:
 
 ```bash
-python -m katalog.cli workspace/path
+python -m katalog.cli --workspace workspace/path server
 ```
 
 Replace `workspace/path` with any workspace directory that includes `katalog.db`.
