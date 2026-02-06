@@ -34,6 +34,10 @@ class MimeTypeProcessor(Processor):
             gt=0,
             description="Number of bytes to inspect from start of file",
         )
+        run_on_octet_stream: bool = Field(
+            default=False,
+            description="If true, re-check when all existing MIME types are application/octet-stream.",
+        )
 
     config_model = ConfigModel
 
@@ -50,11 +54,22 @@ class MimeTypeProcessor(Processor):
         return self._outputs
 
     def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
-        # TODO, some services report application/octet-stream but there is probably a better mime type to find
-        # Is there a logic where we can check for that, without having to recheck every time?
-        if FILE_TYPE not in changes.current():
+        if file_data_changed(self, asset, changes):
             return True
-        return file_data_changed(self, asset, changes)
+
+        if changes.entries_for_key(FILE_TYPE, self.actor.id):
+            return False
+
+        current_types = [
+            value
+            for value in changes.values_for_key(FILE_TYPE)
+            if isinstance(value, str) and value.strip()
+        ]
+        if not current_types:
+            return True
+        if not self.config.run_on_octet_stream:
+            return False
+        return all(value == "application/octet-stream" for value in current_types)
 
     async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
         # So we should probably re-check octet-stream

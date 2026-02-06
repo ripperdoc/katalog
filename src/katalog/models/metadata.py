@@ -284,12 +284,20 @@ class MetadataChanges(BaseModel):
     _cache_changed: dict[int | None, set[MetadataKey]] = PrivateAttr(
         default_factory=dict
     )
+    _cache_latest_by_key: dict[MetadataKey, int] = PrivateAttr(default_factory=dict)
+    _cache_latest_by_actor_key: dict[int, dict[MetadataKey, int]] = PrivateAttr(
+        default_factory=dict
+    )
+    _cache_latest_ready: bool = PrivateAttr(default=False)
 
     def model_post_init(self, __context: Any) -> None:
         self._loaded = list(self.loaded)
         self._staged = list(self.staged or [])
         self._cache_current = {}
         self._cache_changed = {}
+        self._cache_latest_by_key = {}
+        self._cache_latest_by_actor_key = {}
+        self._cache_latest_ready = False
 
     @staticmethod
     def _current_metadata(
@@ -331,6 +339,9 @@ class MetadataChanges(BaseModel):
         self._staged.extend(metadata)
         self._cache_current.clear()
         self._cache_changed.clear()
+        self._cache_latest_by_key.clear()
+        self._cache_latest_by_actor_key.clear()
+        self._cache_latest_ready = False
 
     def current(self, actor_id: int | None = None) -> dict[MetadataKey, list[Metadata]]:
         """Return current metadata by key, combining loaded and staged."""
@@ -358,6 +369,78 @@ class MetadataChanges(BaseModel):
 
     def has(self, key: MetadataKey, actor_id: int | None = None) -> bool:
         return key in self.current(actor_id)
+
+    def entries_for_key(
+        self, key: MetadataKey, actor_id: int | None = None
+    ) -> list[Metadata]:
+        """Return current metadata entries for a key (optionally filtered by actor)."""
+        return list(self.current(actor_id).get(key, []))
+
+    def values_for_key(
+        self, key: MetadataKey, actor_id: int | None = None
+    ) -> list[MetadataScalar]:
+        """Return current scalar values for a key (optionally filtered by actor)."""
+        return [entry.value for entry in self.entries_for_key(key, actor_id)]
+
+    def latest_changeset_id(
+        self, keys: set[MetadataKey], actor_id: int | None = None
+    ) -> int | None:
+        """Return the latest changeset id for the given keys (optionally filtered by actor)."""
+        if not keys:
+            return None
+        self._ensure_latest_cache()
+        if actor_id is None:
+            latest = max(
+                (self._cache_latest_by_key.get(key, 0) for key in keys), default=0
+            )
+            return latest or None
+        actor_cache = self._cache_latest_by_actor_key.get(int(actor_id))
+        if not actor_cache:
+            return None
+        latest = max((actor_cache.get(key, 0) for key in keys), default=0)
+        return latest or None
+
+    def changed_since_actor(
+        self,
+        keys: set[MetadataKey],
+        *,
+        actor_id: int,
+        actor_outputs: set[MetadataKey],
+    ) -> bool:
+        """Return True if any of the keys changed since the actor last wrote outputs.
+
+        NOTE: "last run" is inferred from the latest changeset id of any output key for the actor.
+        If we later want stricter behavior (e.g. per-key output tracking), update this logic.
+        """
+        last_run = self.latest_changeset_id(actor_outputs, actor_id=actor_id)
+        if last_run is None:
+            return True
+        latest_dep = self.latest_changeset_id(keys)
+        if latest_dep is None:
+            return False
+        return latest_dep > last_run
+
+    def _ensure_latest_cache(self) -> None:
+        if self._cache_latest_ready:
+            return
+        self._cache_latest_by_key = {}
+        self._cache_latest_by_actor_key = {}
+        for entry in self.all_entries():
+            changeset_id = entry.changeset_id
+            if changeset_id is None:
+                continue
+            key = entry.key
+            current_latest = self._cache_latest_by_key.get(key, 0)
+            if changeset_id > current_latest:
+                self._cache_latest_by_key[key] = int(changeset_id)
+            actor_id = entry.actor_id
+            if actor_id is None:
+                continue
+            actor_cache = self._cache_latest_by_actor_key.setdefault(int(actor_id), {})
+            actor_latest = actor_cache.get(key, 0)
+            if changeset_id > actor_latest:
+                actor_cache[key] = int(changeset_id)
+        self._cache_latest_ready = True
 
     def pending_entries(self) -> list[Metadata]:
         """Metadata added during processing that should be persisted."""
