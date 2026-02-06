@@ -1,4 +1,7 @@
+import traceback
+
 from fastapi import APIRouter, Query
+from loguru import logger
 
 from katalog.analyzers.base import AnalyzerScope
 from katalog.analyzers.runtime import do_run_analyzer
@@ -30,7 +33,12 @@ def _start_tracked_operation(
     task.add_done_callback(_cleanup)
 
 
-async def run_source(source_id: int, *, finalize: bool = False) -> Changeset:
+async def run_source(
+    source_id: int,
+    *,
+    finalize: bool = False,
+    run_processors: bool = True,
+) -> Changeset:
     """Scan a single source and optionally wait for the changeset to complete."""
 
     db = get_actor_repo()
@@ -51,12 +59,27 @@ async def run_source(source_id: int, *, finalize: bool = False) -> Changeset:
     )
 
     if finalize:
-        status = await run_sources(changeset=changeset, sources=sources)
-        await changeset.finalize(status=status)
+        try:
+            status = await run_sources(
+                changeset=changeset, sources=sources, run_processors=run_processors
+            )
+            await changeset.finalize(status=status)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Source run failed (finalizing changeset as error)")
+            data = dict(changeset.data or {})
+            data["error_message"] = str(exc)
+            data["error_traceback"] = traceback.format_exc()
+            changeset.data = data
+            await changeset.finalize(status=OpStatus.ERROR)
     else:
         _track_changeset(changeset)
         _start_tracked_operation(
-            changeset, lambda: run_sources(changeset=changeset, sources=sources)
+            changeset,
+            lambda: run_sources(
+                changeset=changeset,
+                sources=sources,
+                run_processors=run_processors,
+            ),
         )
 
     return changeset
@@ -65,35 +88,57 @@ async def run_source(source_id: int, *, finalize: bool = False) -> Changeset:
 async def run_processors(
     processor_ids: list[int] | None,
     asset_ids: list[int] | None,
+    *,
+    finalize: bool = False,
 ) -> Changeset:
     processor_pipeline, processor_actors = await sort_processors(processor_ids)
     if not processor_pipeline:
         raise ApiError(status_code=400, detail="No processor actors configured")
 
+    db = get_asset_repo()
+    assets: list[Asset] | None = None
     if asset_ids:
-        db = get_asset_repo()
-        assets = await db.list_rows(id__in=sorted(asset_ids))
+        assets = await db.list_rows(id__in=sorted(asset_ids), order_by="id")
+        if len(assets) != len(asset_ids):
+            raise ApiError(
+                status_code=404, detail="One or more asset ids not found or deleted"
+            )
     else:
-        db = get_asset_repo()
-        assets = await db.list_rows()
-    if asset_ids and len(assets) != len(asset_ids):
-        raise ApiError(
-            status_code=404, detail="One or more asset ids not found or deleted"
-        )
-    if not assets:
-        raise ApiError(status_code=404, detail="No assets found to process")
+        preview = await db.list_rows(limit=1)
+        if not preview:
+            raise ApiError(status_code=404, detail="No assets found to process")
 
     db = get_changeset_repo()
     changeset = await db.begin(
         message="Processor run", actors=processor_actors, status=OpStatus.IN_PROGRESS
     )
-    _track_changeset(changeset)
-    _start_tracked_operation(
-        changeset,
-        lambda: do_run_processors(
-            changeset=changeset, assets=assets, pipeline=processor_pipeline
-        ),
-    )
+    if finalize:
+        try:
+            await do_run_processors(
+                changeset=changeset,
+                assets=assets,
+                asset_ids=None if assets is not None else None,
+                pipeline=processor_pipeline,
+            )
+            await changeset.finalize(status=OpStatus.COMPLETED)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Processor run failed (finalizing changeset as error)")
+            data = dict(changeset.data or {})
+            data["error_message"] = str(exc)
+            data["error_traceback"] = traceback.format_exc()
+            changeset.data = data
+            await changeset.finalize(status=OpStatus.ERROR)
+    else:
+        _track_changeset(changeset)
+        _start_tracked_operation(
+            changeset,
+            lambda: do_run_processors(
+                changeset=changeset,
+                assets=assets,
+                asset_ids=None if assets is not None else None,
+                pipeline=processor_pipeline,
+            ),
+        )
 
     return changeset
 
@@ -160,8 +205,10 @@ async def run_analyzer(
 
 
 @router.post("/sources/{source_id}/run")
-async def run_source_rest(source_id: int):
-    return await run_source(source_id)
+async def run_source_rest(
+    source_id: int, run_processors: bool = Query(True)
+):
+    return await run_source(source_id, run_processors=run_processors)
 
 
 @router.post("/processors/run")

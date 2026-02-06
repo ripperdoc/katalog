@@ -21,6 +21,7 @@ class NameReadabilityProcessor(Processor):
     plugin_id = "katalog.processors.name_readability.NameReadabilityProcessor"
     title = "Name readability"
     description = "Flag filenames that look auto-generated or hard to read."
+    execution_mode = "cpu"
     _dependencies = frozenset({FILE_NAME})
     _outputs = frozenset({WARNING_NAME_READABILITY})
 

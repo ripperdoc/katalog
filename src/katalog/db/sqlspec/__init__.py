@@ -10,7 +10,7 @@ from loguru import logger
 from sqlspec import SQLSpec
 from sqlspec.adapters.aiosqlite import AiosqliteConfig
 
-from katalog.config import DB_PATH
+from katalog.config import DB_PATH, DB_URL
 
 SQL_DIR = Path(__file__).resolve().parents[2] / "sql"
 SCHEMA_PATH = SQL_DIR / "schema.sql"
@@ -38,7 +38,14 @@ def _build_config(db_url: str) -> AiosqliteConfig:
 
 
 def _default_db_url() -> str:
-    return os.environ.get("KATALOG_DATABASE_URL") or f"sqlite:///{DB_PATH}"
+    env_url = os.environ.get("KATALOG_DATABASE_URL")
+    if env_url:
+        return env_url
+    if DB_URL:
+        return DB_URL
+    if DB_PATH is not None:
+        return f"sqlite:///{DB_PATH}"
+    raise ValueError("KATALOG_WORKSPACE or KATALOG_DATABASE_URL is required")
 
 
 def configure_sqlspec(db_url: str | None = None) -> None:
@@ -98,4 +105,6 @@ async def close_db() -> None:
 
 
 def db_path() -> Path:
+    if DB_PATH is None:
+        raise ValueError("Workspace is not configured for database path access")
     return DB_PATH

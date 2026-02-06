@@ -19,6 +19,7 @@ from katalog.processors.base import Processor, ProcessorResult
 
 class SearchIndexProcessor(Processor):
     plugin_id = "katalog.processors.search_index.SearchIndexProcessor"
+    execution_mode = "cpu"
 
     def __init__(self, actor, **config):
         super().__init__(actor, **config)

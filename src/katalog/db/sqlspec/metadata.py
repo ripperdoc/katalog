@@ -7,6 +7,8 @@ from katalog.db.sqlspec.tables import METADATA_TABLE
 from katalog.db.sqlspec.sql_helpers import select
 from katalog.models.metadata import _metadata_to_row, _normalize_metadata_row, Metadata
 from katalog.constants.metadata import ASSET_SEARCH_DOC, get_metadata_id
+from katalog.db.sqlspec.sql_helpers import execute
+from typing import Iterable
 
 if TYPE_CHECKING:
     from katalog.constants.metadata import MetadataKey
@@ -43,6 +45,41 @@ class SqlspecMetadataRepo:
             return [
                 Metadata.model_validate(_normalize_metadata_row(row)) for row in rows
             ]
+
+        if session is not None:
+            return await _fetch(session)
+        async with session_scope() as active:
+            return await _fetch(active)
+
+    async def for_assets(
+        self,
+        asset_ids: Sequence[int],
+        *,
+        include_removed: bool = False,
+        session: Any | None = None,
+    ) -> dict[int, list[Metadata]]:
+        if not asset_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in asset_ids)
+        where_sql = f"WHERE asset_id IN ({placeholders})"
+        if not include_removed:
+            where_sql += " AND removed = 0"
+        sql = (
+            f"SELECT id, asset_id, actor_id, changeset_id, metadata_key_id, value_type, "
+            f"value_text, value_int, value_real, value_datetime, value_json, value_relation_id, "
+            f"value_collection_id, removed, confidence "
+            f"FROM {METADATA_TABLE} {where_sql} ORDER BY asset_id, metadata_key_id, id"
+        )
+
+        async def _fetch(active_session: Any) -> dict[int, list[Metadata]]:
+            rows = await select(active_session, sql, list(asset_ids))
+            grouped: dict[int, list[Metadata]] = {}
+            for row in rows:
+                entry = Metadata.model_validate(_normalize_metadata_row(row))
+                if entry.asset_id is None:
+                    continue
+                grouped.setdefault(int(entry.asset_id), []).append(entry)
+            return grouped
 
         if session is not None:
             return await _fetch(session)
@@ -143,6 +180,77 @@ class SqlspecMetadataRepo:
             return await _persist(session, commit=False)
         async with session_scope() as active:
             return await _persist(active, commit=True)
+
+    async def persist_changes_batch(
+        self,
+        changeset: Any,
+        assets: Sequence["Asset"],
+        changes_list: Sequence["MetadataChanges"],
+        existing_metadata_by_asset: dict[int, list[Metadata]],
+        *,
+        session: Any | None = None,
+    ) -> tuple[int, int, int]:
+        search_doc_id = get_metadata_id(ASSET_SEARCH_DOC)
+
+        async def _persist_batch(
+            active_session: Any, *, commit: bool
+        ) -> tuple[int, int, int]:
+            normal_rows: list[Metadata] = []
+            search_rows: list[dict[str, int | str]] = []
+            delete_rows: list[dict[str, int]] = []
+            for asset, changes in zip(assets, changes_list):
+                if asset.id is None:
+                    continue
+                existing = existing_metadata_by_asset.get(int(asset.id), [])
+                to_create, _changed = changes.prepare_persist(
+                    asset=asset,
+                    changeset=changeset,
+                    existing_metadata=existing,
+                )
+                for entry in to_create:
+                    if entry.metadata_key_id == search_doc_id:
+                        if entry.removed or entry.value is None:
+                            if entry.asset_id is not None:
+                                delete_rows.append({"rowid": int(entry.asset_id)})
+                            continue
+                        if entry.asset_id is not None:
+                            search_rows.append(
+                                {
+                                    "rowid": int(entry.asset_id),
+                                    "doc": str(entry.value),
+                                }
+                            )
+                        continue
+                    normal_rows.append(entry)
+
+            if normal_rows:
+                await self.bulk_create(normal_rows, session=active_session)
+            if search_rows:
+                await active_session.execute_many(
+                    "INSERT OR REPLACE INTO asset_search(rowid, doc) "
+                    "VALUES (:rowid, :doc)",
+                    search_rows,
+                )
+            if delete_rows:
+                await active_session.execute_many(
+                    "DELETE FROM asset_search WHERE rowid = :rowid",
+                    delete_rows,
+                )
+            if commit:
+                await active_session.commit()
+            return len(normal_rows), len(search_rows), len(delete_rows)
+
+        if session is not None:
+            return await _persist_batch(session, commit=False)
+        async with session_scope() as active:
+            await execute(active, "BEGIN")
+            try:
+                result = await _persist_batch(active, commit=False)
+                await execute(active, "COMMIT")
+                return result
+            except Exception:
+                await execute(active, "ROLLBACK")
+                raise
 
     async def list_active_collection_asset_ids(
         self,

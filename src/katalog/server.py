@@ -34,6 +34,8 @@ logger.add(
     format="<green>{time:HH:mm:ss.SSS}</green> | <level>{level:<8}</level> | {message}",
 )
 
+if WORKSPACE is None or DB_URL is None:
+    raise RuntimeError("KATALOG_WORKSPACE must be set when running the server")
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DB_URL}")
 

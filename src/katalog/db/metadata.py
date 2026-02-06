@@ -19,6 +19,13 @@ class MetadataRepo(Protocol):
         include_removed: bool = False,
         session: Any | None = None,
     ) -> Sequence[Metadata]: ...
+    async def for_assets(
+        self,
+        asset_ids: Sequence[int],
+        *,
+        include_removed: bool = False,
+        session: Any | None = None,
+    ) -> dict[int, list[Metadata]]: ...
 
     async def bulk_create(
         self, metadata: Sequence[Metadata], *, session: Any | None = None
@@ -32,6 +39,15 @@ class MetadataRepo(Protocol):
         existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
     ) -> set[MetadataKey]: ...
+    async def persist_changes_batch(
+        self,
+        changeset: Any,
+        assets: Sequence[Asset],
+        changes_list: Sequence[MetadataChanges],
+        existing_metadata_by_asset: dict[int, list[Metadata]],
+        *,
+        session: Any | None = None,
+    ) -> tuple[int, int, int]: ...
     async def list_active_collection_asset_ids(
         self,
         *,

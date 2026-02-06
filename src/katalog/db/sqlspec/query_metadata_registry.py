@@ -16,10 +16,11 @@ from katalog.db.sqlspec import init_db, session_scope
 METADATA_REGISTRY_TABLE = "metadata_registry"
 
 
-async def setup_db(db_path: Path) -> Path:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    if not db_path.exists():
-        db_path.touch()
+async def setup_db(db_path: Path | None) -> Path | None:
+    if db_path is not None:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not db_path.exists():
+            db_path.touch()
 
     await init_db()
     return db_path

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from enum import Enum, IntEnum
-from time import time
+from time import monotonic, time
 from datetime import UTC, datetime
 import traceback
 from typing import Any, Awaitable, Callable
@@ -100,6 +100,7 @@ class Changeset(BaseModel):
     _tasks_queued: int = 0
     _tasks_running: int = 0
     _tasks_finished: int = 0
+    _last_progress_log_s: float = 0.0
     task: asyncio.Task | None = Field(default=None, exclude=True)
     cancel_event: asyncio.Event | None = Field(default=None, exclude=True)
     done_event: asyncio.Event | None = Field(default=None, exclude=True)
@@ -123,6 +124,7 @@ class Changeset(BaseModel):
         self._tasks_queued = 0
         self._tasks_running = 0
         self._tasks_finished = 0
+        self._last_progress_log_s = 0.0
         self.task = None
         self.cancel_event = None
         self.done_event = None
@@ -139,6 +141,10 @@ class Changeset(BaseModel):
         """
         Emit a structured log message that can be turned into SSE progress events.
         """
+        now = monotonic()
+        if now - self._last_progress_log_s < 1.0:
+            return
+        self._last_progress_log_s = now
         logger.bind(changeset_id=self.id).info(
             "tasks_progress queued={queued} running={running} finished={finished}",
             queued=self._tasks_queued,

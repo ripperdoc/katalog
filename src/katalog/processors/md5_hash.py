@@ -20,6 +20,7 @@ class MD5HashProcessor(Processor):
     plugin_id = "katalog.processors.md5_hash.MD5HashProcessor"
     title = "MD5 hash"
     description = "Compute md5 checksum for assets."
+    execution_mode = "cpu"
     _dependencies = frozenset({DATA_KEY, FILE_SIZE, TIME_MODIFIED})
     _outputs = frozenset({HASH_MD5})
 

@@ -154,6 +154,12 @@ class FakeAssetSource(SourcePlugin):
             default=True,
             description="Attach collection metadata to emitted assets",
         )
+        hidden_path_ratio: float = Field(
+            default=0.02,
+            ge=0,
+            le=1,
+            description="Probability of generating a hidden-looking path or filename",
+        )
         use_queue: bool = Field(
             default=False,
             description="Emit assets through an internal queue (decouples producer/consumer)",
@@ -179,6 +185,7 @@ class FakeAssetSource(SourcePlugin):
         self.namespace = cfg.namespace
         self.use_queue = cfg.use_queue
         self.queue_maxsize = cfg.queue_maxsize
+        self.hidden_path_ratio = cfg.hidden_path_ratio
 
         self._collection: AssetCollection | None = None
 
@@ -230,7 +237,9 @@ class FakeAssetSource(SourcePlugin):
             batch_index = 0
             total_assets = max(0, self.total_assets)
             for idx in range(self.total_assets):
-                spec = _generate_asset_spec(rng, actor_id, idx)
+                spec = _generate_asset_spec(
+                    rng, actor_id, idx, hidden_path_ratio=self.hidden_path_ratio
+                )
                 asset = Asset(
                     external_id=spec.external_id,
                     namespace=self.get_namespace(),
@@ -452,7 +461,13 @@ async def _sleep_batch(rng: Random, delay_ms: float, jitter_ms: float) -> None:
     await asyncio.sleep(total)
 
 
-def _generate_asset_spec(rng: Random, actor_id: int, index: int) -> _FakeAssetSpec:
+def _generate_asset_spec(
+    rng: Random,
+    actor_id: int,
+    index: int,
+    *,
+    hidden_path_ratio: float = 0.0,
+) -> _FakeAssetSpec:
     entry = _pick_weighted(rng, _MIME_TYPES)
     extension = entry["extension"]
     mime_type = entry["mime"]
@@ -460,8 +475,18 @@ def _generate_asset_spec(rng: Random, actor_id: int, index: int) -> _FakeAssetSp
     base_dir = rng.choice(_ROOT_FOLDERS)
     subdirs = [rng.choice(_SUB_FOLDERS) for _ in range(rng.randint(0, 2))]
     file_name = f"{rng.choice(_FILE_STEMS)}-{index:05d}.{extension}"
+    path_parts = ["", "fake", base_dir, *subdirs]
 
-    path_parts = ["", "fake", base_dir, *subdirs, file_name]
+    if hidden_path_ratio and rng.random() < hidden_path_ratio:
+        mode = rng.choice(["dot_dir", "dot_file", "tilde_file"])
+        if mode == "dot_dir":
+            path_parts.append(".hidden")
+        elif mode == "dot_file":
+            file_name = f".{file_name}"
+        else:
+            file_name = f"~${file_name}"
+
+    path_parts.append(file_name)
     file_path = "/".join(part for part in path_parts if part)
     size = rng.randint(entry["size_min"], entry["size_max"])
     external_id = f"fake:{actor_id}:{index:06d}"

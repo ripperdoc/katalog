@@ -32,6 +32,7 @@ class Processor(PluginBase, ABC):
     """
     Defines the interface for a metadata processor.
     """
+    execution_mode: str = "io"
 
     @property
     @abstractmethod

@@ -24,6 +24,7 @@ from katalog.constants.metadata import ASSET_LOST
 from katalog.constants.metadata import DATA_FILE_READER
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
+from katalog.runtime.batch import get_batch_size, iter_batches_async
 
 
 async def _flush_scan_only_batch(
@@ -98,15 +99,19 @@ async def run_sources(
     *,
     sources: list[Actor],
     changeset: Changeset,
+    run_processors: bool = True,
 ) -> OpStatus:
     """Run a scan + processor pipeline for a single source and finalize its changeset."""
 
-    processor_pipeline, processor_actors = await sort_processors()
+    if run_processors:
+        processor_pipeline, processor_actors = await sort_processors()
+    else:
+        processor_pipeline, processor_actors = [], []
     has_processors = bool(processor_pipeline)
 
     # For scan-only runs (no processors), we can safely batch persistence into fewer commits.
     # This tends to be a big speed-up with SQLite/aiosqlite.
-    tx_chunk_size = 500
+    tx_chunk_size = get_batch_size()
     log_every_assets = 5000
 
     final_status = OpStatus.COMPLETED
@@ -150,13 +155,10 @@ async def run_sources(
         persisted_assets = 0
         seen_assets: set[int] = set()
 
-        pending: list[AssetScanResult] = []
-
-        async for result in scan_result.iterator:
-            stats.assets_seen += 1
-            stats.assets_saved += 1
-
-            if has_processors:
+        if has_processors:
+            async for result in scan_result.iterator:
+                stats.assets_seen += 1
+                stats.assets_saved += 1
                 db = get_asset_repo()
                 was_created = await db.save_record(
                     result.asset, changeset=changeset, actor=source
@@ -175,7 +177,6 @@ async def run_sources(
                         make_metadata(DATA_FILE_READER, {}, actor_id=result.actor.id),
                     ],
                 )
-                # Enqueue asset for processing, which will also persist the metadata
                 changeset.enqueue(
                     process_asset(
                         asset=result.asset,
@@ -186,10 +187,16 @@ async def run_sources(
                 )
                 if result.asset.id is not None:
                     seen_assets.add(int(result.asset.id))
-            else:
-                pending.append(result)
-                if len(pending) >= tx_chunk_size:
-                    batch_size = len(pending)
+        else:
+            async for batch in iter_batches_async(
+                scan_result.iterator, tx_chunk_size
+            ):
+                for result in batch:
+                    stats.assets_seen += 1
+                    stats.assets_saved += 1
+                pending = list(batch)
+                batch_size = len(pending)
+                if batch_size:
                     if first_persist_start is None:
                         first_persist_start = time.perf_counter()
                     persist_started = time.perf_counter()
@@ -211,19 +218,6 @@ async def run_sources(
 
         if not has_processors:
             scan_iter_finished = time.perf_counter()
-            batch_size = len(pending)
-            if batch_size:
-                if first_persist_start is None:
-                    first_persist_start = time.perf_counter()
-                persist_started = time.perf_counter()
-                await _flush_scan_only_batch(
-                    batch=pending, changeset=changeset, seen_assets=seen_assets
-                )
-                persist_time_s += time.perf_counter() - persist_started
-                persist_batches += 1
-            persisted_assets += batch_size
-
-            # Final progress log for scan-only mode.
             logger.info(
                 "Finished persisting scan results for {source} (persisted={persisted}, changed={changed}, added={added})",
                 source=f"{source.id}:{source.name}",

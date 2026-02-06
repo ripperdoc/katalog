@@ -87,16 +87,20 @@ class SqlspecAssetRepo:
         *,
         order_by: str | None = None,
         limit: int | None = None,
+        offset: int | None = None,
         **filters: Any,
     ) -> list[Asset]:
         where_sql, params = build_where(filters)
         order_sql = f"ORDER BY {order_by}" if order_by else ""
         limit_sql = "LIMIT :limit" if limit is not None else ""
+        offset_sql = "OFFSET :offset" if offset is not None else ""
         if limit is not None:
             params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
         sql = (
             f"SELECT id, canonical_asset_id, actor_id, namespace, external_id, canonical_uri "
-            f"FROM {ASSET_TABLE} {where_sql} {order_sql} {limit_sql}"
+            f"FROM {ASSET_TABLE} {where_sql} {order_sql} {limit_sql} {offset_sql}"
         )
         async with session_scope() as session:
             rows = await select(session, sql, params)

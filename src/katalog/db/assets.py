@@ -14,6 +14,7 @@ class AssetRepo(Protocol):
         *,
         order_by: str | None = None,
         limit: int | None = None,
+        offset: int | None = None,
         **filters: Any,
     ) -> list[Asset]: ...
     async def save_record(

@@ -17,10 +17,6 @@ from katalog.plugins import registry as plugin_registry
 
 @pytest_asyncio.fixture
 async def db_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    workspace = tmp_path / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("KATALOG_WORKSPACE", str(workspace))
-
     mem_name = f"memdb_{uuid4().hex}"
     db_url = f"sqlite:///file:{mem_name}?mode=memory&cache=shared"
     monkeypatch.setenv("KATALOG_DATABASE_URL", db_url)

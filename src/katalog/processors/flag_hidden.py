@@ -19,6 +19,7 @@ class HiddenFlagProcessor(Processor):
     description = (
         "Flag files and folders that are likely hidden or irrelevant; clears when no longer hidden."
     )
+    execution_mode = "cpu"
     _dependencies = frozenset({FILE_PATH, FILE_NAME, FILE_TYPE})
     _outputs = frozenset({FLAG_HIDDEN})
 

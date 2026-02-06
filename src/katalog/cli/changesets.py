@@ -86,3 +86,20 @@ def show_changeset(changeset_id: int, ctx: typer.Context) -> None:
     typer.echo(f"Running time (ms): {changeset.running_time_ms or '-'}")
     typer.echo(f"Running: {'yes' if running else 'no'}")
     typer.echo(f"Logs: {len(logs)} entries")
+
+
+@changesets_app.command("delete")
+def delete_changeset(changeset_id: int, ctx: typer.Context) -> None:
+    """Delete a changeset and all related rows."""
+
+    async def _run() -> dict[str, int | str]:
+        from katalog.api.changesets import delete_changeset as delete_changeset_api
+
+        return await delete_changeset_api(changeset_id)
+
+    result = run_cli(_run)
+    if wants_json(ctx):
+        typer.echo(json.dumps(result, default=str))
+        return
+
+    typer.echo(f"Deleted changeset {result['changeset_id']}")

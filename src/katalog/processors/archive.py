@@ -8,6 +8,7 @@ from katalog.constants.metadata import FILE_TYPE
 class ArchiveProcess(Processor):
     """Checks if a file is an archive and if so, scans it to emit "virtual" file records."""
 
+    execution_mode = "cpu"
     _dependencies = frozenset({FILE_TYPE})
     _outputs = frozenset()  # TODO
 

@@ -13,10 +13,12 @@ actors_app = typer.Typer(help="Manage actors")
 assets_app = typer.Typer(help="Manage assets")
 collections_app = typer.Typer(help="Manage collections")
 changesets_app = typer.Typer(help="Manage changesets")
+processors_app = typer.Typer(help="Manage processors")
 app.add_typer(actors_app, name="actors")
 app.add_typer(assets_app, name="assets")
 app.add_typer(collections_app, name="collections")
 app.add_typer(changesets_app, name="changesets")
+app.add_typer(processors_app, name="processors")
 
 
 def _reset_workspace(ws: pathlib.Path) -> None:
@@ -339,6 +341,7 @@ from . import actors as _actors  # noqa: E402,F401
 from . import assets as _assets  # noqa: E402,F401
 from . import collections as _collections  # noqa: E402,F401
 from . import changesets as _changesets  # noqa: E402,F401
+from . import processors as _processors  # noqa: E402,F401
 
 
 def main() -> None:

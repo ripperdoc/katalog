@@ -89,10 +89,15 @@ def run_actor(
         "--bootstrap-actors",
         help="Bootstrap actors from workspace katalog.toml before scanning",
     ),
-    trace_memory: bool = typer.Option(
+    skip_processors: bool = typer.Option(
         False,
-        "--trace-memory",
-        help="Report max RSS after the scan (platform-dependent units)",
+        "--skip-processors",
+        help="Skip running processors as part of the scan",
+    ),
+    benchmark: bool = typer.Option(
+        False,
+        "--benchmark",
+        help="Benchmark mode: report max RSS and delete the changeset after the run",
     ),
 ) -> None:
     """Run a source scan for the given actor id without starting the server."""
@@ -109,11 +114,19 @@ def run_actor(
         if bootstrap_actors:
             await _bootstrap_actors_from_toml(ws)
 
-        changeset = await run_source(actor_id, finalize=True)
+        changeset = await run_source(
+            actor_id,
+            finalize=True,
+            run_processors=not skip_processors,
+        )
 
-        max_rss = None
-        if trace_memory:
+        max_rss_mb = None
+        if benchmark:
             max_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            max_rss_mb = max_rss / (1024 * 1024)
+            from katalog.api.changesets import delete_changeset as delete_changeset_api
+
+            await delete_changeset_api(int(changeset.id))
 
         return {
             "changeset_id": changeset.id,
@@ -126,8 +139,9 @@ def run_actor(
                 if changeset.running_time_ms is not None
                 else None
             ),
-            "max_rss": max_rss,
+            "max_rss_mb": max_rss_mb,
             "scan_metrics": (changeset.data or {}).get("scan_metrics"),
+            "deleted": benchmark,
         }
 
     result = run_cli(_run)
@@ -141,8 +155,10 @@ def run_actor(
     typer.echo(f"Status: {result['status']}")
     if result.get("elapsed_seconds") is not None:
         typer.echo(f"Elapsed: {result['elapsed_seconds']:.2f}s")
-    if result.get("max_rss") is not None:
-        typer.echo(f"Max RSS: {result['max_rss']} (platform-dependent units)")
+    if result.get("max_rss_mb") is not None:
+        typer.echo(f"Max RSS: {result['max_rss_mb']:.2f} MB")
+    if result.get("deleted"):
+        typer.echo("Deleted: yes")
     scan_metrics = result.get("scan_metrics")
     if scan_metrics:
         typer.echo(f"Scan time: {scan_metrics.get('scan_seconds'):.2f}s")

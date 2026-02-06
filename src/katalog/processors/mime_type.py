@@ -22,6 +22,7 @@ class MimeTypeProcessor(Processor):
     plugin_id = "katalog.processors.mime_type.MimeTypeProcessor"
     title = "MIME type"
     description = "Detect MIME type from file bytes using libmagic."
+    execution_mode = "cpu"
     _dependencies = file_data_change_dependencies
     _outputs = frozenset({FILE_TYPE})
 
