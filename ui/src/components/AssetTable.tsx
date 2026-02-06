@@ -13,12 +13,47 @@ import "simple-table-core/styles.css";
 import AssetCell from "./AssetCell";
 import { ActorCellPure } from "./ActorCell";
 import ExternalIdCell from "./ExternalIdCell";
+import { makeFlagCell, ThumbnailCell } from "./FlagCell";
 import TableFooter from "./TableFooter";
 import { useRegistry } from "../utils/registry";
 
 const ASSET_ID_KEY = "asset/id";
 const ACTOR_ID_KEY = "asset/actor_id";
 const EXTERNAL_ID_KEY = "asset/external_id";
+const FILE_THUMBNAIL_URI_KEY = "file/thumbnail_link";
+const FLAG_FAVORITE_KEY = "flag/starred";
+const FLAG_HIDDEN_KEY = "flag/hidden";
+const FLAG_REVIEW_KEY = "flag/review";
+const FLAG_REJECTED_KEY = "flag/rejected";
+
+const favoriteFlagCell = makeFlagCell({
+  label: "Favorite",
+  iconOn: "star",
+  iconOff: "star_outline",
+  onColor: "#f59e0b",
+  offColor: "#94a3b8",
+});
+const hiddenFlagCell = makeFlagCell({
+  label: "Hidden",
+  iconOn: "visibility_off",
+  iconOff: "visibility",
+  onColor: "#0f172a",
+  offColor: "#94a3b8",
+});
+const reviewFlagCell = makeFlagCell({
+  label: "Review",
+  iconOn: "rate_review",
+  iconOff: "rate_review",
+  onColor: "#2563eb",
+  offColor: "#94a3b8",
+});
+const rejectedFlagCell = makeFlagCell({
+  label: "Rejected",
+  iconOn: "block",
+  iconOff: "block",
+  onColor: "#dc2626",
+  offColor: "#94a3b8",
+});
 
 const valueGetter = (props: ValueGetterProps) => {
   const value = props.row[props.accessor];
@@ -149,28 +184,42 @@ const serializeFilter = (filter: FilterCondition): string | null => {
   return `${accessor} ${operator} ${normalizeFilterValue(filter.value)}`;
 };
 
+const cellRenderersById: Record<string, HeaderObject["cellRenderer"]> = {
+  [EXTERNAL_ID_KEY]: ExternalIdCell,
+  [ASSET_ID_KEY]: AssetCell,
+  [FLAG_FAVORITE_KEY]: favoriteFlagCell,
+  [FLAG_HIDDEN_KEY]: hiddenFlagCell,
+  [FLAG_REVIEW_KEY]: reviewFlagCell,
+  [FLAG_REJECTED_KEY]: rejectedFlagCell,
+  [FILE_THUMBNAIL_URI_KEY]: ThumbnailCell,
+};
+
+const headerLabelById: Record<string, string> = {
+  [FLAG_FAVORITE_KEY]: "",
+  [FLAG_HIDDEN_KEY]: "",
+  [FLAG_REVIEW_KEY]: "",
+  [FLAG_REJECTED_KEY]: "",
+  [FILE_THUMBNAIL_URI_KEY]: "",
+};
+
+const valueFormatterById: Record<string, HeaderObject["valueFormatter"]> = {
+  "file/size": (props: ValueFormatterProps) => formatBytes(valueGetter(props)),
+};
+
 export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
   const rv = schema
     .filter((column) => !column.hidden)
     .map((column, index) => ({
       accessor: column.id,
-      label: column.title || column.id,
+      label: headerLabelById[column.id] ?? (column.title || column.id),
       // pinned: index < 2 ? "left" : undefined,
       width: normalizeWidth(column.width),
       type: getSimpleTableType(column.value_type),
       isSortable: Boolean(column.sortable),
       filterable: Boolean(column.filterable),
       valueGetter,
-      valueFormatter:
-        column.id === "file/size"
-          ? (props: ValueFormatterProps) => formatBytes(valueGetter(props))
-          : valueFormatter,
-      cellRenderer:
-        column.id === EXTERNAL_ID_KEY
-          ? ExternalIdCell
-          : column.id === ASSET_ID_KEY
-            ? AssetCell
-            : undefined,
+      valueFormatter: valueFormatterById[column.id] ?? valueFormatter,
+      cellRenderer: cellRenderersById[column.id],
     }));
   return rv;
 };

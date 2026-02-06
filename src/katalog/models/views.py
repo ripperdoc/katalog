@@ -13,10 +13,13 @@ from katalog.constants.metadata import (
     FILE_NAME,
     FILE_PATH,
     FILE_SIZE,
+    FILE_THUMBNAIL_URI,
     FILE_TYPE,
     FLAG_FAVORITE,
+    FLAG_HIDDEN,
+    FLAG_REVIEW,
+    FLAG_REJECTED,
     HASH_MD5,
-    METADATA_REGISTRY,
     MetadataKey,
     MetadataType,
     get_metadata_def_by_key,
@@ -110,14 +113,20 @@ def default_view() -> ViewSpec:
             hidden=True,
             searchable=True,
         ),
-        ColumnSpec.from_metadata(FILE_PATH, filterable=True, searchable=True, width=400),
+        ColumnSpec.from_metadata(
+            FILE_PATH, filterable=True, searchable=True, width=400
+        ),
         ColumnSpec.from_metadata(FILE_NAME, filterable=True, searchable=True),
         ColumnSpec.from_metadata(FILE_SIZE, filterable=True, sortable=True, width=80),
         ColumnSpec.from_metadata(FILE_TYPE, filterable=True),
         ColumnSpec.from_metadata(TIME_CREATED, filterable=True, width=210),
         ColumnSpec.from_metadata(TIME_MODIFIED, filterable=True, width=210),
-        ColumnSpec.from_metadata(FLAG_FAVORITE, filterable=True),
         ColumnSpec.from_metadata(HASH_MD5, filterable=True, width=250),
+        ColumnSpec.from_metadata(FLAG_FAVORITE, filterable=True, width=40),
+        ColumnSpec.from_metadata(FLAG_HIDDEN, filterable=True, width=40),
+        ColumnSpec.from_metadata(FLAG_REVIEW, filterable=True, width=40),
+        ColumnSpec.from_metadata(FLAG_REJECTED, filterable=True, width=40),
+        ColumnSpec.from_metadata(FILE_THUMBNAIL_URI, width=48),
     ]
 
     return ViewSpec(
