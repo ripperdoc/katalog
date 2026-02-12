@@ -46,6 +46,7 @@ mime = "katalog.processors.mime_type:MimeTypeProcessor"
 name_readability = "katalog.processors.name_readability:NameReadabilityProcessor"
 flag_hidden = "katalog.processors.flag_hidden:HiddenFlagProcessor"
 search_index = "katalog.processors.search_index:SearchIndexProcessor"
+path_renamer = "katalog.processors.path_renamer:PathRenamerProcessor"
 
 [project.entry-points."katalog.analyzer"]
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"
