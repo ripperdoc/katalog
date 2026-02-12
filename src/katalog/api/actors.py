@@ -16,6 +16,7 @@ from katalog.plugins.registry import (
 
 from katalog.api.helpers import (
     ApiError,
+    actor_identity_key,
     config_schema_for_plugin,
     validate_and_normalize_config,
 )
@@ -54,10 +55,6 @@ async def create_actor(payload: ActorCreate) -> Actor:
     except Exception as exc:  # noqa: BLE001
         raise ApiError(status_code=404, detail="Plugin not found") from exc
 
-    existing = await db.get_or_none(name=payload.name)
-    if existing:
-        raise ApiError(status_code=400, detail="Actor name already exists")
-
     # Handle TOML vs config conflict
     config_toml = payload.config_toml.strip() if payload.config_toml else None
     raw_config: dict[str, Any] | None = payload.config
@@ -78,10 +75,21 @@ async def create_actor(payload: ActorCreate) -> Actor:
             ) from exc
 
     normalized_config = validate_and_normalize_config(plugin_cls, raw_config)
+    identity_key = actor_identity_key(
+        actor_type=spec.actor_type,
+        plugin_id=payload.plugin_id,
+        config=normalized_config,
+    )
+
+    if identity_key is not None:
+        existing = await db.get_or_none(type=spec.actor_type, identity_key=identity_key)
+        if existing is not None:
+            return existing
 
     actor = await db.create(
         name=payload.name,
         plugin_id=payload.plugin_id,
+        identity_key=identity_key,
         type=spec.actor_type,
         config=normalized_config,
         config_toml=config_toml,
@@ -178,6 +186,20 @@ async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
 
     if payload.disabled is not None:
         actor.disabled = bool(payload.disabled)
+
+    identity_key = actor_identity_key(
+        actor_type=actor.type,
+        plugin_id=actor.plugin_id,
+        config=actor.config,
+    )
+    if identity_key is not None:
+        duplicate = await db.get_or_none(type=actor.type, identity_key=identity_key)
+        if duplicate is not None and duplicate.id != actor.id:
+            raise ApiError(
+                status_code=400,
+                detail="Actor with identical normalized config already exists",
+            )
+    actor.identity_key = identity_key
 
     await db.save(actor)
     return actor

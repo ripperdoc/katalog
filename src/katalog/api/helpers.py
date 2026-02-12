@@ -1,7 +1,10 @@
 from typing import Any
+import hashlib
+import json
 
 from pydantic import ValidationError
 
+from katalog.models.core import ActorType
 from katalog.plugins.registry import (
     PluginSpec,
     get_plugin_class,
@@ -62,3 +65,24 @@ def config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
     if config_model is None:
         return {"schema": {"type": "object", "properties": {}}}
     return {"schema": config_model.model_json_schema(by_alias=False)}
+
+
+def actor_identity_key(
+    *,
+    actor_type: ActorType,
+    plugin_id: str | None,
+    config: dict[str, Any] | None,
+) -> str | None:
+    """Return a stable identity key for actor deduplication."""
+    if not plugin_id:
+        return None
+    normalized = config or {}
+    config_json = json.dumps(
+        normalized,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    payload = f"{int(actor_type)}|{plugin_id}|{config_json}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()

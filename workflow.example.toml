@@ -1,0 +1,91 @@
+# Example workflow definition for processor orchestration.
+#
+# Design goal:
+# - Reuse the same actor shape as `katalog.toml` bootstrap (`[[actors]]`).
+# - Keep workflow metadata + run plan in a small wrapper.
+# - Let workflow files be shareable while actor ownership still maps to DB actor IDs.
+
+[workflow]
+id = "organize-files-v1"
+name = "Organize Files"
+description = "Compute metadata and propose new file paths based on templates."
+version = "1.0.0"
+
+# Optional metadata for humans/tools.
+[workflow.meta]
+author = "team-katalog"
+tags = ["organization", "processors", "example"]
+
+# Runtime plan (orchestration only).
+# `include` references actor names declared below.
+# `before` adds explicit ordering constraints on top of automatic dependency resolution.
+[run]
+include = [
+  "md5",
+  "mime",
+  "project_classifier",
+  "path_proposer",
+]
+
+[[run.before]]
+first = "md5"
+then = "mime"
+
+[[run.before]]
+first = "mime"
+then = "project_classifier"
+
+[[run.before]]
+first = "project_classifier"
+then = "path_proposer"
+
+# Actor definitions (same shape as bootstrap katalog.toml).
+# These are processor instances used by this workflow.
+[[actors]]
+name = "md5"
+plugin_id = "katalog.processors.md5_hash.MD5HashProcessor"
+disabled = false
+[actors.config]
+chunk_size = 8192
+
+[[actors]]
+name = "mime"
+plugin_id = "katalog.processors.mime_type.MimeTypeProcessor"
+disabled = false
+[actors.config]
+probe_length = 2048
+run_on_octet_stream = true
+
+[[actors]]
+name = "project_classifier"
+plugin_id = "example.processors.project_classifier.ProjectClassifierProcessor"
+disabled = false
+[actors.config]
+model = "default"
+labels = ["ww", "katalog", "archive"]
+
+[[actors]]
+name = "path_proposer"
+plugin_id = "example.processors.path_template.PathTemplateProcessor"
+disabled = false
+[actors.config]
+template = "{project}/{file/type}/{file/filename}"
+
+# Optional source actor example.
+# Most shared workflows should omit user-specific paths/credentials.
+# [[actors]]
+# name = "local_docs"
+# plugin_id = "katalog.sources.local_files.LocalFileSource"
+# disabled = true
+# [actors.config]
+# root = "/absolute/path/to/my/files"
+
+# Optional execution filters.
+[selection]
+asset_query = "file/type:image/*"
+limit = 5000
+
+# Optional run policy.
+[policy]
+unknown_since_actor = "run"
+on_missing_actor = "error"

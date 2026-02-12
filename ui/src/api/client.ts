@@ -21,6 +21,8 @@ import type {
   CollectionUpdateResponse,
   DeleteCollectionResponse,
   CollectionRemoveAssetsResponse,
+  WorkflowActionResponse,
+  WorkflowListResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -455,6 +457,37 @@ export async function fetchEditableMetadataSchema(): Promise<{
 
 export async function runAllProcessors(): Promise<Changeset> {
   return runProcessors();
+}
+
+export async function fetchWorkflows(): Promise<WorkflowListResponse> {
+  const response = await fetch(`${API_BASE}/workflows`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function syncWorkflow(workflowName: string): Promise<WorkflowActionResponse> {
+  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/sync`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function runWorkflow(workflowName: string): Promise<WorkflowActionResponse> {
+  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/run`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function applyWorkflow(workflowName: string): Promise<WorkflowActionResponse> {
+  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/apply`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
 }
 
 export async function syncConfig(): Promise<void> {

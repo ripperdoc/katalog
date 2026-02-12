@@ -24,6 +24,14 @@ function ChangesetDetailRoute() {
   const changesLimit = 200;
 
   const statusRef = useRef<Changeset["status"] | null>(null);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
+
+  const stopStream = useCallback(() => {
+    if (streamCleanupRef.current) {
+      streamCleanupRef.current();
+      streamCleanupRef.current = null;
+    }
+  }, []);
 
   const loadChangeset = useCallback(async () => {
     if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
@@ -36,6 +44,9 @@ function ChangesetDetailRoute() {
       const response = await fetchChangeset(changesetIdNum);
       setChangeset(response.changeset);
       statusRef.current = response.changeset.status;
+      if (response.changeset.status !== "in_progress") {
+        stopStream();
+      }
       const logLines =
         response.logs
           ?.filter((evt) => evt.event === "log")
@@ -52,7 +63,7 @@ function ChangesetDetailRoute() {
     } finally {
       setLoading(false);
     }
-  }, [changesetIdNum]);
+  }, [changesetIdNum, stopStream]);
 
   useEffect(() => {
     void loadChangeset();
@@ -93,8 +104,17 @@ function ChangesetDetailRoute() {
 
   useEffect(() => {
     if (!changesetIdNum || Number.isNaN(changesetIdNum)) {
+      stopStream();
       return;
     }
+    if (changeset?.status !== "in_progress") {
+      stopStream();
+      return;
+    }
+    if (streamCleanupRef.current) {
+      return;
+    }
+
     const cleanup = subscribeChangesetEvents(
       changesetIdNum,
       (payload: ChangesetEvent) => {
@@ -105,9 +125,23 @@ function ChangesetDetailRoute() {
           return;
         }
         if (payload.event === "changeset_status" || payload.event === "changeset_start") {
-          const next = payload.payload as Changeset;
-          setChangeset(next);
+          const next = payload.payload as unknown as Changeset;
+          setChangeset((prev) => {
+            if (
+              prev &&
+              prev.id === next.id &&
+              prev.status === next.status &&
+              prev.running_time_ms === next.running_time_ms &&
+              prev.message === next.message
+            ) {
+              return prev;
+            }
+            return next;
+          });
           statusRef.current = next.status;
+          if (next.status !== "in_progress") {
+            stopStream();
+          }
         }
       },
       () => {
@@ -116,11 +150,17 @@ function ChangesetDetailRoute() {
         }
       },
     );
+    streamCleanupRef.current = cleanup;
 
     return () => {
-      cleanup();
+      if (streamCleanupRef.current === cleanup) {
+        cleanup();
+        streamCleanupRef.current = null;
+      } else {
+        cleanup();
+      }
     };
-  }, [changesetIdNum]);
+  }, [changesetIdNum, changeset?.status, stopStream]);
 
   const requestCancel = async () => {
     if (!changesetIdNum || Number.isNaN(changesetIdNum)) {

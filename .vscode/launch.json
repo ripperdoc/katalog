@@ -26,6 +26,8 @@
         "--reload-dir",
         "src",
         "--test-workspace",
+        "--workflow",
+        "../workflow.example.toml",
         "--seed-assets",
         "2000"
       ],

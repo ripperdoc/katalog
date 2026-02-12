@@ -1,9 +1,10 @@
 import json
+import pathlib
 from typing import Any
 
 import typer
 
-from . import _bootstrap_actors_from_toml, _reset_workspace, actors_app
+from . import _reset_workspace, actors_app
 from .utils import render_table, run_cli, wants_json
 
 
@@ -84,10 +85,10 @@ def run_actor(
         "--reset-workspace",
         help="Delete katalog.db and actors cache before scanning",
     ),
-    bootstrap_actors: bool = typer.Option(
-        False,
-        "--bootstrap-actors",
-        help="Bootstrap actors from workspace katalog.toml before scanning",
+    workflow_file: str | None = typer.Option(
+        None,
+        "--workflow",
+        help="Sync actors from this workflow TOML before scanning",
     ),
     skip_processors: bool = typer.Option(
         False,
@@ -110,9 +111,10 @@ def run_actor(
         import resource
 
         from katalog.api.operations import run_source
+        from katalog.workflows import sync_workflow_file
 
-        if bootstrap_actors:
-            await _bootstrap_actors_from_toml(ws)
+        if workflow_file:
+            await sync_workflow_file(pathlib.Path(workflow_file))
 
         changeset = await run_source(
             actor_id,

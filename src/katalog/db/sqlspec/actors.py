@@ -29,7 +29,7 @@ class SqlspecActorRepo:
         if limit is not None:
             params["limit"] = limit
         sql = (
-            f"SELECT id, name, plugin_id, config, config_toml, type, disabled, created_at, updated_at "
+            f"SELECT id, name, plugin_id, identity_key, config, config_toml, type, disabled, created_at, updated_at "
             f"FROM {ACTOR_TABLE} {where_sql} {order_sql} {limit_sql}"
         )
         async with session_scope() as session:
@@ -46,14 +46,15 @@ class SqlspecActorRepo:
                 session,
                 f"""
                 INSERT INTO {ACTOR_TABLE} (
-                    name, plugin_id, config, config_toml, type, disabled, created_at, updated_at
+                    name, plugin_id, identity_key, config, config_toml, type, disabled, created_at, updated_at
                 ) VALUES (
-                    :name, :plugin_id, :config, :config_toml, :type, :disabled, :created_at, :updated_at
+                    :name, :plugin_id, :identity_key, :config, :config_toml, :type, :disabled, :created_at, :updated_at
                 )
                 """,
                 {
                     "name": fields["name"],
                     "plugin_id": fields.get("plugin_id"),
+                    "identity_key": fields.get("identity_key"),
                     "config": fields.get("config"),
                     "config_toml": fields.get("config_toml"),
                     "type": int(fields["type"])
@@ -84,6 +85,7 @@ class SqlspecActorRepo:
                 UPDATE {ACTOR_TABLE}
                 SET name = :name,
                     plugin_id = :plugin_id,
+                    identity_key = :identity_key,
                     config = :config,
                     config_toml = :config_toml,
                     type = :type,
@@ -96,6 +98,7 @@ class SqlspecActorRepo:
                     "id": int(actor.id),
                     "name": actor.name,
                     "plugin_id": actor.plugin_id,
+                    "identity_key": actor.identity_key,
                     "config": actor.config,
                     "config_toml": actor.config_toml,
                     "type": int(actor.type)

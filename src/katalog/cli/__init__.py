@@ -3,7 +3,6 @@ import os
 import pathlib
 import shutil
 import sys
-import tomllib
 
 import typer
 from loguru import logger
@@ -14,11 +13,13 @@ assets_app = typer.Typer(help="Manage assets")
 collections_app = typer.Typer(help="Manage collections")
 changesets_app = typer.Typer(help="Manage changesets")
 processors_app = typer.Typer(help="Manage processors")
+workflows_app = typer.Typer(help="Manage workflows")
 app.add_typer(actors_app, name="actors")
 app.add_typer(assets_app, name="assets")
 app.add_typer(collections_app, name="collections")
 app.add_typer(changesets_app, name="changesets")
 app.add_typer(processors_app, name="processors")
+app.add_typer(workflows_app, name="workflows")
 
 
 def _reset_workspace(ws: pathlib.Path) -> None:
@@ -92,105 +93,13 @@ async def _seed_test_workspace(ws: pathlib.Path, total_assets: int) -> None:
     await changeset.finalize(status=status)
 
 
-def _collect_actor_entries(config: dict) -> list[dict]:
-    if "actors" in config:
-        actors = config.get("actors") or []
-        if not isinstance(actors, list):
-            raise ValueError("katalog.toml: 'actors' must be a list")
-        return actors
-
-    legacy_lists = []
-    for key in ("sources", "processors", "analyzers"):
-        items = config.get(key) or []
-        if not isinstance(items, list):
-            raise ValueError(f"katalog.toml: '{key}' must be a list")
-        legacy_lists.extend(items)
-    if legacy_lists:
-        logger.warning(
-            "katalog.toml uses legacy keys (sources/processors/analyzers). "
-            "Prefer a single [[actors]] list."
-        )
-    return legacy_lists
-
-
-def _parse_actor_entry(entry: dict, index: int) -> tuple[str, str, dict, bool]:
-    if not isinstance(entry, dict):
-        raise ValueError(f"katalog.toml: actor #{index + 1} must be a table")
-    plugin_id = entry.get("plugin_id")
-    if not plugin_id:
-        raise ValueError(f"katalog.toml: actor #{index + 1} is missing 'plugin_id'")
-    name = entry.get("name") or plugin_id
-    if "name" not in entry:
-        logger.warning(
-            "katalog.toml: actor #{index} missing name; using plugin_id as name",
-            index=index + 1,
-        )
-    disabled = bool(entry.get("disabled")) if entry.get("disabled") is not None else False
-    if "config" in entry:
-        config = entry.get("config") or {}
-        if not isinstance(config, dict):
-            raise ValueError(
-                f"katalog.toml: actor #{index + 1} config must be a table"
-            )
-    else:
-        reserved = {"name", "plugin_id", "disabled"}
-        config = {k: v for k, v in entry.items() if k not in reserved}
-    return name, plugin_id, config, disabled
-
-
-async def _bootstrap_actors_from_toml(ws: pathlib.Path) -> None:
-    from katalog.api.actors import ActorCreate, create_actor
-    from katalog.db.metadata import sync_config_db
-    from katalog.plugins.registry import refresh_plugins
-
-    toml_path = ws / "katalog.toml"
-    if not toml_path.exists():
-        logger.warning(
-            "No katalog.toml found in workspace {ws}; skipping bootstrap.",
-            ws=ws,
-        )
-        return
-
-    try:
-        raw = tomllib.loads(toml_path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        raise SystemExit(f"Invalid katalog.toml syntax: {exc}") from exc
-
-    actor_entries = _collect_actor_entries(raw)
-    if not actor_entries:
-        logger.warning("katalog.toml has no actors to bootstrap")
-        return
-
-    refresh_plugins()
-    await sync_config_db()
-
-    created = 0
-    for index, entry in enumerate(actor_entries):
-        name, plugin_id, config, disabled = _parse_actor_entry(entry, index)
-        payload = ActorCreate(
-            name=name,
-            plugin_id=plugin_id,
-            config=config or None,
-            disabled=disabled,
-        )
-        actor = await create_actor(payload)
-        logger.info(
-            "Bootstrapped actor '{name}' ({plugin_id})",
-            name=actor.name,
-            plugin_id=actor.plugin_id,
-        )
-        created += 1
-
-    logger.info("Bootstrapped {count} actors from katalog.toml", count=created)
-
-
 def _run_server(
     ws: pathlib.Path,
     *,
     port: int | None,
     test_workspace: bool,
     seed_assets: int,
-    bootstrap_actors: bool,
+    workflow_file: str | None,
     reload: bool,
     reload_dir: list[str],
 ) -> None:
@@ -208,28 +117,32 @@ def _run_server(
                 "Test workspace already initialized at {db_path}; skipping reset/seed. Delete the DB to re-seed.",
                 db_path=db_path,
             )
-            if bootstrap_actors:
+            if workflow_file:
                 logger.warning(
-                    "Not bootstrapping actors from katalog.toml; existing DB found at {db_path}.",
+                    "Not syncing workflow; existing DB found at {db_path}.",
                     db_path=db_path,
                 )
         else:
             _reset_workspace(ws)
-            if bootstrap_actors:
-                asyncio.run(_bootstrap_actors_from_toml(ws))
+            if workflow_file:
+                from katalog.workflows import sync_workflow_file
+
+                asyncio.run(sync_workflow_file(pathlib.Path(workflow_file)))
             if seed_assets > 0:
                 asyncio.run(_seed_test_workspace(ws, total_assets=seed_assets))
     elif seed_assets > 0:
         raise SystemExit("--seed-assets requires --test-workspace")
-    elif bootstrap_actors:
+    elif workflow_file:
         db_path = ws / "katalog.db"
         if db_path.exists():
             logger.warning(
-                "Not bootstrapping actors from katalog.toml; existing DB found at {db_path}.",
+                "Not syncing workflow; existing DB found at {db_path}.",
                 db_path=db_path,
             )
         else:
-            asyncio.run(_bootstrap_actors_from_toml(ws))
+            from katalog.workflows import sync_workflow_file
+
+            asyncio.run(sync_workflow_file(pathlib.Path(workflow_file)))
 
     try:
         import uvicorn
@@ -308,10 +221,10 @@ def server(
         "--seed-assets",
         help="Seed the test workspace with this many fake assets (requires --test-workspace)",
     ),
-    bootstrap_actors: bool = typer.Option(
-        False,
-        "--bootstrap-actors",
-        help="Bootstrap actors from katalog.toml if no database exists",
+    workflow_file: str | None = typer.Option(
+        None,
+        "--workflow",
+        help="Sync actors from this workflow TOML before startup if no database exists",
     ),
     reload: bool = typer.Option(
         False,
@@ -331,7 +244,7 @@ def server(
         port=port,
         test_workspace=test_workspace,
         seed_assets=seed_assets,
-        bootstrap_actors=bootstrap_actors,
+        workflow_file=workflow_file,
         reload=reload,
         reload_dir=reload_dir,
     )
@@ -342,6 +255,7 @@ from . import assets as _assets  # noqa: E402,F401
 from . import collections as _collections  # noqa: E402,F401
 from . import changesets as _changesets  # noqa: E402,F401
 from . import processors as _processors  # noqa: E402,F401
+from . import workflows as _workflows  # noqa: E402,F401
 
 
 def main() -> None:

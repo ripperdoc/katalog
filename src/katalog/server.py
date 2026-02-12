@@ -20,6 +20,7 @@ from katalog.api import (
     plugins,
     system,
     views,
+    workflows,
 )
 from katalog.api.helpers import ApiError
 from katalog.api.state import RUNNING_CHANGESETS, event_manager
@@ -112,3 +113,4 @@ app.include_router(actors.router)
 app.include_router(plugins.router)
 app.include_router(metadata.router)
 app.include_router(system.router)
+app.include_router(workflows.router)

@@ -10,8 +10,9 @@ PRAGMA wal_autocheckpoint = 1000;
 -- name: create_actors
 CREATE TABLE IF NOT EXISTS actors (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
     plugin_id TEXT,
+    identity_key TEXT,
     config JSON,
     config_toml TEXT,
     type INTEGER NOT NULL,
@@ -19,6 +20,9 @@ CREATE TABLE IF NOT EXISTS actors (
     created_at DATETIME,
     updated_at DATETIME
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_actors_identity_unique
+    ON actors (identity_key)
+    WHERE identity_key IS NOT NULL;
 
 -- name: create_changesets
 CREATE TABLE IF NOT EXISTS changesets (

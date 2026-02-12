@@ -106,6 +106,45 @@ export interface ActorListResponse {
   actors: Actor[];
 }
 
+export interface WorkflowSummary {
+  file_name: string;
+  file_path: string;
+  workflow_id?: string | null;
+  name: string;
+  description: string | null;
+  version: string | null;
+  actor_count: number;
+  source_count: number;
+  processor_count: number;
+  analyzer_count: number;
+  resolved_actor_count: number;
+  status: "ready" | "not-synced" | "invalid";
+  actor_names: string[];
+  processor_stages: string[][];
+  error?: string;
+}
+
+export interface WorkflowRunResult {
+  workflow_file: string;
+  actors: number;
+  sources_run: number;
+  processors_run: number;
+  source_changesets: number[];
+  processor_changeset: number | null;
+  last_changeset_id: number | null;
+}
+
+export interface WorkflowListResponse {
+  workflows: WorkflowSummary[];
+}
+
+export interface WorkflowActionResponse {
+  status: string;
+  workflow: WorkflowSummary;
+  result?: WorkflowRunResult;
+  changeset?: Changeset;
+}
+
 export interface ActorResponse {
   actor: Actor;
   changesets: Changeset[];

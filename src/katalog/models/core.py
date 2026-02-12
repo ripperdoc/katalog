@@ -45,6 +45,7 @@ class Actor(BaseModel):
     id: int | None = None
     name: str
     plugin_id: str | None = None
+    identity_key: str | None = None
     type: ActorType
     config: dict[str, Any] | None = None
     config_toml: str | None = None
