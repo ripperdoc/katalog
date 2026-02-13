@@ -20,9 +20,8 @@ async def test_persist_none_does_not_write_null_row_when_no_prior_value(
     changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
 
-    cs = MetadataChanges(loaded=[], staged=staged)
+    cs = MetadataChanges(asset=asset, loaded=[], staged=staged)
     to_create, changed = cs.prepare_persist(
-        asset=asset,
         changeset=changeset2,
         existing_metadata=[],
     )
@@ -39,10 +38,9 @@ async def test_persist_none_clears_single_existing_value(pipeline_db) -> None:
 
     changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
-    cs = MetadataChanges(loaded=[existing], staged=staged)
+    cs = MetadataChanges(asset=asset, loaded=[existing], staged=staged)
 
     to_create, changed = cs.prepare_persist(
-        asset=asset,
         changeset=changeset2,
         existing_metadata=[existing],
     )
@@ -62,10 +60,9 @@ async def test_persist_none_clears_multiple_existing_values(pipeline_db) -> None
 
     changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_PATH, None, actor_id=1, asset=asset)]
-    cs = MetadataChanges(loaded=[a, b], staged=staged)
+    cs = MetadataChanges(asset=asset, loaded=[a, b], staged=staged)
 
     to_create, changed = cs.prepare_persist(
-        asset=asset,
         changeset=changeset2,
         existing_metadata=[a, b],
     )
@@ -85,10 +82,9 @@ async def test_missing_key_in_staged_keeps_existing_value_unchanged(
 
     changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_NAME, "doc.txt", actor_id=1, asset=asset)]
-    cs = MetadataChanges(loaded=[existing_path], staged=staged)
+    cs = MetadataChanges(asset=asset, loaded=[existing_path], staged=staged)
 
     to_create, changed = cs.prepare_persist(
-        asset=asset,
         changeset=changeset2,
         existing_metadata=[existing_path],
     )
@@ -107,11 +103,11 @@ async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
     # Remove it.
     changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
     cs2 = MetadataChanges(
+        asset=asset,
         loaded=[existing_path],
         staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=1, removed=True, asset=asset)],
     )
     to_create2, changed2 = cs2.prepare_persist(
-        asset=asset,
         changeset=changeset2,
         existing_metadata=[existing_path],
     )
@@ -123,11 +119,11 @@ async def test_persist_allows_remove_then_readd_same_value(pipeline_db) -> None:
     changeset3 = Changeset(id=3, status=OpStatus.IN_PROGRESS)
     existing_after_remove = [existing_path, to_create2[0]]
     cs3 = MetadataChanges(
+        asset=asset,
         loaded=existing_after_remove,
         staged=[make_metadata(FILE_PATH, "/tmp/a", actor_id=1, asset=asset)],
     )
     to_create3, changed3 = cs3.prepare_persist(
-        asset=asset,
         changeset=changeset3,
         existing_metadata=existing_after_remove,
     )

@@ -41,13 +41,16 @@ def make_processor(
             super().__init__(actor=actor)
             self.runs = 0
 
-        def should_run(self, asset, changes):
+        def should_run(self, changes):
             if should_run_predicate is None:
                 return True
             return should_run_predicate(set(changes.changed_keys()))
 
-        async def run(self, asset, changes):
+        async def run(self, changes):
             self.runs += 1
+            asset = changes.asset
+            if asset is None:
+                raise ValueError("asset missing")
             metadata = metadata_factory(asset) if metadata_factory else []
             return ProcessorResult(metadata=list(metadata), status=OpStatus.COMPLETED)
 
@@ -83,9 +86,8 @@ async def test_stage_dependency_triggers_following_stage(pipeline_db):
     stage1: ProcessorStage = [stage1_proc]
     stage2: ProcessorStage = [stage2_proc]
 
-    changes = MetadataChanges(loaded=await ctx.load_metadata())
+    changes = MetadataChanges(asset=ctx.asset, loaded=await ctx.load_metadata())
     changed_keys = await process_asset(
-        asset=ctx.asset,
         changeset=ctx.changeset,
         pipeline=[stage1, stage2],
         changes=changes,
@@ -109,10 +111,10 @@ async def test_processor_skipped_when_dependency_not_changed(pipeline_db):
         should_run_predicate=lambda changes: FILE_SIZE in changes,
     )
 
-    changes = MetadataChanges(loaded=await ctx.load_metadata())
+    changes = MetadataChanges(asset=ctx.asset, loaded=await ctx.load_metadata())
     pipeline: list[ProcessorStage] = [[proc]]
     changed_keys = await process_asset(
-        asset=ctx.asset, changeset=ctx.changeset, pipeline=pipeline, changes=changes
+        changeset=ctx.changeset, pipeline=pipeline, changes=changes
     )
 
     assert proc.runs == 0
@@ -127,13 +129,19 @@ async def test_stage_processors_run_concurrently(pipeline_db):
     start_b = asyncio.Event()
     completed: list[str] = []
 
-    async def proc_a_run(asset, changes):
+    async def proc_a_run(changes):
+        asset = changes.asset
+        if asset is None:
+            raise ValueError("asset missing")
         start_a.set()
         await asyncio.wait_for(start_b.wait(), timeout=2)
         completed.append("a")
         return ProcessorResult(status=OpStatus.COMPLETED, metadata=[])
 
-    async def proc_b_run(asset, changes):
+    async def proc_b_run(changes):
+        asset = changes.asset
+        if asset is None:
+            raise ValueError("asset missing")
         start_b.set()
         await asyncio.wait_for(start_a.wait(), timeout=2)
         completed.append("b")
@@ -153,11 +161,10 @@ async def test_stage_processors_run_concurrently(pipeline_db):
     proc_a.run = proc_a_run  # type: ignore[assignment]
     proc_b.run = proc_b_run  # type: ignore[assignment]
 
-    changes = MetadataChanges(loaded=await ctx.load_metadata())
+    changes = MetadataChanges(asset=ctx.asset, loaded=await ctx.load_metadata())
     pipeline: list[ProcessorStage] = [[proc_a, proc_b]]
     await asyncio.wait_for(
         process_asset(
-            asset=ctx.asset,
             changeset=ctx.changeset,
             pipeline=pipeline,
             changes=changes,
@@ -179,18 +186,19 @@ async def test_md5_skips_when_hash_already_present(pipeline_db):
     existing_md5.asset_id = ctx.asset.id
     existing_md5.changeset_id = ctx.changeset.id
     md_db = get_metadata_repo()
-    changes = MetadataChanges(loaded=await ctx.load_metadata(), staged=[existing_md5])
-    await md_db.persist_changes(changes, asset=ctx.asset, changeset=ctx.changeset)
+    changes = MetadataChanges(
+        asset=ctx.asset, loaded=await ctx.load_metadata(), staged=[existing_md5]
+    )
+    await md_db.persist_changes(changes, changeset=ctx.changeset)
 
-    changes = MetadataChanges(loaded=await ctx.load_metadata())
+    changes = MetadataChanges(asset=ctx.asset, loaded=await ctx.load_metadata())
     pipeline: list[ProcessorStage] = [[md5_processor]]
     changed_keys = await process_asset(
-        asset=ctx.asset,
         changeset=ctx.changeset,
         pipeline=pipeline,
         changes=changes,
     )
 
-    assert md5_processor.should_run(ctx.asset, changes) is False
+    assert md5_processor.should_run(changes) is False
     assert HASH_MD5 not in changes.changed_keys()
     assert HASH_MD5 not in changed_keys

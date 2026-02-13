@@ -16,9 +16,9 @@ from katalog.constants.metadata import (
     get_metadata_id,
 )
 from katalog.models.core import Changeset
+from katalog.models.assets import Asset
 
 if TYPE_CHECKING:
-    from katalog.models.assets import Asset
     from katalog.models.core import Changeset
 
 
@@ -273,6 +273,7 @@ def make_metadata(
 class MetadataChanges(BaseModel):
     """Track metadata state for an asset during processing (loaded + staged changes)."""
 
+    asset: Asset | None = None
     loaded: Sequence[Metadata]
     staged: Sequence[Metadata] | None = None
 
@@ -453,11 +454,13 @@ class MetadataChanges(BaseModel):
     def prepare_persist(
         self,
         *,
-        asset: Asset,
         changeset: Changeset,
         existing_metadata: Sequence["Metadata"],
     ) -> tuple[list["Metadata"], set[MetadataKey]]:
         """Compute metadata rows to persist, given current persisted metadata."""
+        asset = self.asset
+        if asset is None:
+            raise ValueError("MetadataChanges.asset is not set for persistence")
         staged = self.pending_entries()
         if not staged:
             return [], set()

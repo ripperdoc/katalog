@@ -65,9 +65,10 @@ async def _flush_scan_only_batch(
                 item.metadata.append(
                     make_metadata(ASSET_LOST, None, actor_id=item.actor.id)
                 )
-                changes = MetadataChanges(loaded=loaded_metadata, staged=item.metadata)
+                changes = MetadataChanges(
+                    asset=item.asset, loaded=loaded_metadata, staged=item.metadata
+                )
                 to_create, _changed = changes.prepare_persist(
-                    asset=item.asset,
                     changeset=changeset,
                     existing_metadata=loaded_metadata,
                 )
@@ -170,6 +171,7 @@ async def run_sources(
                 else:
                     loaded_metadata = await db.load_metadata(result.asset)
                 changes = MetadataChanges(
+                    asset=result.asset,
                     loaded=loaded_metadata,
                     staged=result.metadata
                     + [
@@ -179,7 +181,6 @@ async def run_sources(
                 )
                 changeset.enqueue(
                     process_asset(
-                        asset=result.asset,
                         changeset=changeset,
                         pipeline=processor_pipeline,
                         changes=changes,

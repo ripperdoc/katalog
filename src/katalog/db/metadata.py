@@ -34,7 +34,6 @@ class MetadataRepo(Protocol):
         self,
         changes: MetadataChanges,
         *,
-        asset: Any,
         changeset: Any,
         existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
@@ -42,7 +41,6 @@ class MetadataRepo(Protocol):
     async def persist_changes_batch(
         self,
         changeset: Any,
-        assets: Sequence[Asset],
         changes_list: Sequence[MetadataChanges],
         existing_metadata_by_asset: dict[int, list[Metadata]],
         *,

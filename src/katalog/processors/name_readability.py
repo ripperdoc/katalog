@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.constants.metadata import FILE_NAME, WARNING_NAME_READABILITY
 from katalog.models import (
-    Asset,
+    MetadataChanges,
     OpStatus,
     make_metadata,
 )
@@ -57,16 +57,15 @@ class NameReadabilityProcessor(Processor):
 
     def should_run(
         self,
-        asset: Asset,
-        changes,
+        changes: MetadataChanges,
     ) -> bool:
         changed_keys = changes.changed_keys()
         if FILE_NAME in changed_keys:
             return True
         return False
 
-    async def run(self, asset: Asset, changes) -> ProcessorResult:
-        name = self._resolve_file_name(asset)
+    async def run(self, changes: MetadataChanges) -> ProcessorResult:
+        name = self._resolve_file_name(changes)
         if not name:
             return ProcessorResult(status=OpStatus.SKIPPED, message="No filename found")
         if len(Path(name).stem or name) < self.config.min_length:
@@ -87,8 +86,18 @@ class NameReadabilityProcessor(Processor):
         )
         return ProcessorResult(metadata=[metadata])
 
-    def _resolve_file_name(self, asset: Asset) -> str | None:
-        raise NotImplementedError()
+    def _resolve_file_name(self, changes: MetadataChanges) -> str | None:
+        entries = changes.entries_for_key(FILE_NAME)
+        for entry in entries:
+            value = entry.value
+            if isinstance(value, str) and value.strip():
+                return value
+        asset = changes.asset
+        if asset is None:
+            return None
+        if asset.canonical_uri:
+            return Path(asset.canonical_uri).name
+        return None
 
     def _analyze_name(self, filename: str) -> dict[str, Any]:
         stem = Path(filename).stem or filename

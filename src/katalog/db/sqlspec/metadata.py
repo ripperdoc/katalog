@@ -120,7 +120,6 @@ class SqlspecMetadataRepo:
         self,
         changes: "MetadataChanges",
         *,
-        asset: Any,
         changeset: Any,
         existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
@@ -128,14 +127,16 @@ class SqlspecMetadataRepo:
         search_doc_id = get_metadata_id(ASSET_SEARCH_DOC)
 
         async def _persist(active_session: Any, *, commit: bool) -> set["MetadataKey"]:
+            resolved_asset = changes.asset
+            if resolved_asset is None:
+                raise ValueError("MetadataChanges.asset is not set for persistence")
             if existing_metadata is None:
                 loaded_metadata = await self.for_asset(
-                    asset, include_removed=True, session=active_session
+                    resolved_asset, include_removed=True, session=active_session
                 )
             else:
                 loaded_metadata = existing_metadata
             to_create, changed_keys = changes.prepare_persist(
-                asset=asset,
                 changeset=changeset,
                 existing_metadata=loaded_metadata,
             )
@@ -184,7 +185,6 @@ class SqlspecMetadataRepo:
     async def persist_changes_batch(
         self,
         changeset: Any,
-        assets: Sequence["Asset"],
         changes_list: Sequence["MetadataChanges"],
         existing_metadata_by_asset: dict[int, list[Metadata]],
         *,
@@ -198,12 +198,14 @@ class SqlspecMetadataRepo:
             normal_rows: list[Metadata] = []
             search_rows: list[dict[str, int | str]] = []
             delete_rows: list[dict[str, int]] = []
-            for asset, changes in zip(assets, changes_list):
+            for changes in changes_list:
+                asset = changes.asset
+                if asset is None:
+                    continue
                 if asset.id is None:
                     continue
                 existing = existing_metadata_by_asset.get(int(asset.id), [])
                 to_create, _changed = changes.prepare_persist(
-                    asset=asset,
                     changeset=changeset,
                     existing_metadata=existing,
                 )

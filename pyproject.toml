@@ -39,6 +39,7 @@ katalog = "katalog.cli:main"
 filesystem = "katalog.sources.filesystem:FilesystemClient"
 gdrive = "katalog.sources.googledrive:GoogleDriveClient"
 fake_assets = "katalog.sources.fake_assets:FakeAssetSource"
+url_list = "katalog.sources.url_list:UrlListSource"
 
 [project.entry-points."katalog.processor"]
 md5 = "katalog.processors.md5_hash:MD5HashProcessor"

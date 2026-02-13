@@ -10,7 +10,7 @@ from katalog.processors.base import (
     file_data_changed,
     file_data_change_dependencies,
 )
-from katalog.models import Asset, MetadataChanges, make_metadata
+from katalog.models import MetadataChanges, make_metadata
 from katalog.models import OpStatus
 
 # NOTE, useful info about magic detection and licensing:
@@ -53,8 +53,8 @@ class MimeTypeProcessor(Processor):
     def outputs(self):
         return self._outputs
 
-    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
-        if file_data_changed(self, asset, changes):
+    def should_run(self, changes: MetadataChanges) -> bool:
+        if file_data_changed(self, changes):
             return True
 
         if changes.entries_for_key(FILE_TYPE, self.actor.id):
@@ -71,7 +71,10 @@ class MimeTypeProcessor(Processor):
             return False
         return all(value == "application/octet-stream" for value in current_types)
 
-    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
+    async def run(self, changes: MetadataChanges) -> ProcessorResult:
+        asset = changes.asset
+        if asset is None:
+            return ProcessorResult(status=OpStatus.ERROR, message="MetadataChanges.asset is missing")
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
         reader = await asset.get_data_reader(DATA_FILE_READER, changes)

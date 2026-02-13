@@ -5,7 +5,7 @@ from typing import FrozenSet
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from katalog.constants.metadata import FILE_PATH, MetadataKey
-from katalog.models import Asset, MetadataChanges, OpStatus, make_metadata
+from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.processors.path_template import (
     CompiledTemplate,
@@ -57,7 +57,7 @@ class PathRenamerProcessor(Processor):
     def outputs(self) -> FrozenSet[MetadataKey]:
         return self._outputs
 
-    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
+    def should_run(self, changes: MetadataChanges) -> bool:
         if not changes.entries_for_key(FILE_PATH, self.actor.id):
             return True
         return changes.changed_since_actor(
@@ -66,7 +66,7 @@ class PathRenamerProcessor(Processor):
             actor_outputs=set(self.outputs),
         )
 
-    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
+    async def run(self, changes: MetadataChanges) -> ProcessorResult:
         current = changes.current()
 
         def _resolve(key: MetadataKey) -> object:

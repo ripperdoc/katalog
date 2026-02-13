@@ -31,7 +31,7 @@ async def test_changed_keys_json_dict_order_does_not_matter(pipeline_db):
         make_metadata(FILE_TAGS, {"b": 2, "a": 1}, actor_id=1, asset=asset)
     ]
 
-    changes = MetadataChanges(loaded=loaded, staged=staged)
+    changes = MetadataChanges(asset=asset, loaded=loaded, staged=staged)
     assert changes.changed_keys() == set()
 
 
@@ -43,7 +43,7 @@ async def test_changed_keys_json_list_compares_by_value_not_identity(pipeline_db
         make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)
     ]  # different list instance
 
-    changes = MetadataChanges(loaded=loaded, staged=staged)
+    changes = MetadataChanges(asset=asset, loaded=loaded, staged=staged)
     assert changes.changed_keys() == set()
 
 
@@ -57,7 +57,7 @@ async def test_changed_keys_json_detects_actual_change(pipeline_db):
         make_metadata(FILE_TAGS, {"a": 1, "b": 3}, actor_id=1, asset=asset)
     ]
 
-    changes = MetadataChanges(loaded=loaded, staged=staged)
+    changes = MetadataChanges(asset=asset, loaded=loaded, staged=staged)
     assert FILE_TAGS in changes.changed_keys()
 
 
@@ -71,9 +71,8 @@ async def test_persist_json_does_not_crash_and_dedupes_existing_value(pipeline_d
 
     loaded = [existing]
     staged = [make_metadata(FILE_TAGS, ["a", "b"], actor_id=1, asset=asset)]
-    changes = MetadataChanges(loaded=loaded, staged=staged)
+    changes = MetadataChanges(asset=asset, loaded=loaded, staged=staged)
     to_create, changed = changes.prepare_persist(
-        asset=asset,
         changeset=changeset2,
         existing_metadata=loaded,
     )
@@ -87,9 +86,8 @@ async def test_persist_json_empty_object_is_saved(pipeline_db):
     changeset = Changeset(id=3, status=OpStatus.IN_PROGRESS)
     staged = [make_metadata(FILE_TAGS, {}, actor_id=1, asset=asset)]
 
-    changes = MetadataChanges(loaded=[], staged=staged)
+    changes = MetadataChanges(asset=asset, loaded=[], staged=staged)
     to_create, changed_keys = changes.prepare_persist(
-        asset=asset,
         changeset=changeset,
         existing_metadata=[],
     )

@@ -46,10 +46,16 @@ class Processor(PluginBase, ABC):
         """Return outputs for this processor instance."""
         raise NotImplementedError()
 
+    async def is_ready(self) -> tuple[bool, str | None]:
+        """Return whether the processor can execute in the current environment.
+
+        This check is run once per processor per run, not per asset.
+        """
+        return True, None
+
     @abstractmethod
     def should_run(
         self,
-        asset: Asset,
         changes: MetadataChanges,
     ) -> bool:
         """Return True if the processor needs to run based on record and the metadata fields that have changed in it."""
@@ -58,7 +64,6 @@ class Processor(PluginBase, ABC):
     @abstractmethod
     async def run(
         self,
-        asset: Asset,
         changes: MetadataChanges,
     ) -> ProcessorResult:
         """Run the processor logic and return a result class with changes to persist."""
@@ -67,7 +72,6 @@ class Processor(PluginBase, ABC):
 
 def file_data_changed(
     self,
-    asset: Asset,
     changes: MetadataChanges,
     allow_weak_check: bool = True,
 ) -> bool:

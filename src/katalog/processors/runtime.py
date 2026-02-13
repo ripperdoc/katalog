@@ -77,6 +77,12 @@ async def sort_processors(
 
     for actor in actors:
         processor = cast(Processor, await get_actor_instance(actor))
+        ready, reason = await processor.is_ready()
+        if not ready:
+            detail = reason or "unknown reason"
+            raise RuntimeError(
+                f"Processor {actor.name} ({actor.plugin_id}) is not ready: {detail}"
+            )
         # Used when persisting produced metadata.
         name = actor.name
         processors_by_name[name] = processor
@@ -117,48 +123,48 @@ async def sort_processors(
 
 async def _run_processor(
     processor: Processor,
-    asset: Asset,
     changes,
 ) -> ProcessorResult:
+    asset = changes.asset
+    asset_id = asset.id if asset is not None else None
     try:
-        logger.debug(f"Running processor {processor} for record {asset.id}")
-        result = await processor.run(asset, changes)
+        logger.debug(f"Running processor {processor} for record {asset_id}")
+        result = await processor.run(changes)
         return result
     except Exception as e:
-        msg = f"Processor {processor} failed for record {asset.id}: {e}"
+        msg = f"Processor {processor} failed for record {asset_id}: {e}"
         logger.exception(msg)
         return ProcessorResult(status=OpStatus.ERROR, message=msg)
 
 
 async def _run_processor_with_mode(
     processor: Processor,
-    asset: Asset,
     changes: MetadataChanges,
 ) -> ProcessorResult:
     if processor.execution_mode == "threads":
-        return await _run_processor_thread(processor, asset, changes)
+        return await _run_processor_thread(processor, changes)
     if processor.execution_mode == "cpu":
-        return await _run_processor_process(processor, asset, changes)
-    return await _run_processor(processor, asset, changes)
+        return await _run_processor_process(processor, changes)
+    return await _run_processor(processor, changes)
 
 
 def _run_processor_sync(
     processor: Processor,
-    asset: Asset,
     changes: MetadataChanges,
 ) -> ProcessorResult:
+    asset = changes.asset
+    asset_id = asset.id if asset is not None else None
     try:
-        logger.debug(f"Running processor {processor} for record {asset.id}")
-        return asyncio.run(processor.run(asset, changes))
+        logger.debug(f"Running processor {processor} for record {asset_id}")
+        return asyncio.run(processor.run(changes))
     except Exception as e:
-        msg = f"Processor {processor} failed for record {asset.id}: {e}"
+        msg = f"Processor {processor} failed for record {asset_id}: {e}"
         logger.exception(msg)
         return ProcessorResult(status=OpStatus.ERROR, message=msg)
 
 
 async def _run_processor_thread(
     processor: Processor,
-    asset: Asset,
     changes: MetadataChanges,
 ) -> ProcessorResult:
     loop = asyncio.get_running_loop()
@@ -166,18 +172,18 @@ async def _run_processor_thread(
         _get_thread_executor(),
         _run_processor_sync,
         processor,
-        asset,
         changes,
     )
 
 
 async def _run_processor_process(
     processor: Processor,
-    asset: Asset,
     changes: MetadataChanges,
 ) -> ProcessorResult:
+    asset = changes.asset
+    if asset is None:
+        return ProcessorResult(status=OpStatus.ERROR, message="MetadataChanges.asset is missing")
     actor_payload = processor.actor.model_dump(mode="json")
-    asset_payload = asset.model_dump(mode="json")
     changes_payload = changes.model_dump(mode="json")
     registry_payload = dump_registry()
     loop = asyncio.get_running_loop()
@@ -185,7 +191,6 @@ async def _run_processor_process(
         _get_process_executor(),
         run_processor_in_process,
         actor_payload,
-        asset_payload,
         changes_payload,
         registry_payload,
     )
@@ -195,12 +200,14 @@ async def _run_processor_process(
 
 async def _run_pipeline(
     *,
-    asset: Asset,
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
     force_run: bool = False,
 ) -> MetadataChanges:
+    asset = changes.asset
+    if asset is None:
+        raise ValueError("MetadataChanges.asset is required for processor pipeline")
     stats = changeset.stats
     if stats is None:
         stats = ChangesetStats()
@@ -211,7 +218,7 @@ async def _run_pipeline(
         coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
         for processor in stage:
             try:
-                should_run = True if force_run else processor.should_run(asset, changes)
+                should_run = True if force_run else processor.should_run(changes)
             except Exception:
                 logger.exception(
                     f"Processor {processor}.should_run failed for record {asset.id}"
@@ -219,7 +226,7 @@ async def _run_pipeline(
                 continue
             if not should_run:
                 continue
-            coros.append((processor, _run_processor_with_mode(processor, asset, changes)))
+            coros.append((processor, _run_processor_with_mode(processor, changes)))
             if stats:
                 stats.processings_started += 1
         if not coros:
@@ -251,35 +258,33 @@ async def _run_pipeline(
     return changes
 
 
+
+
 async def process_asset(
     *,
-    asset: Asset,
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
     force_run: bool = False,
 ) -> set[MetadataKey]:
     updated = await _run_pipeline(
-        asset=asset,
         changeset=changeset,
         pipeline=pipeline,
         changes=changes,
         force_run=force_run,
     )
     md_db = get_metadata_repo()
-    return await md_db.persist_changes(updated, asset=asset, changeset=changeset)
+    return await md_db.persist_changes(updated, changeset=changeset)
 
 
 async def process_asset_collect(
     *,
-    asset: Asset,
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
     force_run: bool = False,
 ) -> MetadataChanges:
     return await _run_pipeline(
-        asset=asset,
         changeset=changeset,
         pipeline=pipeline,
         changes=changes,
@@ -321,11 +326,10 @@ async def _process_batch(
         stats.assets_seen += 1
         stats.assets_saved += 1
         loaded_metadata = metadata_by_asset.get(int(asset.id), []) if asset.id else []
-        changes = MetadataChanges(loaded=loaded_metadata)
+        changes = MetadataChanges(asset=asset, loaded=loaded_metadata)
         tasks.append(
             changeset.enqueue(
                 process_asset_collect(
-                    asset=asset,
                     changeset=changeset,
                     pipeline=pipeline,
                     changes=changes,
@@ -338,7 +342,6 @@ async def _process_batch(
     persist_started = time.perf_counter()
     normal_rows, search_rows, delete_rows = await metadata_repo.persist_changes_batch(
         changeset,
-        batch_assets,
         changes_list,
         metadata_by_asset,
     )

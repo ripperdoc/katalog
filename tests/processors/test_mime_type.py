@@ -68,8 +68,8 @@ def make_record() -> Asset:
 def test_should_run_when_mime_missing():
     processor = MimeTypeProcessor(actor=make_actor())
     record = make_record()
-    changes = MetadataChanges(loaded=[])
-    assert processor.should_run(record, changes) is True
+    changes = MetadataChanges(asset=record, loaded=[])
+    assert processor.should_run(changes) is True
 
 
 def test_should_skip_when_mime_present_and_no_change():
@@ -78,8 +78,8 @@ def test_should_skip_when_mime_present_and_no_change():
     md = make_metadata(FILE_TYPE, "text/plain", actor_id=record.actor_id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_TYPE].registry_id
     md.changeset_id = 1
-    changes = MetadataChanges(loaded=[md])
-    assert processor.should_run(record, changes) is False
+    changes = MetadataChanges(asset=record, loaded=[md])
+    assert processor.should_run(changes) is False
 
 
 def test_should_skip_when_only_octet_stream_and_disabled():
@@ -88,8 +88,8 @@ def test_should_skip_when_only_octet_stream_and_disabled():
     md = make_metadata(FILE_TYPE, "application/octet-stream", actor_id=99)
     md.metadata_key_id = METADATA_REGISTRY[FILE_TYPE].registry_id
     md.changeset_id = 1
-    changes = MetadataChanges(loaded=[md])
-    assert processor.should_run(record, changes) is False
+    changes = MetadataChanges(asset=record, loaded=[md])
+    assert processor.should_run(changes) is False
 
 
 def test_should_run_when_only_octet_stream_and_enabled():
@@ -98,8 +98,8 @@ def test_should_run_when_only_octet_stream_and_enabled():
     md = make_metadata(FILE_TYPE, "application/octet-stream", actor_id=99)
     md.metadata_key_id = METADATA_REGISTRY[FILE_TYPE].registry_id
     md.changeset_id = 1
-    changes = MetadataChanges(loaded=[md])
-    assert processor.should_run(record, changes) is True
+    changes = MetadataChanges(asset=record, loaded=[md])
+    assert processor.should_run(changes) is True
 
 
 def test_should_skip_when_processor_already_wrote_file_type():
@@ -108,8 +108,8 @@ def test_should_skip_when_processor_already_wrote_file_type():
     md = make_metadata(FILE_TYPE, "application/octet-stream", actor_id=processor.actor.id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_TYPE].registry_id
     md.changeset_id = 1
-    changes = MetadataChanges(loaded=[md])
-    assert processor.should_run(record, changes) is False
+    changes = MetadataChanges(asset=record, loaded=[md])
+    assert processor.should_run(changes) is False
 
 
 def test_should_run_when_hash_changed():
@@ -128,5 +128,5 @@ def test_should_run_when_hash_changed():
     new_hash.metadata_key_id = METADATA_REGISTRY[HASH_MD5].registry_id
     new_hash.changeset_id = 2
 
-    changes = MetadataChanges(loaded=[existing_type, old_hash], staged=[new_hash])
-    assert processor.should_run(record, changes) is True
+    changes = MetadataChanges(asset=record, loaded=[existing_type, old_hash], staged=[new_hash])
+    assert processor.should_run(changes) is True

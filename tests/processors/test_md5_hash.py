@@ -77,28 +77,28 @@ def with_hash_cache(asset: Asset) -> Asset:
 def test_should_run_skips_when_hash_already_present_and_no_change():
     processor = MD5HashProcessor(actor=make_actor())
     record = with_hash_cache(make_record())
-    cs = MetadataChanges(loaded=record._metadata_cache or [])
-    assert processor.should_run(record, cs) is False
+    cs = MetadataChanges(asset=record, loaded=record._metadata_cache or [])
+    assert processor.should_run(cs) is False
 
 
 def test_should_run_when_hash_missing():
     processor = MD5HashProcessor(actor=make_actor())
     record = make_record()
-    cs = MetadataChanges(loaded=[])
-    should_run = processor.should_run(record, cs)
+    cs = MetadataChanges(asset=record, loaded=[])
+    should_run = processor.should_run(cs)
     assert should_run is True
 
 
 def test_runs_when_fingerprint_changed_even_with_existing_hash():
     processor = MD5HashProcessor(actor=make_actor())
     record = with_hash_cache(make_record())
-    cs = MetadataChanges(loaded=record._metadata_cache or [], staged=[])
+    cs = MetadataChanges(asset=record, loaded=record._metadata_cache or [], staged=[])
     md = make_metadata(FILE_SIZE, 1, actor_id=record.actor_id)
     md.metadata_key_id = METADATA_REGISTRY[FILE_SIZE].registry_id
     md.changeset_id = 2
     cs.add([md])
-    assert processor.should_run(record, cs) is True
-    cs = MetadataChanges(loaded=record._metadata_cache or [], staged=[])
+    assert processor.should_run(cs) is True
+    cs = MetadataChanges(asset=record, loaded=record._metadata_cache or [], staged=[])
     md = make_metadata(
         TIME_MODIFIED,
         datetime(2001, 1, 1, tzinfo=UTC),
@@ -107,7 +107,7 @@ def test_runs_when_fingerprint_changed_even_with_existing_hash():
     md.metadata_key_id = METADATA_REGISTRY[TIME_MODIFIED].registry_id
     md.changeset_id = 2
     cs.add([md])
-    assert processor.should_run(record, cs) is True
+    assert processor.should_run(cs) is True
 
 
 @pytest.mark.asyncio
@@ -121,8 +121,8 @@ async def test_run_computes_expected_hash():
 
     object.__setattr__(record, "get_data_reader", fake_get_data_reader)
 
-    cs = MetadataChanges(loaded=[])
-    result = await processor.run(record, cs)
+    cs = MetadataChanges(asset=record, loaded=[])
+    result = await processor.run(cs)
 
     assert len(result.metadata) == 1
     metadata = result.metadata[0]

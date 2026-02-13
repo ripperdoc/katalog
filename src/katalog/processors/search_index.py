@@ -13,7 +13,7 @@ from katalog.constants.metadata import (
     get_metadata_def_by_key,
     get_metadata_id,
 )
-from katalog.models import Asset, Metadata, MetadataChanges
+from katalog.models import Metadata, MetadataChanges, OpStatus
 from katalog.processors.base import Processor, ProcessorResult
 
 
@@ -33,14 +33,19 @@ class SearchIndexProcessor(Processor):
     def outputs(self) -> FrozenSet[MetadataKey]:
         return frozenset({ASSET_SEARCH_DOC})
 
-    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
+    def should_run(self, changes: MetadataChanges) -> bool:
         changed = changes.changed_keys()
         for key in self.dependencies:
             if key in changed:
                 return True
         return False
 
-    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
+    async def run(self, changes: MetadataChanges) -> ProcessorResult:
+        asset = changes.asset
+        if asset is None:
+            return ProcessorResult(
+                status=OpStatus.ERROR, message="MetadataChanges.asset is missing"
+            )
         parts: list[str] = []
         if str(ASSET_NAMESPACE) in self._searchable_keys and asset.namespace:
             parts.append(str(asset.namespace))

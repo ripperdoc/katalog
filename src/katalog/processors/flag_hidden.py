@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from katalog.constants.metadata import FILE_NAME, FILE_PATH, FILE_TYPE, FLAG_HIDDEN
-from katalog.models import Asset, MetadataChanges, OpStatus, make_metadata
+from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.utils.hidden import should_hide_path
 
@@ -31,13 +31,13 @@ class HiddenFlagProcessor(Processor):
     def outputs(self):
         return self._outputs
 
-    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
+    def should_run(self, changes: MetadataChanges) -> bool:
         changed_keys = changes.changed_keys()
         if FLAG_HIDDEN not in changes.current():
             return True
         return bool(changed_keys & self._dependencies)
 
-    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
+    async def run(self, changes: MetadataChanges) -> ProcessorResult:
         paths = list(self._candidate_paths(changes))
         if not paths:
             return ProcessorResult(status=OpStatus.SKIPPED, message="No path found")

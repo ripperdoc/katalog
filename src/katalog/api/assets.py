@@ -97,10 +97,10 @@ async def manual_edit_asset(asset_id: int, payload: dict[str, Any]) -> ManualEdi
 
     # Apply changes
     loaded = await db.load_metadata(asset)
-    changes = MetadataChanges(loaded=loaded, staged=metadata_entries)
+    changes = MetadataChanges(asset=asset, loaded=loaded, staged=metadata_entries)
     md_db = get_metadata_repo()
     changed_keys = await md_db.persist_changes(
-        changes, asset=asset, changeset=changeset
+        changes, changeset=changeset
     )
     logger.bind(changeset_id=changeset.id).info(
         "tasks_progress queued=None running=0 finished={finished} kind=edits",

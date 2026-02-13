@@ -12,7 +12,7 @@ from katalog.constants.metadata import (
     TIME_MODIFIED,
 )
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.models import Asset, make_metadata, MetadataChanges, OpStatus
+from katalog.models import make_metadata, MetadataChanges, OpStatus
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -47,7 +47,7 @@ class MD5HashProcessor(Processor):
     def outputs(self):
         return self._outputs
 
-    def should_run(self, asset: Asset, changes: MetadataChanges) -> bool:
+    def should_run(self, changes: MetadataChanges) -> bool:
         changed_keys = changes.changed_keys()
         if HASH_MD5 in changed_keys:
             return False
@@ -59,7 +59,10 @@ class MD5HashProcessor(Processor):
             return True
         return False
 
-    async def run(self, asset: Asset, changes: MetadataChanges) -> ProcessorResult:
+    async def run(self, changes: MetadataChanges) -> ProcessorResult:
+        asset = changes.asset
+        if asset is None:
+            return ProcessorResult(status=OpStatus.ERROR, message="MetadataChanges.asset is missing")
         reader = await asset.get_data_reader(DATA_FILE_READER, changes)
         if reader is None:
             return ProcessorResult(
