@@ -7,7 +7,6 @@ import typer
 from . import _reset_workspace, actors_app
 from .utils import render_table, run_cli, wants_json
 
-
 @actors_app.command("list")
 def list_actors(ctx: typer.Context) -> None:
     """List all actors in the workspace."""
@@ -164,14 +163,14 @@ def run_actor(
     scan_metrics = result.get("scan_metrics")
     if scan_metrics:
         typer.echo(f"Scan time: {scan_metrics.get('scan_seconds'):.2f}s")
-        typer.echo(f"Persist time: {scan_metrics.get('persist_seconds'):.2f}s")
-        if scan_metrics.get("persist_first_delay_seconds") is not None:
-            typer.echo(
-                "Persist first delay: "
-                f"{scan_metrics.get('persist_first_delay_seconds'):.2f}s"
-            )
-        if scan_metrics.get("persist_after_scan_seconds") is not None:
-            typer.echo(
-                "Persist after scan: "
-                f"{scan_metrics.get('persist_after_scan_seconds'):.2f}s"
-            )
+        for key, label in [
+            ("assets_seen", "Assets seen"),
+            ("assets_saved", "Assets saved"),
+            ("assets_added", "Assets added"),
+            ("assets_changed", "Assets changed"),
+            ("assets_ignored", "Assets ignored"),
+            ("assets_lost", "Assets lost"),
+        ]:
+            value = scan_metrics.get(key)
+            if value is not None:
+                typer.echo(f"{label}: {value}")

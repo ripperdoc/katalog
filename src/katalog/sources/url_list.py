@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.models import Asset, Actor, OpStatus
 from katalog.constants.metadata import FILE_URI
+from katalog.utils.url import canonicalize_web_url
 
 
 class UrlListSource(SourcePlugin):
@@ -66,15 +67,17 @@ class UrlListSource(SourcePlugin):
         urls = self._collect_urls()
         if self.max_urls > 0:
             urls = urls[: self.max_urls]
+        valid_urls: list[str] = []
         ignored = 0
+        for raw_url in urls:
+            url = self._normalize_url(raw_url)
+            if not (url.startswith("http://") or url.startswith("https://")):
+                ignored += 1
+                continue
+            valid_urls.append(url)
 
         async def iterator():
-            nonlocal ignored
-            for raw_url in urls:
-                url = self._normalize_url(raw_url)
-                if not (url.startswith("http://") or url.startswith("https://")):
-                    ignored += 1
-                    continue
+            for url in valid_urls:
                 asset = Asset(
                     namespace=self.namespace,
                     external_id=url,
@@ -110,5 +113,4 @@ class UrlListSource(SourcePlugin):
 
     @staticmethod
     def _normalize_url(value: str) -> str:
-        return value.strip()
-
+        return canonicalize_web_url(value)

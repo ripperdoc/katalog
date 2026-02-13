@@ -5,11 +5,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from katalog.models import (
     Asset,
     Metadata,
+    MetadataChanges,
     MetadataKey,
     MetadataScalar,
     OpStatus,
     Actor,
-    Changeset,
     make_metadata,
 )
 from katalog.plugins.base import PluginBase
@@ -56,6 +56,10 @@ class SourcePlugin(PluginBase):
     def __init__(self, actor: Actor, **kwargs: Any) -> None:
         super().__init__(actor, **kwargs)
 
+    async def is_ready(self) -> tuple[bool, str | None]:
+        """Return whether the source can execute in the current environment."""
+        return True, None
+
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the plugin."""
         raise NotImplementedError()
@@ -87,6 +91,16 @@ class SourcePlugin(PluginBase):
         and an async iterator that yields AssetScanResult objects with their assets and
         metadata to persist.
         """
+        raise NotImplementedError()
+
+    def can_recurse(self, changes: MetadataChanges) -> int:
+        """Return a score (>0) when this source can recurse into the given asset state."""
+        _ = changes
+        return 0
+
+    async def scan_from_asset(self, changes: MetadataChanges) -> ScanResult:
+        """Recursively scan from an already discovered asset."""
+        _ = changes
         raise NotImplementedError()
 
 

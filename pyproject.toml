@@ -20,6 +20,7 @@ dependencies = [
     "httpx>=0.28.1",
     "tenacity>=9.1.2",
     "crawlee>=1.2.1",
+    "kreuzberg>=4.3.0,<5",
 ]
 
 [tool.uv]
@@ -40,6 +41,7 @@ filesystem = "katalog.sources.filesystem:FilesystemClient"
 gdrive = "katalog.sources.googledrive:GoogleDriveClient"
 fake_assets = "katalog.sources.fake_assets:FakeAssetSource"
 url_list = "katalog.sources.url_list:UrlListSource"
+http_url = "katalog.sources.http_url:HttpUrlSource"
 
 [project.entry-points."katalog.processor"]
 md5 = "katalog.processors.md5_hash:MD5HashProcessor"
@@ -48,6 +50,7 @@ name_readability = "katalog.processors.name_readability:NameReadabilityProcessor
 flag_hidden = "katalog.processors.flag_hidden:HiddenFlagProcessor"
 search_index = "katalog.processors.search_index:SearchIndexProcessor"
 path_renamer = "katalog.processors.path_renamer:PathRenamerProcessor"
+kreuzberg_document_extract = "katalog.processors.kreuzberg_document_extract:KreuzbergDocumentExtractProcessor"
 
 [project.entry-points."katalog.analyzer"]
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"

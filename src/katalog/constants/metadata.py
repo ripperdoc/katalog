@@ -382,6 +382,9 @@ HASH_SSDEEP = define_metadata(
 DOC_SUMMARY = define_metadata(
     "document/summary", MetadataType.STRING, "Document summary"
 )
+DOC_TEXT = define_metadata(
+    "document/text", MetadataType.STRING, "Extracted text content"
+)
 DOC_BYLINE = define_metadata(
     "document/byline", MetadataType.STRING, "Byline / author string"
 )
@@ -396,6 +399,12 @@ DOC_CATEGORY = define_metadata(
 DOC_CHARS = define_metadata("document/chars", MetadataType.INT, "Character count")
 DOC_WORDS = define_metadata("document/words", MetadataType.INT, "Word count")
 DOC_PAGES = define_metadata("document/pages", MetadataType.INT, "Page count")
+DOC_CHUNK_COUNT = define_metadata(
+    "document/chunk_count", MetadataType.INT, "Chunk count"
+)
+DOC_CHUNKS = define_metadata(
+    "document/chunks", MetadataType.JSON, "Chunked content with optional embeddings"
+)
 
 
 # EXIF common fields (also available inside `image/exif` container)
