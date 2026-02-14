@@ -87,6 +87,9 @@ class KreuzbergDocumentExtractProcessor(Processor):
         return True, None
 
     def should_run(self, changes: MetadataChanges) -> bool:
+        mime_type = self._resolve_mime_type(changes)
+        if mime_type and not _is_supported_mime(mime_type):
+            return False
         changed_keys = changes.changed_keys()
         if DATA_KEY in changed_keys or FILE_SIZE in changed_keys:
             return True
@@ -120,25 +123,41 @@ class KreuzbergDocumentExtractProcessor(Processor):
             )
 
         mime_type = self._resolve_mime_type(changes)
+        if mime_type and not _is_supported_mime(mime_type):
+            return ProcessorResult(
+                status=OpStatus.SKIPPED,
+                message=f"Unsupported mime type for kreuzberg: {mime_type}",
+            )
         extraction_config = self._build_extraction_config(
             ChunkingConfig=ChunkingConfig,
             EmbeddingConfig=EmbeddingConfig,
             EmbeddingModelType=EmbeddingModelType,
             ExtractionConfig=ExtractionConfig,
         )
-        if getattr(reader, "path", None):
-            result = await extract_file(
-                Path(reader.path),
-                mime_type=mime_type,
-                config=extraction_config,
-            )
-        else:
-            data = await reader.read()
-            if not data:
-                return ProcessorResult(
-                    status=OpStatus.SKIPPED, message="Asset data reader returned empty content"
+        try:
+            if getattr(reader, "path", None):
+                result = await extract_file(
+                    Path(reader.path),
+                    mime_type=mime_type,
+                    config=extraction_config,
                 )
-            result = await extract_bytes(data, mime_type=mime_type, config=extraction_config)
+            else:
+                data = await reader.read()
+                if not data:
+                    return ProcessorResult(
+                        status=OpStatus.SKIPPED,
+                        message="Asset data reader returned empty content",
+                    )
+                result = await extract_bytes(
+                    data, mime_type=mime_type, config=extraction_config
+                )
+        except Exception as exc:  # noqa: BLE001
+            if "ValidationError" in str(exc):
+                return ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message=f"Kreuzberg validation failed: {exc}",
+                )
+            raise
 
         metadata = self._build_metadata_payload(result)
         return ProcessorResult(metadata=metadata)
@@ -238,3 +257,24 @@ class KreuzbergDocumentExtractProcessor(Processor):
             if isinstance(value, str) and value:
                 return value
         return None
+
+
+def _is_supported_mime(mime_type: str) -> bool:
+    if mime_type.startswith("text/"):
+        return True
+    if mime_type.startswith("image/"):
+        return True
+    supported_exact = {
+        "application/pdf",
+        "application/msword",
+        "application/rtf",
+        "application/json",
+        "application/xml",
+        "application/vnd.oasis.opendocument.text",
+    }
+    if mime_type in supported_exact:
+        return True
+    supported_prefixes = (
+        "application/vnd.openxmlformats-officedocument",
+    )
+    return any(mime_type.startswith(prefix) for prefix in supported_prefixes)

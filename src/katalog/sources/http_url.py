@@ -94,7 +94,7 @@ class HttpUrlSource(SourcePlugin):
     def get_namespace(self) -> str:
         return "web"
 
-    def can_connect(self, uri: str) -> bool:
+    def can_scan_uri(self, uri: str) -> bool:
         return uri.startswith("http://") or uri.startswith("https://")
 
     async def scan(self) -> ScanResult:
@@ -105,11 +105,11 @@ class HttpUrlSource(SourcePlugin):
 
         return ScanResult(iterator=_empty_iterator(), status=OpStatus.COMPLETED, ignored=0)
 
-    def can_recurse(self, changes: MetadataChanges) -> int:
+    def can_scan_asset(self, changes: MetadataChanges) -> int:
         url = self._changes_url(changes)
         if not url:
             return 0
-        if self.can_connect(url):
+        if self.can_scan_uri(url):
             return 50
         return 0
 

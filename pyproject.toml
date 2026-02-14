@@ -21,6 +21,7 @@ dependencies = [
     "tenacity>=9.1.2",
     "crawlee>=1.2.1",
     "kreuzberg>=4.3.0,<5",
+    "pyyaml>=6.0.2",
 ]
 
 [tool.uv]
@@ -51,10 +52,13 @@ flag_hidden = "katalog.processors.flag_hidden:HiddenFlagProcessor"
 search_index = "katalog.processors.search_index:SearchIndexProcessor"
 path_renamer = "katalog.processors.path_renamer:PathRenamerProcessor"
 kreuzberg_document_extract = "katalog.processors.kreuzberg_document_extract:KreuzbergDocumentExtractProcessor"
+eval_text_quality = "katalog.processors.eval_text_quality:EvalTextQualityProcessor"
+eval_truth_compare = "katalog.processors.eval_truth_compare:EvalTruthCompareProcessor"
 
 [project.entry-points."katalog.analyzer"]
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"
 stats = "katalog.analyzers.stats:StatsAnalyzer"
+eval_metrics = "katalog.analyzers.eval_metrics:EvalMetricsAnalyzer"
 
 [project.entry-points."katalog.editor"]
 user_editor = "katalog.editors.user_editor:UserEditor"

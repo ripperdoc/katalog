@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import pathlib
+import traceback
 import tomllib
 from typing import Any
 
 from loguru import logger
 
+from katalog.analyzers.base import AnalyzerScope
+from katalog.analyzers.runtime import do_run_analyzer
 from katalog.api.actors import ActorCreate, create_actor
 from katalog.api.helpers import actor_identity_key, validate_and_normalize_config
 from katalog.api.operations import run_processors, run_source
 from katalog.db.actors import get_actor_repo
+from katalog.db.changesets import get_changeset_repo
 from katalog.db.metadata import sync_config_db
-from katalog.models import Actor, ActorType
+from katalog.models import Actor, ActorType, OpStatus
 from katalog.plugins.registry import get_plugin_class, get_plugin_spec, refresh_plugins
 
 
@@ -255,6 +259,41 @@ async def _resolve_workflow_actors(workflow_file: pathlib.Path) -> list[Actor]:
     return resolved
 
 
+async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[int]:
+    if not analyzers:
+        return []
+    changeset_db = get_changeset_repo()
+    analyzer_changesets: list[int] = []
+    for analyzer in analyzers:
+        if analyzer.id is None:
+            continue
+        changeset = await changeset_db.begin(
+            message=f"Analyzer run: {analyzer.name}",
+            actors=[analyzer],
+            status=OpStatus.IN_PROGRESS,
+        )
+        try:
+            await do_run_analyzer(
+                analyzer,
+                changeset=changeset,
+                scope=AnalyzerScope.all(),
+            )
+            await changeset.finalize(status=OpStatus.COMPLETED)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Workflow analyzer failed analyzer_id={analyzer_id}",
+                analyzer_id=analyzer.id,
+            )
+            data = dict(changeset.data or {})
+            data["error_message"] = str(exc)
+            data["error_traceback"] = traceback.format_exc()
+            changeset.data = data
+            await changeset.finalize(status=OpStatus.ERROR)
+            raise
+        analyzer_changesets.append(int(changeset.id))
+    return analyzer_changesets
+
+
 async def run_workflow_file(
     workflow_file: pathlib.Path, *, sync_first: bool = False
 ) -> dict:
@@ -267,9 +306,11 @@ async def run_workflow_file(
     processor_actors = [
         a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled
     ]
+    analyzer_actors = [a for a in actors if a.type == ActorType.ANALYZER and not a.disabled]
 
     source_changesets: list[int] = []
     processor_changeset: int | None = None
+    analyzer_changesets: list[int] = []
     for source in source_actors:
         if source.id is None:
             continue
@@ -290,18 +331,27 @@ async def run_workflow_file(
             )
             processor_changeset = int(changeset.id)
 
+    if analyzer_actors:
+        analyzer_changesets = await _run_workflow_analyzers(analyzer_actors)
+
     last_changeset_id = (
+        analyzer_changesets[-1]
+        if analyzer_changesets
+        else (
         processor_changeset
         if processor_changeset is not None
         else (source_changesets[-1] if source_changesets else None)
+        )
     )
     return {
         "workflow_file": str(workflow_file),
         "actors": len(actors),
         "sources_run": len(source_changesets),
         "processors_run": len(processor_actors),
+        "analyzers_run": len(analyzer_changesets),
         "source_changesets": source_changesets,
         "processor_changeset": processor_changeset,
+        "analyzer_changesets": analyzer_changesets,
         "last_changeset_id": last_changeset_id,
     }
 
@@ -318,6 +368,7 @@ async def start_workflow_file(
     processor_actors = [
         a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled
     ]
+    analyzer_actors = [a for a in actors if a.type == ActorType.ANALYZER and not a.disabled]
 
     source_changesets: list[int] = []
     for source in source_actors:
@@ -348,10 +399,12 @@ async def start_workflow_file(
         "actors": len(actors),
         "sources_run": len(source_changesets),
         "processors_run": len(processor_actors),
+        "analyzers_run": 0,
         "source_changesets": source_changesets,
         "processor_changeset": (
             int(processor_changeset.id) if processor_changeset is not None else None
         ),
+        "analyzer_changesets": [],
         "last_changeset_id": (
             int(processor_changeset.id)
             if processor_changeset is not None

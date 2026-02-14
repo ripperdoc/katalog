@@ -81,8 +81,8 @@ class SourcePlugin(PluginBase):
         """Return the namespace to use for external_id uniqueness."""
         return self.plugin_id
 
-    def can_connect(self, uri: str) -> bool:
-        """Check if the client can connect to the given URI."""
+    def can_scan_uri(self, uri: str) -> bool:
+        """Return whether this source can scan a root URI."""
         raise NotImplementedError()
 
     async def scan(self) -> ScanResult:
@@ -93,8 +93,8 @@ class SourcePlugin(PluginBase):
         """
         raise NotImplementedError()
 
-    def can_recurse(self, changes: MetadataChanges) -> int:
-        """Return a score (>0) when this source can recurse into the given asset state."""
+    def can_scan_asset(self, changes: MetadataChanges) -> int:
+        """Return a score (>0) when this source can scan from the given asset state."""
         _ = changes
         return 0
 

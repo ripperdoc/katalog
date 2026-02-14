@@ -406,6 +406,29 @@ DOC_CHUNKS = define_metadata(
     "document/chunks", MetadataType.JSON, "Chunked content with optional embeddings"
 )
 
+# Eval metadata
+EVAL_TRUTH_TEXT = define_metadata(
+    "eval/truth_text", MetadataType.STRING, "Ground truth text"
+)
+EVAL_QUERIES = define_metadata(
+    "eval/queries", MetadataType.JSON, "Ground truth retrieval queries"
+)
+EVAL_SIMILARITY = define_metadata(
+    "eval/similarity", MetadataType.FLOAT, "Similarity vs ground truth (%)"
+)
+EVAL_COMPLETENESS = define_metadata(
+    "eval/completeness", MetadataType.FLOAT, "Completeness vs ground truth (%)"
+)
+EVAL_SENTENCE_COUNT = define_metadata(
+    "eval/sentence_count", MetadataType.INT, "Sentence count"
+)
+EVAL_AVG_SENTENCE_WORDS = define_metadata(
+    "eval/avg_sentence_words", MetadataType.FLOAT, "Average words per sentence"
+)
+EVAL_UNIQUE_WORD_RATIO = define_metadata(
+    "eval/unique_word_ratio", MetadataType.FLOAT, "Unique word ratio"
+)
+
 
 # EXIF common fields (also available inside `image/exif` container)
 IMAGE_CAMERA_MAKE = define_metadata(

@@ -72,8 +72,11 @@ def run_workflow(
     typer.echo(f"Workflow: {result['workflow_file']}")
     typer.echo(f"Sources run: {result['sources_run']}")
     typer.echo(f"Processors run: {result['processors_run']}")
+    typer.echo(f"Analyzers run: {result.get('analyzers_run', 0)}")
     if result.get("processor_changeset"):
         typer.echo(f"Processor changeset: {result['processor_changeset']}")
+    if result.get("analyzer_changesets"):
+        typer.echo(f"Analyzer changesets: {result['analyzer_changesets']}")
 
 
 @workflows_app.command("apply")
@@ -101,5 +104,8 @@ def apply_workflow(
     typer.echo(f"Workflow: {result['workflow_file']}")
     typer.echo(f"Sources run: {result['sources_run']}")
     typer.echo(f"Processors run: {result['processors_run']}")
+    typer.echo(f"Analyzers run: {result.get('analyzers_run', 0)}")
     if result.get("processor_changeset"):
         typer.echo(f"Processor changeset: {result['processor_changeset']}")
+    if result.get("analyzer_changesets"):
+        typer.echo(f"Analyzer changesets: {result['analyzer_changesets']}")

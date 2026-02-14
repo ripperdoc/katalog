@@ -5,7 +5,7 @@ from typing import cast
 
 from loguru import logger
 
-from katalog.constants.metadata import ASSET_LOST, DATA_FILE_READER
+from katalog.constants.metadata import ASSET_LOST
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
@@ -86,7 +86,7 @@ async def run_sources(
     def _pick_recursive_source(changes: MetadataChanges) -> tuple[Actor, SourcePlugin] | None:
         candidates: list[tuple[int, int]] = []
         for actor_id, plugin in plugin_by_actor_id.items():
-            score = int(plugin.can_recurse(changes) or 0)
+            score = int(plugin.can_scan_asset(changes) or 0)
             if score <= 0:
                 continue
             candidates.append((score, actor_id))
@@ -125,7 +125,6 @@ async def run_sources(
 
         staged_metadata = result.metadata + [
             make_metadata(ASSET_LOST, None, actor_id=result.actor.id),
-            make_metadata(DATA_FILE_READER, {}, actor_id=result.actor.id),
         ]
         changes = MetadataChanges(
             asset=result.asset,
@@ -157,6 +156,8 @@ async def run_sources(
     ) -> OpStatus:
         if depth > max_recursion_depth:
             return OpStatus.COMPLETED
+        if source_actor.id is not None:
+            seen_assets_by_actor.setdefault(int(source_actor.id), set())
 
         if seed_changes is None:
             scan_result: ScanResult = await source_plugin.scan()

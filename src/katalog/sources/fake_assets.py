@@ -209,7 +209,7 @@ class FakeAssetSource(SourcePlugin):
         token = asset.external_id or asset.canonical_uri
         return FakeAssetReader(size=int(size), seed=self.seed, token=token)
 
-    def can_connect(self, uri: str) -> bool:
+    def can_scan_uri(self, uri: str) -> bool:
         return uri.startswith("fake://")
 
     async def scan(self) -> ScanResult:

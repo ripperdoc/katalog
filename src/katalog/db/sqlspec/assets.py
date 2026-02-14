@@ -19,9 +19,9 @@ from katalog.db.sqlspec.sql_helpers import execute, scalar, select, select_one_o
 from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
 from katalog.db.utils import build_where
-from typing import TYPE_CHECKING
 
 from katalog.models.assets import Asset
+from katalog.models.metadata import Metadata
 from katalog.models.query import AssetQuery
 from katalog.models.query import AssetsListResponse, GroupedAssetsResponse
 from katalog.models.views import ViewSpec
@@ -31,9 +31,6 @@ from katalog.db.sqlspec.query_filters import filter_conditions
 from katalog.db.sqlspec.query_search import fts5_query_from_user_text
 from katalog.db.sqlspec.query_sort import sort_conditions
 from katalog.db.sqlspec.query_values import decode_metadata_value
-
-if TYPE_CHECKING:
-    from katalog.models.metadata import Metadata
 
 
 def _build_assets_where(

@@ -56,7 +56,7 @@ class UrlListSource(SourcePlugin):
         _ = asset, params
         return None
 
-    def can_connect(self, uri: str) -> bool:
+    def can_scan_uri(self, uri: str) -> bool:
         _ = uri
         return True
 
