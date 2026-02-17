@@ -20,6 +20,11 @@ from katalog.constants.metadata import (
     FLAG_REVIEW,
     FLAG_REJECTED,
     HASH_MD5,
+    DOC_SUMMARY,
+    EVAL_QUERIES,
+    EVAL_TRUTH_TEXT,
+    SIDECAR_TARGET_NAME,
+    SIDECAR_TYPE,
     MetadataKey,
     MetadataType,
     get_metadata_def_by_key,
@@ -127,6 +132,11 @@ def default_view() -> ViewSpec:
         ColumnSpec.from_metadata(FLAG_REVIEW, filterable=True, width=40),
         ColumnSpec.from_metadata(FLAG_REJECTED, filterable=True, width=40),
         ColumnSpec.from_metadata(FILE_THUMBNAIL_URI, width=48),
+        ColumnSpec.from_metadata(SIDECAR_TYPE, hidden=True),
+        ColumnSpec.from_metadata(SIDECAR_TARGET_NAME, hidden=True),
+        ColumnSpec.from_metadata(EVAL_TRUTH_TEXT, hidden=True),
+        ColumnSpec.from_metadata(EVAL_QUERIES, hidden=True),
+        ColumnSpec.from_metadata(DOC_SUMMARY, hidden=True),
     ]
 
     return ViewSpec(

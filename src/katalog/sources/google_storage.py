@@ -23,9 +23,6 @@ from katalog.constants.metadata import (
 )
 from katalog.models import Asset, Actor, DataReader, OpStatus
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
-from katalog.sources.sidecars import (
-    SidecarSupport,
-)
 from katalog.utils.utils import match_paths, normalize_glob_patterns
 
 
@@ -120,10 +117,6 @@ class GoogleStorageSource(SourcePlugin):
         include_paths: list[str] = Field(default_factory=list)
         exclude_paths: list[str] = Field(default_factory=list)
         project: str | None = Field(default=None)
-        enable_sidecars: bool = Field(
-            default=True,
-            description="Parse known sidecar files (.truth.md/.queries.yml/.summary.md) as metadata.",
-        )
 
         @model_validator(mode="after")
         def _validate_gcs_url(self) -> "GoogleStorageSource.ConfigModel":
@@ -143,7 +136,6 @@ class GoogleStorageSource(SourcePlugin):
         self.include_paths = normalize_glob_patterns(cfg.include_paths)
         self.exclude_paths = normalize_glob_patterns(cfg.exclude_paths)
         self.project = cfg.project
-        self.enable_sidecars = bool(cfg.enable_sidecars)
         self._client: storage.Client | None = None
 
     def get_info(self) -> dict[str, Any]:
@@ -200,7 +192,6 @@ class GoogleStorageSource(SourcePlugin):
         async def iterator():
             nonlocal ignored, status
             seen = 0
-            sidecars = SidecarSupport.create(enabled=self.enable_sidecars)
             async for blob in self._iterate_blobs():
                 object_name = str(blob.name or "")
                 if not object_name:
@@ -214,34 +205,6 @@ class GoogleStorageSource(SourcePlugin):
                 ):
                     ignored += 1
                     continue
-                if sidecars.is_candidate(object_name):
-                    try:
-                        raw = await asyncio.to_thread(
-                            self._read_object_sync,
-                            self.bucket,
-                            object_name,
-                            0,
-                            None,
-                            None,
-                        )
-                    except Exception as exc:
-                        ignored += 1
-                        logger.warning(
-                            "Failed to read sidecar {name} for source {actor_id}: {err}",
-                            name=object_name,
-                            actor_id=self.actor.id,
-                            err=exc,
-                        )
-                        continue
-                    consumed, emitted = sidecars.consume_candidate(
-                        path_or_name=object_name,
-                        actor=self.actor,
-                        text=raw.decode("utf-8", errors="replace"),
-                    )
-                    if consumed and emitted is not None:
-                        yield emitted
-                    continue
-
                 canonical_uri = _canonical_object_uri(self.bucket, object_name)
                 asset = Asset(
                     external_id=object_name,
@@ -267,14 +230,11 @@ class GoogleStorageSource(SourcePlugin):
                 md5_hex = _safe_md5_hex(blob.md5_hash)
                 if md5_hex:
                     result.set_metadata(HASH_MD5, md5_hex)
-                sidecars.apply_deferred(asset=asset, result=result)
                 yield result
                 seen += 1
                 if self.max_files and seen >= self.max_files:
                     status = OpStatus.PARTIAL
                     break
-
-            sidecars.log_unresolved(source_name="GoogleStorage", actor_id=self.actor.id)
 
             if status == OpStatus.IN_PROGRESS:
                 status = OpStatus.COMPLETED

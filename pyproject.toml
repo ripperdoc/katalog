@@ -59,12 +59,14 @@ kreuzberg_document_extract = "katalog.processors.kreuzberg_document_extract:Kreu
 vector_index = "katalog.processors.vector_index:KreuzbergVectorIndexProcessor"
 eval_text_quality = "katalog.processors.eval_text_quality:EvalTextQualityProcessor"
 eval_truth_compare = "katalog.processors.eval_truth_compare:EvalTruthCompareProcessor"
+standard_sidecar = "katalog.processors.standard_sidecar:StandardSidecarProcessor"
 
 [project.entry-points."katalog.analyzer"]
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"
 stats = "katalog.analyzers.stats:StatsAnalyzer"
 eval_metrics = "katalog.analyzers.eval_metrics:EvalMetricsAnalyzer"
 retrieval_eval = "katalog.analyzers.retrieval_eval:RetrievalEvalAnalyzer"
+sidecar_links = "katalog.analyzers.sidecar_links:SidecarLinksAnalyzer"
 
 [project.entry-points."katalog.editor"]
 user_editor = "katalog.editors.user_editor:UserEditor"

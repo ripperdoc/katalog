@@ -409,6 +409,14 @@ VECTOR_INDEXED_COUNT = define_metadata(
     "vector/indexed_count", MetadataType.INT, "Indexed vector points"
 )
 
+# Sidecar metadata
+SIDECAR_TYPE = define_metadata(
+    "sidecar/type", MetadataType.STRING, "Sidecar type"
+)
+SIDECAR_TARGET_NAME = define_metadata(
+    "sidecar/target_name", MetadataType.STRING, "Sidecar target name"
+)
+
 # Eval metadata
 EVAL_TRUTH_TEXT = define_metadata(
     "eval/truth_text", MetadataType.STRING, "Ground truth text"

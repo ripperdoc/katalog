@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from katalog.analyzers.base import AnalyzerResult, AnalyzerScope, make_analyzer_instance
+from katalog.db.assets import get_asset_repo
 from katalog.models import Actor, Changeset
 from katalog.db.changesets import get_changeset_repo
+from katalog.db.metadata import get_metadata_repo
+from katalog.models import MetadataChanges
 
 
 async def do_run_analyzer(
@@ -29,6 +32,26 @@ async def do_run_analyzer(
         result = AnalyzerResult()
     else:
         result = await analyzer.run(changeset=changeset, scope=resolved_scope)
+
+    if result.metadata:
+        md_db = get_metadata_repo()
+        asset_db = get_asset_repo()
+        by_asset: dict[int, list] = {}
+        for entry in result.metadata:
+            if entry.asset_id is None:
+                continue
+            if entry.actor_id is None:
+                entry.actor_id = actor.id
+            if entry.changeset_id is None:
+                entry.changeset_id = changeset.id
+            by_asset.setdefault(int(entry.asset_id), []).append(entry)
+        for asset_id, staged in by_asset.items():
+            asset = await asset_db.get_or_none(id=asset_id)
+            if asset is None:
+                continue
+            loaded = await asset_db.load_metadata(asset, include_removed=True)
+            changes = MetadataChanges(asset=asset, loaded=list(loaded), staged=staged)
+            await md_db.persist_changes(changes, changeset=changeset)
 
     if result.output is not None:
         data_payload = dict(changeset.data or {})

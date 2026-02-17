@@ -8,11 +8,13 @@ from typing import Any
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
+from katalog.api.assets import list_assets as list_assets_api
 from katalog.api.metadata import list_metadata as list_metadata_api
 from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
 from katalog.constants.metadata import (
     DOC_CHUNK_TEXT,
     EVAL_QUERIES,
+    SIDECAR_TYPE,
     get_metadata_def_by_id,
     get_metadata_id,
 )
@@ -224,15 +226,19 @@ class RetrievalEvalAnalyzer(Analyzer):
 
     async def _load_query_cases(self, scope: AnalyzerScope) -> list[QueryCase]:
         query = self._asset_query_for_scope(scope, limit=1_000_000)
-        query.search_granularity = "metadata"
-        query.search_metadata_keys = [self.config.query_metadata_key]
-        query.metadata_aggregation = "latest"
-        result = await list_metadata_api(query)
-        rows = result.get("items", [])
+        query.metadata_include_linked_sidecars = True
+        response = await list_assets_api(query)
+        rows = response.items
         cases: list[QueryCase] = []
         for row in rows:
-            asset_id = int(row["asset_id"])
-            payload = self._decode_queries_payload(row.get("value"), row.get("text"))
+            payload_row = row.model_dump(by_alias=True)
+            if payload_row.get(str(SIDECAR_TYPE)):
+                continue
+            asset_id = int(payload_row["asset/id"])
+            payload = self._decode_queries_payload(
+                payload_row.get(self.config.query_metadata_key),
+                payload_row.get(self.config.query_metadata_key),
+            )
             if payload is None:
                 continue
             queries = payload.get("queries") if isinstance(payload, dict) else payload

@@ -130,6 +130,7 @@ class AssetQuery(BaseModel):
     metadata_include_removed: bool = False
     metadata_aggregation: Literal["latest", "array", "objects"] = "latest"
     metadata_include_counts: bool = True
+    metadata_include_linked_sidecars: bool = False
 
     @field_validator("view_id")
     @classmethod

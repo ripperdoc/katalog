@@ -25,7 +25,6 @@ from katalog.constants.metadata import (
     TIME_CREATED,
     TIME_MODIFIED,
 )
-from katalog.sources.sidecars import SidecarSupport
 from katalog.utils.utils import timestamp_to_utc
 
 
@@ -66,10 +65,6 @@ class FilesystemClient(SourcePlugin):
             ge=0,
             description="Stop after this many files (0 means no limit)",
         )
-        enable_sidecars: bool = Field(
-            default=True,
-            description="Parse known sidecar files (.truth.md/.queries.yml/.summary.md) as metadata.",
-        )
 
     config_model = ConfigModel
 
@@ -79,7 +74,6 @@ class FilesystemClient(SourcePlugin):
         # Store normalized values for runtime use.
         self.root_path = str(cfg.root_path)
         self.max_files = cfg.max_files
-        self.enable_sidecars = bool(cfg.enable_sidecars)
         self._namespace = self._resolve_namespace()
 
     def get_info(self) -> Dict[str, Any]:
@@ -113,7 +107,6 @@ class FilesystemClient(SourcePlugin):
             nonlocal ignored, status
             seen = 0
             reported = 0
-            sidecars = SidecarSupport.create(enabled=self.enable_sidecars)
             for dirpath, dirnames, filenames in os.walk(self.root_path):
                 for filename in filenames:
                     if self.max_files and seen >= self.max_files:
@@ -126,15 +119,6 @@ class FilesystemClient(SourcePlugin):
 
                     full_path = os.path.join(dirpath, filename)
                     abs_path = Path(full_path).resolve()
-
-                    consumed, emitted = sidecars.consume_candidate(
-                        path_or_name=str(abs_path),
-                        actor=self.actor,
-                    )
-                    if consumed:
-                        if emitted is not None:
-                            yield emitted
-                        continue
 
                     try:
                         stat = os.stat(full_path)
@@ -165,7 +149,6 @@ class FilesystemClient(SourcePlugin):
                         result.set_metadata(
                             FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
                         )
-                        sidecars.apply_deferred(asset=asset, result=result)
                     except Exception as e:
                         ignored += 1
                         logger.warning(
@@ -183,8 +166,6 @@ class FilesystemClient(SourcePlugin):
 
                 if status == OpStatus.CANCELED:
                     break
-
-            sidecars.log_unresolved(source_name="Filesystem", actor_id=self.actor.id)
 
             if status == OpStatus.IN_PROGRESS:
                 status = OpStatus.COMPLETED

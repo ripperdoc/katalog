@@ -14,13 +14,23 @@ def list_assets(
     ctx: typer.Context,
     limit: int = typer.Option(100, "--limit", "-l", help="Max assets to list"),
     offset: int = typer.Option(0, "--offset", "-o", help="Offset into result set"),
+    include_linked_sidecars: bool = typer.Option(
+        False,
+        "--include-linked-sidecars",
+        help="Project linked sidecar metadata onto target assets.",
+    ),
 ) -> None:
     """List assets in the workspace."""
 
     async def _run() -> Any:
         from katalog.api.assets import list_assets as list_assets_api
 
-        query = AssetQuery(view_id="default", limit=limit, offset=offset)
+        query = AssetQuery(
+            view_id="default",
+            limit=limit,
+            offset=offset,
+            metadata_include_linked_sidecars=include_linked_sidecars,
+        )
         return await list_assets_api(query=query)
 
     response = run_cli(_run, init_mode="fast")

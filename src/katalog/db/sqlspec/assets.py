@@ -10,6 +10,9 @@ from katalog.constants.metadata import (
     ASSET_ID,
     ASSET_LOST,
     ASSET_NAMESPACE,
+    REL_LINK_TO,
+    SIDECAR_TARGET_NAME,
+    SIDECAR_TYPE,
     METADATA_REGISTRY_BY_ID,
     MetadataKey,
     MetadataType,
@@ -550,6 +553,37 @@ class SqlspecAssetRepo:
                         continue
                     asset_entry[key_str] = value
 
+            if query.metadata_include_linked_sidecars and page_asset_ids:
+                sidecar_type_key_id = int(get_metadata_id(SIDECAR_TYPE))
+                sidecar_target_key_id = int(get_metadata_id(SIDECAR_TARGET_NAME))
+                link_key_id = int(get_metadata_id(REL_LINK_TO))
+                projected_metadata_ids = [
+                    metadata_key_id
+                    for metadata_key_id in metadata_ids
+                    if metadata_key_id
+                    not in {sidecar_type_key_id, sidecar_target_key_id, link_key_id}
+                ]
+                sidecar_rows = await self._load_linked_sidecar_rows(
+                    session=session,
+                    target_asset_ids=page_asset_ids,
+                    metadata_key_ids=projected_metadata_ids,
+                )
+                for row in sidecar_rows:
+                    asset_id = int(row["asset_id"])
+                    if asset_id not in assets:
+                        continue
+                    key_def = METADATA_REGISTRY_BY_ID.get(int(row["metadata_key_id"]))
+                    if key_def is None:
+                        continue
+                    key_str = str(key_def.key)
+                    if key_str not in requested_columns:
+                        continue
+                    asset_entry = assets[asset_id]
+                    existing = asset_entry.get(key_str)
+                    if existing is not None:
+                        continue
+                    asset_entry[key_str] = decode_metadata_value(row)
+
             total_count = None
             if query.metadata_include_counts:
                 if has_merges:
@@ -583,6 +617,82 @@ class SqlspecAssetRepo:
                 "pagination": {"offset": offset, "limit": limit},
             }
         )
+
+    async def _load_linked_sidecar_rows(
+        self,
+        *,
+        session: Any,
+        target_asset_ids: list[int],
+        metadata_key_ids: list[int],
+    ) -> list[Mapping[str, Any]]:
+        if not target_asset_ids or not metadata_key_ids:
+            return []
+        target_placeholders = ", ".join("?" for _ in target_asset_ids)
+        metadata_placeholders = ", ".join("?" for _ in metadata_key_ids)
+        link_key_id = int(get_metadata_id(REL_LINK_TO))
+        sidecar_type_key_id = int(get_metadata_id(SIDECAR_TYPE))
+        sql = f"""
+            WITH latest AS (
+                SELECT
+                    m.asset_id,
+                    m.metadata_key_id,
+                    m.value_type,
+                    m.value_text,
+                    m.value_int,
+                    m.value_real,
+                    m.value_datetime,
+                    m.value_json,
+                    m.value_relation_id,
+                    m.value_collection_id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY m.asset_id, m.metadata_key_id
+                        ORDER BY m.changeset_id DESC, m.id DESC
+                    ) AS rn
+                FROM {METADATA_TABLE} m
+                WHERE m.metadata_key_id IN ({metadata_placeholders}, ?, ?)
+                  AND m.removed = 0
+            ),
+            sidecars AS (
+                SELECT asset_id
+                FROM latest
+                WHERE metadata_key_id = ? AND rn = 1
+            ),
+            links AS (
+                SELECT
+                    l.asset_id AS sidecar_asset_id,
+                    l.value_relation_id AS target_asset_id
+                FROM latest l
+                JOIN sidecars s ON s.asset_id = l.asset_id
+                WHERE l.metadata_key_id = ?
+                  AND l.rn = 1
+                  AND l.value_relation_id IN ({target_placeholders})
+            )
+            SELECT
+                links.target_asset_id AS asset_id,
+                m.metadata_key_id,
+                m.value_type,
+                m.value_text,
+                m.value_int,
+                m.value_real,
+                m.value_datetime,
+                m.value_json,
+                m.value_relation_id,
+                m.value_collection_id
+            FROM links
+            JOIN latest m ON m.asset_id = links.sidecar_asset_id
+            WHERE m.metadata_key_id IN ({metadata_placeholders})
+              AND m.rn = 1
+        """
+        params: list[Any] = [
+            *metadata_key_ids,
+            sidecar_type_key_id,
+            link_key_id,
+            sidecar_type_key_id,
+            link_key_id,
+            *target_asset_ids,
+            *metadata_key_ids,
+        ]
+        return await select(session, sql, params)
 
     async def list_grouped_assets_db(
         self,
