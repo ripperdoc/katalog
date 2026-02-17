@@ -2,6 +2,7 @@ from typing import Any, Optional, Sequence
 
 from fastapi import APIRouter, Query, Request
 
+from katalog.api.search import semantic_hits_for_query
 from katalog.constants.metadata import MetadataKey
 from katalog.db.assets import get_asset_repo
 from katalog.editors.user_editor import ensure_user_editor
@@ -23,6 +24,8 @@ router = APIRouter()
 
 
 async def list_assets(query: AssetQuery) -> AssetsListResponse:
+    if query.search_mode in {"semantic", "hybrid"} and query.search_granularity == "asset":
+        return await _list_assets_semantic(query)
     view = get_view(query.view_id or "default")
     db = get_asset_repo()
     # TODO: metadata_actor_ids support is intentionally skipped for now.
@@ -116,6 +119,68 @@ async def manual_edit_asset(asset_id: int, payload: dict[str, Any]) -> ManualEdi
 
 async def update_asset() -> None:
     raise NotImplementedError()
+
+
+async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
+    hits, _total_hits, _duration_ms = await semantic_hits_for_query(query)
+
+    ordered_asset_ids: list[int] = []
+    seen_asset_ids: set[int] = set()
+    for hit in hits:
+        if hit.asset_id in seen_asset_ids:
+            continue
+        seen_asset_ids.add(hit.asset_id)
+        ordered_asset_ids.append(hit.asset_id)
+
+    start = int(query.offset)
+    end = start + int(query.limit)
+    page_asset_ids = ordered_asset_ids[start:end]
+
+    scoped_query = query.model_copy(
+        update={
+            "search": None,
+            "search_mode": "fts",
+            "search_granularity": "asset",
+            "offset": 0,
+            "limit": max(1, len(page_asset_ids)),
+        }
+    )
+    if page_asset_ids:
+        scoped_query.filters = [
+            *(scoped_query.filters or []),
+            {"key": "asset/id", "op": "in", "values": [str(asset_id) for asset_id in page_asset_ids]},
+        ]
+    else:
+        scoped_query.filters = [
+            *(scoped_query.filters or []),
+            {"key": "asset/id", "op": "equals", "value": "-1"},
+        ]
+
+    view = get_view(scoped_query.view_id or "default")
+    db = get_asset_repo()
+    response = await db.list_assets_for_view_db(view, query=scoped_query)
+    rank = {asset_id: index for index, asset_id in enumerate(page_asset_ids)}
+    response.items.sort(key=lambda item: rank.get(int(item.asset_id), 10**9))
+    if query.search_include_matches:
+        matches_by_asset: dict[int, list[dict[str, Any]]] = {}
+        for hit in hits:
+            matches_by_asset.setdefault(hit.asset_id, []).append(
+                {
+                    "metadata_id": hit.metadata_id,
+                    "metadata_key_id": hit.metadata_key_id,
+                    "metadata_key": hit.metadata_key,
+                    "distance": hit.distance,
+                    "score": hit.score,
+                    "text": hit.text,
+                }
+            )
+        for item in response.items:
+            item.__dict__["search_matches"] = matches_by_asset.get(int(item.asset_id), [])
+    response.stats.total = len(ordered_asset_ids)
+    response.stats.returned = len(response.items)
+    response.pagination.offset = query.offset
+    response.pagination.limit = query.limit
+    return response
 
 
 @router.get("/assets")

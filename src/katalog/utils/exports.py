@@ -68,6 +68,27 @@ def write_csv_tables(
     return paths
 
 
+def analyzer_export_dir(
+    *,
+    changeset_id: int,
+    analyzer_plugin_id: str,
+    actor_id: int | None = None,
+    workspace: Path | None = None,
+) -> Path:
+    """
+    Return a standard export directory for analyzer runs.
+
+    Current layout:
+    <workspace>/exports/<changeset_id>/<analyzer_slug>[_actor-<id>]/
+    """
+    root = (workspace or WORKSPACE) / "exports" / str(int(changeset_id))
+    slug = _safe_filename(analyzer_plugin_id)
+    name = f"{slug}_actor-{actor_id}" if actor_id is not None else slug
+    target = root / name
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fieldnames = _collect_headers(rows)
     with path.open("w", encoding="utf-8", newline="") as handle:

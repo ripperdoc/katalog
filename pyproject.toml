@@ -22,6 +22,9 @@ dependencies = [
     "crawlee>=1.2.1",
     "kreuzberg>=4.3.0,<5",
     "pyyaml>=6.0.2",
+    "sqlite-vec>=0.1.6",
+    "onnxruntime>=1.24.1",
+    "google-cloud-storage>=3.9.0",
 ]
 
 [tool.uv]
@@ -43,6 +46,7 @@ gdrive = "katalog.sources.googledrive:GoogleDriveClient"
 fake_assets = "katalog.sources.fake_assets:FakeAssetSource"
 url_list = "katalog.sources.url_list:UrlListSource"
 http_url = "katalog.sources.http_url:HttpUrlSource"
+google_storage = "katalog.sources.google_storage:GoogleStorageSource"
 
 [project.entry-points."katalog.processor"]
 md5 = "katalog.processors.md5_hash:MD5HashProcessor"
@@ -52,6 +56,7 @@ flag_hidden = "katalog.processors.flag_hidden:HiddenFlagProcessor"
 search_index = "katalog.processors.search_index:SearchIndexProcessor"
 path_renamer = "katalog.processors.path_renamer:PathRenamerProcessor"
 kreuzberg_document_extract = "katalog.processors.kreuzberg_document_extract:KreuzbergDocumentExtractProcessor"
+vector_index = "katalog.processors.vector_index:KreuzbergVectorIndexProcessor"
 eval_text_quality = "katalog.processors.eval_text_quality:EvalTextQualityProcessor"
 eval_truth_compare = "katalog.processors.eval_truth_compare:EvalTruthCompareProcessor"
 
@@ -59,6 +64,7 @@ eval_truth_compare = "katalog.processors.eval_truth_compare:EvalTruthCompareProc
 exact_duplicates = "katalog.analyzers.duplicates:ExactDuplicateAnalyzer"
 stats = "katalog.analyzers.stats:StatsAnalyzer"
 eval_metrics = "katalog.analyzers.eval_metrics:EvalMetricsAnalyzer"
+retrieval_eval = "katalog.analyzers.retrieval_eval:RetrievalEvalAnalyzer"
 
 [project.entry-points."katalog.editor"]
 user_editor = "katalog.editors.user_editor:UserEditor"

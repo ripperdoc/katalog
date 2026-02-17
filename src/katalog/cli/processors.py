@@ -4,7 +4,7 @@ from typing import Any
 import typer
 
 from . import processors_app
-from .utils import run_cli, wants_json
+from .utils import changeset_summary, print_changeset_summary, run_cli, wants_json
 
 
 @processors_app.command("run")
@@ -48,16 +48,7 @@ def run_processors(
 
             await delete_changeset_api(int(changeset.id))
         return {
-            "changeset_id": changeset.id,
-            "status": changeset.status.value
-            if hasattr(changeset.status, "value")
-            else str(changeset.status),
-            "started_at": changeset.started_at_iso(),
-            "elapsed_seconds": (
-                changeset.running_time_ms / 1000.0
-                if changeset.running_time_ms is not None
-                else None
-            ),
+            "changeset": changeset_summary(changeset),
             "max_rss_mb": max_rss_mb,
             "deleted": benchmark,
         }
@@ -67,12 +58,7 @@ def run_processors(
         typer.echo(json.dumps(result, default=str))
         return
 
-    typer.echo(f"Changeset: {result['changeset_id']}")
-    if result.get("started_at"):
-        typer.echo(f"Started: {result['started_at']}")
-    typer.echo(f"Status: {result['status']}")
-    if result.get("elapsed_seconds") is not None:
-        typer.echo(f"Elapsed: {result['elapsed_seconds']:.2f}s")
+    print_changeset_summary(result["changeset"])
     if result.get("max_rss_mb") is not None:
         typer.echo(f"Max RSS: {result['max_rss_mb']:.2f} MB")
     if result.get("deleted"):

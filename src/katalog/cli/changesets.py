@@ -16,7 +16,7 @@ def list_changesets(ctx: typer.Context) -> None:
 
         return await list_changesets_api()
 
-    changesets = run_cli(_run)
+    changesets = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(
@@ -55,7 +55,7 @@ def show_changeset(changeset_id: int, ctx: typer.Context) -> None:
 
         return await get_changeset_api(changeset_id)
 
-    changeset, logs, running = run_cli(_run)
+    changeset, logs, running = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(
@@ -97,7 +97,7 @@ def delete_changeset(changeset_id: int, ctx: typer.Context) -> None:
 
         return await delete_changeset_api(changeset_id)
 
-    result = run_cli(_run)
+    result = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(json.dumps(result, default=str))
         return

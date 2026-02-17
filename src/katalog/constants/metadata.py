@@ -402,8 +402,11 @@ DOC_PAGES = define_metadata("document/pages", MetadataType.INT, "Page count")
 DOC_CHUNK_COUNT = define_metadata(
     "document/chunk_count", MetadataType.INT, "Chunk count"
 )
-DOC_CHUNKS = define_metadata(
-    "document/chunks", MetadataType.JSON, "Chunked content with optional embeddings"
+DOC_CHUNK_TEXT = define_metadata(
+    "document/chunk_text", MetadataType.STRING, "Chunk text"
+)
+VECTOR_INDEXED_COUNT = define_metadata(
+    "vector/indexed_count", MetadataType.INT, "Indexed vector points"
 )
 
 # Eval metadata

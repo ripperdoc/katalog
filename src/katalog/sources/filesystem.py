@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 from typing import Any, Dict
-import json
 
 from pydantic import BaseModel, Field
 from urllib.parse import unquote, urlparse
@@ -20,16 +19,13 @@ from katalog.models import (
 from katalog.models import OpStatus
 from katalog.constants.metadata import (
     DATA_FILE_READER,
-    DOC_SUMMARY,
-    EVAL_QUERIES,
-    EVAL_TRUTH_TEXT,
     FILE_PATH,
     FILE_SIZE,
     FLAG_HIDDEN,
     TIME_CREATED,
     TIME_MODIFIED,
 )
-from katalog.sources.sidecars import SidecarResolver
+from katalog.sources.sidecars import SidecarSupport
 from katalog.utils.utils import timestamp_to_utc
 
 
@@ -70,6 +66,10 @@ class FilesystemClient(SourcePlugin):
             ge=0,
             description="Stop after this many files (0 means no limit)",
         )
+        enable_sidecars: bool = Field(
+            default=True,
+            description="Parse known sidecar files (.truth.md/.queries.yml/.summary.md) as metadata.",
+        )
 
     config_model = ConfigModel
 
@@ -79,6 +79,7 @@ class FilesystemClient(SourcePlugin):
         # Store normalized values for runtime use.
         self.root_path = str(cfg.root_path)
         self.max_files = cfg.max_files
+        self.enable_sidecars = bool(cfg.enable_sidecars)
         self._namespace = self._resolve_namespace()
 
     def get_info(self) -> Dict[str, Any]:
@@ -112,7 +113,7 @@ class FilesystemClient(SourcePlugin):
             nonlocal ignored, status
             seen = 0
             reported = 0
-            sidecar_resolver = SidecarResolver()
+            sidecars = SidecarSupport.create(enabled=self.enable_sidecars)
             for dirpath, dirnames, filenames in os.walk(self.root_path):
                 for filename in filenames:
                     if self.max_files and seen >= self.max_files:
@@ -126,17 +127,13 @@ class FilesystemClient(SourcePlugin):
                     full_path = os.path.join(dirpath, filename)
                     abs_path = Path(full_path).resolve()
 
-                    sidecar_payload = _parse_sidecar_payload(abs_path)
-                    if sidecar_payload is not None:
-                        resolved = sidecar_resolver.ingest_sidecar(
-                            str(abs_path), sidecar_payload
-                        )
-                        if resolved is not None:
-                            yield _build_sidecar_result(
-                                asset=resolved.asset,
-                                actor=self.actor,
-                                payload=resolved.sidecar.payload,
-                            )
+                    consumed, emitted = sidecars.consume_candidate(
+                        path_or_name=str(abs_path),
+                        actor=self.actor,
+                    )
+                    if consumed:
+                        if emitted is not None:
+                            yield emitted
                         continue
 
                     try:
@@ -168,11 +165,7 @@ class FilesystemClient(SourcePlugin):
                         result.set_metadata(
                             FLAG_HIDDEN, 1 if _looks_hidden(abs_path) else 0
                         )
-                        for deferred in sidecar_resolver.register_asset(asset):
-                            _apply_sidecar_payload(
-                                result=result,
-                                payload=deferred.sidecar.payload,
-                            )
+                        sidecars.apply_deferred(asset=asset, result=result)
                     except Exception as e:
                         ignored += 1
                         logger.warning(
@@ -191,13 +184,7 @@ class FilesystemClient(SourcePlugin):
                 if status == OpStatus.CANCELED:
                     break
 
-            unresolved_sidecars = sidecar_resolver.unresolved()
-            if unresolved_sidecars:
-                logger.warning(
-                    "Filesystem source {actor_id}: {count} sidecars could not be matched to any asset",
-                    actor_id=self.actor.id,
-                    count=len(unresolved_sidecars),
-                )
+            sidecars.log_unresolved(source_name="Filesystem", actor_id=self.actor.id)
 
             if status == OpStatus.IN_PROGRESS:
                 status = OpStatus.COMPLETED
@@ -266,55 +253,3 @@ def _canonical_uri_to_path(uri: str) -> str:
             path = path.lstrip("/")
         return path or uri
     return uri
-
-
-def _parse_sidecar_payload(path: Path) -> dict[str, Any] | None:
-    path_str = str(path)
-    if path_str.endswith(".truth.md"):
-        return {"truth_text": path.read_text(encoding="utf-8")}
-    if path_str.endswith(".summary.md"):
-        return {"summary_text": path.read_text(encoding="utf-8")}
-    if path_str.endswith(".queries.yml") or path_str.endswith(".queries.yaml"):
-        text = path.read_text(encoding="utf-8")
-        payload = _parse_yaml_or_json(text)
-        if payload is None:
-            return None
-        return {"queries": payload}
-    return None
-
-
-def _parse_yaml_or_json(text: str) -> Any | None:
-    try:
-        import yaml  # type: ignore
-    except Exception:
-        yaml = None
-    if yaml is not None:
-        try:
-            return yaml.safe_load(text)
-        except Exception:
-            pass
-    try:
-        return json.loads(text)
-    except Exception:
-        logger.warning("Failed to parse sidecar queries payload as YAML/JSON")
-        return None
-
-
-def _build_sidecar_result(
-    *, asset: Asset, actor: Actor, payload: dict[str, Any]
-) -> AssetScanResult:
-    result = AssetScanResult(asset=asset, actor=actor)
-    _apply_sidecar_payload(result=result, payload=payload)
-    return result
-
-
-def _apply_sidecar_payload(*, result: AssetScanResult, payload: dict[str, Any]) -> None:
-    truth_text = payload.get("truth_text")
-    if isinstance(truth_text, str) and truth_text.strip():
-        result.set_metadata(EVAL_TRUTH_TEXT, truth_text)
-    summary_text = payload.get("summary_text")
-    if isinstance(summary_text, str) and summary_text.strip():
-        result.set_metadata(DOC_SUMMARY, summary_text)
-    queries = payload.get("queries")
-    if queries is not None:
-        result.set_metadata(EVAL_QUERIES, queries)

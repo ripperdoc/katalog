@@ -16,7 +16,7 @@ def list_collections(ctx: typer.Context) -> None:
 
         return await list_collections_api()
 
-    collections = run_cli(_run)
+    collections = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(
@@ -55,7 +55,7 @@ def show_collection(collection_id: int, ctx: typer.Context) -> None:
 
         return await get_collection_api(collection_id)
 
-    collection = run_cli(_run)
+    collection = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(

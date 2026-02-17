@@ -5,7 +5,7 @@ from typing import Any
 import typer
 
 from . import _reset_workspace, actors_app
-from .utils import render_table, run_cli, wants_json
+from .utils import changeset_summary, print_changeset_summary, render_table, run_cli, wants_json
 
 @actors_app.command("list")
 def list_actors(ctx: typer.Context) -> None:
@@ -16,7 +16,7 @@ def list_actors(ctx: typer.Context) -> None:
 
         return await list_actors_api()
 
-    actors = run_cli(_run)
+    actors = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(
@@ -54,7 +54,7 @@ def show_actor(actor_id: int, ctx: typer.Context) -> None:
 
         return await get_actor_api(actor_id)
 
-    actor, changesets = run_cli(_run)
+    actor, changesets = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(
@@ -130,18 +130,8 @@ def run_actor(
             await delete_changeset_api(int(changeset.id))
 
         return {
-            "changeset_id": changeset.id,
-            "status": changeset.status.value
-            if hasattr(changeset.status, "value")
-            else str(changeset.status),
-            "started_at": changeset.started_at_iso(),
-            "elapsed_seconds": (
-                changeset.running_time_ms / 1000.0
-                if changeset.running_time_ms is not None
-                else None
-            ),
+            "changeset": changeset_summary(changeset),
             "max_rss_mb": max_rss_mb,
-            "scan_metrics": (changeset.data or {}).get("scan_metrics"),
             "deleted": benchmark,
         }
 
@@ -150,27 +140,8 @@ def run_actor(
         typer.echo(json.dumps(result, default=str))
         return
 
-    typer.echo(f"Changeset: {result['changeset_id']}")
-    if result.get("started_at"):
-        typer.echo(f"Started: {result['started_at']}")
-    typer.echo(f"Status: {result['status']}")
-    if result.get("elapsed_seconds") is not None:
-        typer.echo(f"Elapsed: {result['elapsed_seconds']:.2f}s")
+    print_changeset_summary(result["changeset"])
     if result.get("max_rss_mb") is not None:
         typer.echo(f"Max RSS: {result['max_rss_mb']:.2f} MB")
     if result.get("deleted"):
         typer.echo("Deleted: yes")
-    scan_metrics = result.get("scan_metrics")
-    if scan_metrics:
-        typer.echo(f"Scan time: {scan_metrics.get('scan_seconds'):.2f}s")
-        for key, label in [
-            ("assets_seen", "Assets seen"),
-            ("assets_saved", "Assets saved"),
-            ("assets_added", "Assets added"),
-            ("assets_changed", "Assets changed"),
-            ("assets_ignored", "Assets ignored"),
-            ("assets_lost", "Assets lost"),
-        ]:
-            value = scan_metrics.get(key)
-            if value is not None:
-                typer.echo(f"{label}: {value}")

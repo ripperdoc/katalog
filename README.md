@@ -37,6 +37,21 @@ katalog -w /path/to/workspace actors list
 katalog -w /path/to/workspace actors show 1
 ```
 
+### ONNX runtime for local embeddings (macOS)
+
+Kreuzberg local embeddings depend on ONNX Runtime. Install it with `uv`:
+
+```bash
+uv add onnxruntime
+```
+
+In some macOS environments, you also need to set `ORT_DYLIB_PATH` so the runtime can find the
+library:
+
+```bash
+export ORT_DYLIB_PATH="$(uv run python -c 'import onnxruntime, pathlib; print(next(pathlib.Path(onnxruntime.__file__).parent.rglob(\"libonnxruntime*.dylib\")))')"
+```
+
 ## Example use cases
 
 - Catalogue (scan) all digital assets you've created across both local and remote storage actors

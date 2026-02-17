@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from loguru import logger
+import sqlite_vec
 from sqlspec import SQLSpec
 from sqlspec.adapters.aiosqlite import AiosqliteConfig
 
@@ -19,6 +20,7 @@ spec = SQLSpec()
 _ACTIVE_SESSION: ContextVar[Any | None] = ContextVar("sqlspec_active_session", default=None)
 _CONFIG: AiosqliteConfig | None = None
 _ANALYSIS_CONFIG: AiosqliteConfig | None = None
+_LOADED_EXTENSIONS: set[int] = set()
 
 
 def _build_config(db_url: str) -> AiosqliteConfig:
@@ -74,6 +76,7 @@ async def session_scope(*, analysis: bool = False) -> AsyncIterator[Any]:
 
     config = _get_config(analysis=analysis)
     async with spec.provide_session(config) as session:
+        await _ensure_sqlite_extensions(session)
         yield session
 
 
@@ -98,6 +101,24 @@ async def init_db() -> None:
         await session.execute_script(schema_sql)
 
     logger.info("Initialized SQLSpec database schema")
+
+
+async def _ensure_sqlite_extensions(session: Any) -> None:
+    conn = getattr(session, "connection", None)
+    if conn is None:
+        return
+
+    raw_conn = getattr(conn, "_conn", None)
+    conn_id = id(raw_conn) if raw_conn is not None else id(conn)
+    if conn_id in _LOADED_EXTENSIONS:
+        return
+
+    await conn.enable_load_extension(True)
+    try:
+        await conn.load_extension(sqlite_vec.loadable_path())
+        _LOADED_EXTENSIONS.add(conn_id)
+    finally:
+        await conn.enable_load_extension(False)
 
 
 async def close_db() -> None:

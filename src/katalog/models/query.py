@@ -108,6 +108,16 @@ class AssetQuery(BaseModel):
     # Asset filters/sorts/search.
     filters: list[AssetFilter] | None = None
     search: str | None = None
+    search_mode: Literal["fts", "semantic", "hybrid"] = "fts"
+    search_index: int | None = None
+    search_granularity: Literal["asset", "metadata"] = "asset"
+    search_top_k: int | None = Field(default=None, gt=0)
+    search_metadata_keys: list[str] | None = None
+    search_min_score: float | None = None
+    search_include_matches: bool = False
+    search_dimension: int = Field(default=64, gt=0)
+    search_embedding_model: str = "fast"
+    search_embedding_backend: Literal["preset", "fastembed"] = "preset"
     sort: list[tuple[str, str]] | None = None
     group_by: str | None = None
 
@@ -137,6 +147,14 @@ class AssetQuery(BaseModel):
         if any(actor_id <= 0 for actor_id in value):
             raise ValueError("metadata_actor_ids must contain positive integers")
         return value
+
+    @field_validator("search_metadata_keys")
+    @classmethod
+    def _validate_search_metadata_keys(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        cleaned = [item.strip() for item in value if item and item.strip()]
+        return cleaned or None
 
     @field_validator("filters", mode="before")
     @classmethod
@@ -211,6 +229,12 @@ class AssetQuery(BaseModel):
 
         if self.group_by is not None and self.group_by not in column_map:
             raise ValueError(f"Unknown group_by key: {self.group_by}")
+
+        if self.search_mode in {"semantic", "hybrid"}:
+            if not self.search or not self.search.strip():
+                raise ValueError("search is required for semantic search modes")
+            if self.search_granularity == "metadata" and self.group_by is not None:
+                raise ValueError("group_by is not supported for metadata granularity")
 
         return self
 

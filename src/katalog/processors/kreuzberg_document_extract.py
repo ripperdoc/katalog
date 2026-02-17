@@ -10,7 +10,7 @@ from katalog.constants.metadata import (
     DATA_KEY,
     DOC_CHARS,
     DOC_CHUNK_COUNT,
-    DOC_CHUNKS,
+    DOC_CHUNK_TEXT,
     DOC_LANG,
     DOC_PAGES,
     DOC_TEXT,
@@ -38,7 +38,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
             DOC_WORDS,
             DOC_PAGES,
             DOC_CHUNK_COUNT,
-            DOC_CHUNKS,
+            DOC_CHUNK_TEXT,
         }
     )
 
@@ -47,12 +47,6 @@ class KreuzbergDocumentExtractProcessor(Processor):
 
         enable_chunking: bool = Field(
             default=True, description="Generate chunked text output."
-        )
-        chunk_max_chars: int = Field(
-            default=1000, gt=0, description="Maximum characters per chunk."
-        )
-        chunk_max_overlap: int = Field(
-            default=200, ge=0, description="Overlap in characters between chunks."
         )
         enable_embeddings: bool = Field(
             default=False,
@@ -179,11 +173,8 @@ class KreuzbergDocumentExtractProcessor(Processor):
                     batch_size=self.config.embedding_batch_size,
                     normalize=self.config.embedding_normalize,
                 )
-            chunking_config = ChunkingConfig(
-                max_chars=self.config.chunk_max_chars,
-                max_overlap=self.config.chunk_max_overlap,
-                embedding=embedding_config,
-            )
+            # Use Kreuzberg's default chunking strategy/limits.
+            chunking_config = ChunkingConfig(embedding=embedding_config)
         return ExtractionConfig(chunking=chunking_config)
 
     def _build_metadata_payload(self, extraction_result) -> list:
@@ -213,41 +204,30 @@ class KreuzbergDocumentExtractProcessor(Processor):
             payload.append(make_metadata(DOC_PAGES, page_count, self.actor.id))
 
         chunk_count = extraction_result.get_chunk_count()
-        if isinstance(chunk_count, int):
-            payload.append(make_metadata(DOC_CHUNK_COUNT, chunk_count, self.actor.id))
-
         chunks = extraction_result.chunks or []
-        if chunks:
-            payload.append(make_metadata(DOC_CHUNKS, self._normalize_chunks(chunks), self.actor.id))
-
+        chunk_texts = self._collect_chunk_texts(chunks)
+        if chunk_texts:
+            payload.append(
+                make_metadata(DOC_CHUNK_COUNT, len(chunk_texts), self.actor.id)
+            )
+            for chunk_text in chunk_texts:
+                payload.append(make_metadata(DOC_CHUNK_TEXT, chunk_text, self.actor.id))
+        elif isinstance(chunk_count, int):
+            payload.append(make_metadata(DOC_CHUNK_COUNT, chunk_count, self.actor.id))
         return payload
 
-    def _normalize_chunks(self, chunks: list[Any]) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
+    def _collect_chunk_texts(self, chunks: list[Any]) -> list[str]:
+        values: list[str] = []
         for chunk in chunks:
-            chunk_metadata = chunk.metadata if isinstance(chunk.metadata, dict) else {}
-            item: dict[str, Any] = {
-                "range": {
-                    "byte_start": chunk_metadata.get("byte_start"),
-                    "byte_end": chunk_metadata.get("byte_end"),
-                },
-                "metadata": {
-                    "chunk_index": chunk_metadata.get("chunk_index"),
-                    "total_chunks": chunk_metadata.get("total_chunks"),
-                    "token_count": chunk_metadata.get("token_count"),
-                },
-            }
-            extra_metadata = {
-                key: value
-                for key, value in chunk_metadata.items()
-                if key not in {"byte_start", "byte_end", "chunk_index", "total_chunks", "token_count"}
-            }
-            if extra_metadata:
-                item["metadata_extra"] = extra_metadata
-            if chunk.embedding is not None:
-                item["embedding"] = list(chunk.embedding)
-            normalized.append(item)
-        return normalized
+            chunk_text = None
+            for attr in ("text", "content"):
+                candidate = getattr(chunk, attr, None)
+                if isinstance(candidate, str) and candidate.strip():
+                    chunk_text = candidate.strip()
+                    break
+            if chunk_text:
+                values.append(chunk_text)
+        return values
 
     @staticmethod
     def _resolve_mime_type(changes: MetadataChanges) -> str | None:
@@ -278,3 +258,4 @@ def _is_supported_mime(mime_type: str) -> bool:
         "application/vnd.openxmlformats-officedocument",
     )
     return any(mime_type.startswith(prefix) for prefix in supported_prefixes)
+

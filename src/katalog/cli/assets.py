@@ -23,7 +23,7 @@ def list_assets(
         query = AssetQuery(view_id="default", limit=limit, offset=offset)
         return await list_assets_api(query=query)
 
-    response = run_cli(_run)
+    response = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(json.dumps(response.model_dump(), default=str))
         return
@@ -56,7 +56,7 @@ def show_asset(asset_id: int, ctx: typer.Context) -> None:
 
         return await get_asset_api(asset_id)
 
-    asset, metadata = run_cli(_run)
+    asset, metadata = run_cli(_run, init_mode="fast")
     if wants_json(ctx):
         typer.echo(
             json.dumps(

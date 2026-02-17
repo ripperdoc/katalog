@@ -5,15 +5,30 @@ from typing import Any
 import typer
 
 from . import workflows_app
-from .utils import run_cli, wants_json
+from .utils import changeset_summary, print_changeset_summary, run_cli, wants_json
 
 
 def _resolve_workflow_path(ctx: typer.Context, workflow_file: str) -> pathlib.Path:
     ws = pathlib.Path(ctx.obj["workspace"])
     path = pathlib.Path(workflow_file)
-    if not path.is_absolute():
-        path = ws / path
-    return path.resolve()
+    if path.is_absolute():
+        return path.resolve()
+
+    cwd_candidate = path.resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    return (ws / path).resolve()
+
+
+async def _summaries_for_changesets(changeset_ids: list[int]) -> list[dict[str, Any]]:
+    from katalog.api.changesets import get_changeset as get_changeset_api
+
+    summaries: list[dict[str, Any]] = []
+    for changeset_id in changeset_ids:
+        changeset, _logs, _running = await get_changeset_api(int(changeset_id))
+        summaries.append(changeset_summary(changeset))
+    return summaries
 
 
 @workflows_app.command("sync")
@@ -63,7 +78,14 @@ def run_workflow(
         from katalog.workflows import run_workflow_file
 
         path = _resolve_workflow_path(ctx, workflow_file)
-        return await run_workflow_file(path, sync_first=False)
+        result = await run_workflow_file(path, sync_first=False)
+        changeset_ids = [
+            *result.get("source_changesets", []),
+            *([result["processor_changeset"]] if result.get("processor_changeset") else []),
+            *result.get("analyzer_changesets", []),
+        ]
+        result["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
+        return result
 
     result = run_cli(_run)
     if wants_json(ctx):
@@ -73,10 +95,8 @@ def run_workflow(
     typer.echo(f"Sources run: {result['sources_run']}")
     typer.echo(f"Processors run: {result['processors_run']}")
     typer.echo(f"Analyzers run: {result.get('analyzers_run', 0)}")
-    if result.get("processor_changeset"):
-        typer.echo(f"Processor changeset: {result['processor_changeset']}")
-    if result.get("analyzer_changesets"):
-        typer.echo(f"Analyzer changesets: {result['analyzer_changesets']}")
+    for summary in result.get("changeset_summaries", []):
+        print_changeset_summary(summary)
 
 
 @workflows_app.command("apply")
@@ -95,7 +115,14 @@ def apply_workflow(
         from katalog.workflows import run_workflow_file
 
         path = _resolve_workflow_path(ctx, workflow_file)
-        return await run_workflow_file(path, sync_first=True)
+        result = await run_workflow_file(path, sync_first=True)
+        changeset_ids = [
+            *result.get("source_changesets", []),
+            *([result["processor_changeset"]] if result.get("processor_changeset") else []),
+            *result.get("analyzer_changesets", []),
+        ]
+        result["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
+        return result
 
     result = run_cli(_run)
     if wants_json(ctx):
@@ -105,7 +132,5 @@ def apply_workflow(
     typer.echo(f"Sources run: {result['sources_run']}")
     typer.echo(f"Processors run: {result['processors_run']}")
     typer.echo(f"Analyzers run: {result.get('analyzers_run', 0)}")
-    if result.get("processor_changeset"):
-        typer.echo(f"Processor changeset: {result['processor_changeset']}")
-    if result.get("analyzer_changesets"):
-        typer.echo(f"Analyzer changesets: {result['analyzer_changesets']}")
+    for summary in result.get("changeset_summaries", []):
+        print_changeset_summary(summary)
