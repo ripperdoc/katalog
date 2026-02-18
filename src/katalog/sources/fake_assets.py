@@ -213,11 +213,9 @@ class FakeAssetSource(SourcePlugin):
             return None
         size = _parse_fake_size(asset.canonical_uri)
         if size is None:
-            entries = changes.current().get(FILE_SIZE, [])
-            if entries:
-                raw = entries[0].value
-                if isinstance(raw, int):
-                    size = raw
+            raw_size = changes.latest_value(FILE_SIZE, value_type=int)
+            if raw_size is not None:
+                size = raw_size
         if size is None:
             size = 1024
         token = asset.external_id or asset.canonical_uri

@@ -2,26 +2,25 @@
 
 # Next up
 
-- [ ] More clearly define the query arguments and output shapes from the asset listing queries, and
-      make them share more logic.
-- [ ] Correct way to represent the multi-value, multi-provider and version history of metadata into
-      a flatter table for easier querying. E.g. a generated asset_current.
-- [ ] Test harness that uses "real" Actors, Processors to test all CRUD operations
-- [ ] If a processor outputs assets (e.g. from archive), it would also output metadata that need to
-      be linked to those assets. E.g. each metadata value in ProcessorResult need to be associated
-      with an asset
 - [ ] Fix partly broken `react-jsonschema-form`s that render the current config form for plugins.
+- [ ] Planned renames:
+  - [ ] MetadataChanges -> MetadataSet? AssetWithMeta?
+  - [ ] From `file/size` to `file.size`, and some related imports and typing fixes
+  - [ ] Workspace -> Library, or Catalogue, or Katalog?
+- [ ] Create URL resolvers to show e.g. thumbnails by URL
+- [ ] Prepare some pre-built workflows
+- [ ] Run a full eval cycle and optimize the document/metadata search
+- [ ] Fictive: ability to export library back to Google Storage so we don't have to recreate it
+      every time. Or: run on remote library?
+- [ ] MCP client
 
 # Backlog
 
-- [ ] Compose processors into a type of analyzer, or extend to a kind of generic "saved procedure".
-      Create a graph UI to connect them together?
-- [ ] Re-process files reported as application/octet-stream (e.g. from Google Drive) for better mime
-      detection. However, how to avoid doing it over and over?
 - [ ] Plugin system for **views**. A view is defined as a set of columns, computed columns (?) and
       the visualization e.g. web frontend component for them?
 - [ ] (Niklas) Should limited metadata types, e.g. file types, map to some enum table instead of
       saving the actual value over and over? We get an index for free plus less storage space?
+- [ ] Create a first proper docs folder that covers full app?
 - [ ] Store parent/child relationships from Google drive as relationship metadata. But how can we do
       that if we want the source scanner to not touch the DB?
 - [ ] Speed up time to save to DB after scan, can we batch more writes?
@@ -36,7 +35,6 @@
 - [ ] Use Google Drive Changes API to more efficiently (or is it?) fetch changes
 - [ ] Path and filename Unicode normalization
 - [ ] Read permissions for files in Google Shared Drives
-- [ ] Handle remote file data access with caching
 - [ ] Search through some basic archive files e.g. zip files, and create virtual File Records
 - [ ] Save more filesystem metadata, like extended attributes, if we can get to that
 

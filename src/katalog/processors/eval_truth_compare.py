@@ -62,11 +62,9 @@ class EvalTruthCompareProcessor(Processor):
 
 
 def _latest_text(changes: MetadataChanges, key: MetadataKey) -> str:
-    entries = changes.current().get(key, [])
-    for entry in entries:
-        value = entry.value
-        if isinstance(value, str) and value:
-            return value
+    value = changes.latest_value(key, value_type=str)
+    if value:
+        return value
     return ""
 
 

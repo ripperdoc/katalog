@@ -301,17 +301,13 @@ class GoogleDriveClient(SourcePlugin):
         file_id = str(asset.external_id or "").strip()
         if not file_id:
             return None
-        file_type_entries = changes.current().get(FILE_TYPE, [])
-        if file_type_entries:
-            raw_type = file_type_entries[0].value
-            if isinstance(raw_type, str) and raw_type == GOOGLE_DRIVE_FOLDER_MIME:
-                return None
-        hash_md5: str | None = None
-        hash_entries = changes.current().get(HASH_MD5, [])
-        if hash_entries:
-            raw_hash = hash_entries[0].value
-            if isinstance(raw_hash, str) and raw_hash.strip():
-                hash_md5 = raw_hash.strip().lower()
+        raw_type = changes.latest_value(FILE_TYPE, value_type=str)
+        if raw_type == GOOGLE_DRIVE_FOLDER_MIME:
+            return None
+        hash_md5 = None
+        raw_hash = changes.latest_value(HASH_MD5, value_type=str)
+        if raw_hash and raw_hash.strip():
+            hash_md5 = raw_hash.strip().lower()
         return GoogleDriveDataReader(source=self, file_id=file_id, hash_md5=hash_md5)
 
     async def close(self) -> None:

@@ -197,11 +197,9 @@ class GoogleStorageSource(SourcePlugin):
         if not object_name:
             return None
         hash_md5 = None
-        hash_entries = changes.current().get(HASH_MD5, [])
-        if hash_entries:
-            raw = hash_entries[0].value
-            if isinstance(raw, str) and raw.strip():
-                hash_md5 = raw.strip().lower()
+        raw_hash = changes.latest_value(HASH_MD5, value_type=str)
+        if raw_hash and raw_hash.strip():
+            hash_md5 = raw_hash.strip().lower()
         return GoogleStorageDataReader(
             source=self,
             bucket=bucket,

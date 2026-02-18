@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-from typing import Any, Iterable, Sequence, TYPE_CHECKING
+from typing import Any, Iterable, Sequence, TYPE_CHECKING, TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field, field_serializer
 
@@ -20,6 +20,8 @@ from katalog.models.assets import Asset
 
 if TYPE_CHECKING:
     from katalog.models.core import Changeset
+
+T = TypeVar("T")
 
 
 class MetadataRegistry(BaseModel):
@@ -382,6 +384,42 @@ class MetadataChanges(BaseModel):
     ) -> list[MetadataScalar]:
         """Return current scalar values for a key (optionally filtered by actor)."""
         return [entry.value for entry in self.entries_for_key(key, actor_id)]
+
+    @overload
+    def latest_value(
+        self,
+        key: MetadataKey,
+        actor_id: int | None = None,
+        *,
+        value_type: None = None,
+    ) -> MetadataScalar | None: ...
+
+    @overload
+    def latest_value(
+        self,
+        key: MetadataKey,
+        actor_id: int | None = None,
+        *,
+        value_type: type[T],
+    ) -> T | None: ...
+
+    def latest_value(
+        self,
+        key: MetadataKey,
+        actor_id: int | None = None,
+        *,
+        value_type: type[Any] | None = None,
+    ) -> Any:
+        """Return the latest current value for a key, optionally constrained by Python type."""
+        entries = self.entries_for_key(key, actor_id)
+        if not entries:
+            return None
+        value = entries[0].value
+        if value_type is None:
+            return value
+        if isinstance(value, value_type):
+            return value
+        return None
 
     def latest_changeset_id(
         self, keys: set[MetadataKey], actor_id: int | None = None

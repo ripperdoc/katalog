@@ -231,11 +231,9 @@ class KreuzbergDocumentExtractProcessor(Processor):
 
     @staticmethod
     def _resolve_mime_type(changes: MetadataChanges) -> str | None:
-        entries = changes.current().get(FILE_TYPE, [])
-        for entry in entries:
-            value = entry.value
-            if isinstance(value, str) and value:
-                return value
+        value = changes.latest_value(FILE_TYPE, value_type=str)
+        if value:
+            return value
         return None
 
 
@@ -258,4 +256,3 @@ def _is_supported_mime(mime_type: str) -> bool:
         "application/vnd.openxmlformats-officedocument",
     )
     return any(mime_type.startswith(prefix) for prefix in supported_prefixes)
-

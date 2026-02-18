@@ -80,3 +80,5 @@ workspace_*/
 
 # Document reading library model cache
 .kreuzberg/
+
+datasets/

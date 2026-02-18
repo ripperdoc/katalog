@@ -56,14 +56,12 @@ class HiddenFlagProcessor(Processor):
     def _values_for_key(
         self, changes: MetadataChanges, key
     ) -> Iterable[str]:
-        for entry in changes.current().get(key, []):
-            value = entry.value
+        for value in changes.values_for_key(key):
             if isinstance(value, str) and value.strip():
                 yield value
 
     def _first_value(self, changes: MetadataChanges, key) -> str | None:
-        for entry in changes.current().get(key, []):
-            value = entry.value
-            if isinstance(value, str) and value.strip():
-                return value
+        value = changes.latest_value(key, value_type=str)
+        if value and value.strip():
+            return value
         return None

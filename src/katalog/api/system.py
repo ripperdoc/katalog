@@ -1,14 +1,19 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from katalog.api.helpers import ApiError
 from katalog.db.metadata import sync_config_db
-from katalog.sources.runtime import get_source_plugin
+from katalog.plugins.registry import get_actor_instance
+from katalog.sources.base import SourcePlugin
 
 router = APIRouter()
 
 
 async def auth_callback_api(actor: int, authorization_response: str) -> dict[str, str]:
-    get_source_plugin(actor).authorize(authorization_response=authorization_response)
+    plugin = await get_actor_instance(actor)
+    if not isinstance(plugin, SourcePlugin):
+        raise ApiError(status_code=400, detail="Actor is not a source")
+    plugin.authorize(authorization_response=authorization_response)
     return {"status": "ok"}
 
 
