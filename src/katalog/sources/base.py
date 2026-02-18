@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from katalog.models import (
     Asset,
+    DataReader,
     Metadata,
     MetadataChanges,
     MetadataKey,
@@ -71,10 +72,10 @@ class SourcePlugin(PluginBase):
         """
         raise NotImplementedError()
 
-    def get_data_reader(
-        self, asset: Asset, params: dict[str, Any] | None = None
-    ) -> Any:
-        """Return a FileReader for the given asset (or None if not available)."""
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        """Return a DataReader for the given metadata key and asset changes."""
         raise NotImplementedError()
 
     def get_namespace(self) -> str:

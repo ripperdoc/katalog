@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email.utils as email_utils
+import hashlib
 from dataclasses import dataclass
 from datetime import timedelta, timezone
 from typing import Any, Literal
@@ -12,9 +13,17 @@ from crawlee.storage_clients import MemoryStorageClient
 from crawlee.storages import RequestQueue
 from pydantic import BaseModel, ConfigDict, Field
 
-from katalog.constants.metadata import FILE_SIZE, FILE_TYPE, FILE_URI, TIME_MODIFIED
+from katalog.constants.metadata import (
+    DATA_FILE_READER,
+    FILE_SIZE,
+    FILE_TYPE,
+    FILE_URI,
+    TIME_MODIFIED,
+)
 from katalog.models import Asset, Actor, DataReader, MetadataChanges, OpStatus
+from katalog.models import MetadataKey
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
+from katalog.utils.blob_cache import get_cached_blob, put_cached_blob
 from katalog.utils.url import canonicalize_web_url
 
 
@@ -26,22 +35,34 @@ class CrawlResponse:
 
 
 class HttpDataReader(DataReader):
-    """HTTP reader that fetches content through Crawlee and caches it in memory."""
+    """HTTP reader that fetches content through Crawlee and caches by URL digest."""
 
     def __init__(self, source: "HttpUrlSource", url: str):
         self.source = source
         self.url = url
+        self._cache_digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
         self._cached_content: bytes | None = None
 
     async def read(
         self, offset: int = 0, length: int | None = None, no_cache: bool = False
     ) -> bytes:
+        if self._cached_content is None and not no_cache:
+            cached = get_cached_blob(hash_type="url", digest=self._cache_digest)
+            if cached is not None:
+                self._cached_content = cached
+
         if self._cached_content is None or no_cache:
             response = await self.source._crawl_once(self.url, method="GET")
             if response is None:
                 self._cached_content = b""
             else:
                 self._cached_content = response.content
+                if not no_cache:
+                    put_cached_blob(
+                        hash_type="url",
+                        digest=self._cache_digest,
+                        data=self._cached_content,
+                    )
         data = self._cached_content
         if data is None:
             return b""
@@ -84,8 +105,13 @@ class HttpUrlSource(SourcePlugin):
         _ = kwargs
         return ""
 
-    def get_data_reader(self, asset: Asset, params: dict[str, Any] | None = None) -> Any:
-        _ = params
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        _ = key
+        asset = changes.asset
+        if asset is None:
+            return None
         url = self._asset_url(asset)
         if not url:
             return None
@@ -137,6 +163,7 @@ class HttpUrlSource(SourcePlugin):
             )
             result = AssetScanResult(asset=emitted, actor=self.actor)
             result.set_metadata(FILE_URI, final_url)
+            result.set_metadata(DATA_FILE_READER, {})
 
             if response is not None:
                 content_type = response.headers.get("content-type", "").split(";", 1)[0]

@@ -6,7 +6,14 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
-from katalog.models import Asset, Actor, OpStatus
+from katalog.models import (
+    Asset,
+    Actor,
+    DataReader,
+    MetadataChanges,
+    MetadataKey,
+    OpStatus,
+)
 from katalog.constants.metadata import FILE_URI
 from katalog.utils.url import canonicalize_web_url
 
@@ -52,8 +59,10 @@ class UrlListSource(SourcePlugin):
         _ = kwargs
         return ""
 
-    def get_data_reader(self, asset: Asset, params: dict[str, Any] | None = None) -> Any:
-        _ = asset, params
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        _ = key, changes
         return None
 
     def can_scan_uri(self, uri: str) -> bool:

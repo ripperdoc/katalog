@@ -44,10 +44,14 @@ from katalog.constants.metadata import (
 )
 from katalog.models import (
     Asset,
+    DataReader,
+    MetadataChanges,
+    MetadataKey,
     OpStatus,
     Actor,
 )
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
+from katalog.utils.blob_cache import get_cached_blob, put_cached_blob
 from katalog.utils.utils import (
     TimeSlice,
     coerce_int,
@@ -108,6 +112,46 @@ def _canonical_uri_for_file(file_id: str, mime_type: str | None) -> str:
     if mime_type == GOOGLE_DRIVE_FOLDER_MIME:
         return f"https://drive.google.com/drive/folders/{file_id}"
     return f"https://drive.google.com/file/d/{file_id}"
+
+
+class GoogleDriveDataReader(DataReader):
+    """Drive reader backed by OAuth API calls with optional md5 content cache."""
+
+    def __init__(
+        self,
+        *,
+        source: "GoogleDriveClient",
+        file_id: str,
+        hash_md5: str | None = None,
+    ) -> None:
+        self.source = source
+        self.file_id = file_id
+        self.hash_md5 = (hash_md5 or "").strip().lower() or None
+        self._cached_content: bytes | None = None
+
+    async def read(
+        self, offset: int = 0, length: int | None = None, no_cache: bool = False
+    ) -> bytes:
+        if offset < 0:
+            offset = 0
+        if length is not None and length <= 0:
+            return b""
+
+        if self._cached_content is None and not no_cache and self.hash_md5:
+            cached = get_cached_blob(hash_type="md5", digest=self.hash_md5)
+            if cached is not None:
+                self._cached_content = cached
+
+        if self._cached_content is None or no_cache:
+            data = await self.source._download_file_bytes(self.file_id)
+            self._cached_content = data
+            if not no_cache and self.hash_md5:
+                put_cached_blob(hash_type="md5", digest=self.hash_md5, data=data)
+
+        data = self._cached_content or b""
+        if length is None:
+            return data[offset:]
+        return data[offset : offset + length]
 
 
 class GoogleDriveClient(SourcePlugin):
@@ -247,9 +291,28 @@ class GoogleDriveClient(SourcePlugin):
     def get_namespace(self) -> str:
         return "gdrive"
 
-    def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
-        # TODO: provide streaming accessor for Google Drive file contents.
-        return None
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        _ = key
+        asset = changes.asset
+        if asset is None:
+            return None
+        file_id = str(asset.external_id or "").strip()
+        if not file_id:
+            return None
+        file_type_entries = changes.current().get(FILE_TYPE, [])
+        if file_type_entries:
+            raw_type = file_type_entries[0].value
+            if isinstance(raw_type, str) and raw_type == GOOGLE_DRIVE_FOLDER_MIME:
+                return None
+        hash_md5: str | None = None
+        hash_entries = changes.current().get(HASH_MD5, [])
+        if hash_entries:
+            raw_hash = hash_entries[0].value
+            if isinstance(raw_hash, str) and raw_hash.strip():
+                hash_md5 = raw_hash.strip().lower()
+        return GoogleDriveDataReader(source=self, file_id=file_id, hash_md5=hash_md5)
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -769,6 +832,19 @@ class GoogleDriveClient(SourcePlugin):
         if cached:
             return cached
         return await self._fetch_folder_by_id(folder_id)
+
+    async def _download_file_bytes(self, file_id: str) -> bytes:
+        await self._load_credentials()
+        response = await self.http.get(
+            f"/drive/v3/files/{file_id}",
+            params={
+                "alt": "media",
+                "supportsAllDrives": self.supports_all_drives,
+            },
+            headers=self._auth_headers(),
+        )
+        response.raise_for_status()
+        return bytes(response.content)
 
     async def _fetch_folder_by_id(self, folder_id: str) -> Dict[str, Any]:
         response = await self.http.get(

@@ -61,6 +61,8 @@ from katalog.models import (
     AssetCollection,
     DataReader,
     Metadata,
+    MetadataChanges,
+    MetadataKey,
 )
 from katalog.models import Actor, OpStatus
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
@@ -202,8 +204,20 @@ class FakeAssetSource(SourcePlugin):
     def get_namespace(self) -> str:
         return self.namespace
 
-    def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
-        size = _parse_fake_size(asset.canonical_uri) or (params or {}).get("size")
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        _ = key
+        asset = changes.asset
+        if asset is None:
+            return None
+        size = _parse_fake_size(asset.canonical_uri)
+        if size is None:
+            entries = changes.current().get(FILE_SIZE, [])
+            if entries:
+                raw = entries[0].value
+                if isinstance(raw, int):
+                    size = raw
         if size is None:
             size = 1024
         token = asset.external_id or asset.canonical_uri

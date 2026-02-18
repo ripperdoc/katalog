@@ -21,8 +21,9 @@ from katalog.constants.metadata import (
     HASH_MD5,
     TIME_MODIFIED,
 )
-from katalog.models import Asset, Actor, DataReader, OpStatus
+from katalog.models import Asset, Actor, DataReader, MetadataChanges, MetadataKey, OpStatus
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
+from katalog.utils.blob_cache import get_cached_blob, put_cached_blob
 from katalog.utils.utils import match_paths, normalize_glob_patterns
 
 
@@ -75,29 +76,45 @@ class GoogleStorageDataReader(DataReader):
         source: "GoogleStorageSource",
         bucket: str,
         object_name: str,
-        generation: int | None = None,
+        hash_md5: str | None = None,
     ):
         self.source = source
         self.bucket = bucket
         self.object_name = object_name
-        self.generation = generation
+        self.hash_md5 = (hash_md5 or "").strip().lower() or None
 
     async def read(
         self, offset: int = 0, length: int | None = None, no_cache: bool = False
     ) -> bytes:
-        _ = no_cache
         if offset < 0:
             offset = 0
         if length is not None and length <= 0:
             return b""
-        return await asyncio.to_thread(
+
+        # Resolve cache by stable content hash when available.
+        if not no_cache and self.hash_md5:
+            cached = get_cached_blob(hash_type="md5", digest=self.hash_md5)
+            if cached is not None:
+                if length is None:
+                    return cached[offset:]
+                return cached[offset : offset + length]
+
+        data = await asyncio.to_thread(
             self.source._read_object_sync,
             self.bucket,
             self.object_name,
             offset,
             length,
-            self.generation,
         )
+        if (
+            not no_cache
+            and self.hash_md5
+            and offset == 0
+            and length is None
+            and isinstance(data, bytes)
+        ):
+            put_cached_blob(hash_type="md5", digest=self.hash_md5, data=data)
+        return data
 
 
 class GoogleStorageSource(SourcePlugin):
@@ -168,21 +185,28 @@ class GoogleStorageSource(SourcePlugin):
             return False, f"GCS access check failed: {exc}"
         return True, None
 
-    def get_data_reader(self, asset: Asset, params: dict[str, Any] | None = None) -> Any:
-        data = params or {}
-        bucket = str(data.get("bucket") or self.bucket)
-        object_name = str(data.get("object_name") or "").strip("/")
-        generation_raw = data.get("generation")
-        generation = int(generation_raw) if generation_raw is not None else None
-        if not object_name:
-            object_name = self._asset_object_name(asset)
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        _ = key
+        asset = changes.asset
+        if asset is None:
+            return None
+        bucket = self.bucket
+        object_name = self._asset_object_name(asset)
         if not object_name:
             return None
+        hash_md5 = None
+        hash_entries = changes.current().get(HASH_MD5, [])
+        if hash_entries:
+            raw = hash_entries[0].value
+            if isinstance(raw, str) and raw.strip():
+                hash_md5 = raw.strip().lower()
         return GoogleStorageDataReader(
             source=self,
             bucket=bucket,
             object_name=object_name,
-            generation=generation,
+            hash_md5=hash_md5,
         )
 
     async def scan(self) -> ScanResult:
@@ -216,11 +240,10 @@ class GoogleStorageSource(SourcePlugin):
                 result.set_metadata(FILE_URI, _gcs_object_uri(self.bucket, object_name))
                 result.set_metadata(FILE_PATH, object_name)
                 result.set_metadata(FILE_NAME, file_name)
-                result.set_metadata(DATA_FILE_READER, {
-                    "bucket": self.bucket,
-                    "object_name": object_name,
-                    "generation": int(blob.generation) if blob.generation else None,
-                })
+                result.set_metadata(
+                    DATA_FILE_READER,
+                    {},
+                )
                 if blob.size is not None:
                     result.set_metadata(FILE_SIZE, int(blob.size))
                 if blob.content_type:
@@ -295,10 +318,9 @@ class GoogleStorageSource(SourcePlugin):
         object_name: str,
         offset: int,
         length: int | None,
-        generation: int | None,
     ) -> bytes:
         client = self._get_client_sync()
-        blob = client.bucket(bucket).blob(object_name, generation=generation)
+        blob = client.bucket(bucket).blob(object_name)
         end = None if length is None else offset + length - 1
         return blob.download_as_bytes(start=offset, end=end)
 

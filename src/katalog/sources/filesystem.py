@@ -15,6 +15,8 @@ from katalog.models import (
     DataReader,
     Asset,
     Actor,
+    MetadataChanges,
+    MetadataKey,
 )
 from katalog.models import OpStatus
 from katalog.constants.metadata import (
@@ -86,8 +88,14 @@ class FilesystemClient(SourcePlugin):
     def get_namespace(self) -> str:
         return self._namespace
 
-    def get_data_reader(self, asset: Asset, params: dict | None = None) -> Any:
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
         """Return an accessor keyed off the canonical absolute path."""
+        _ = key
+        asset = changes.asset
+        if asset is None:
+            return None
         if not asset.canonical_uri:
             return None
         return FilesystemReader(_canonical_uri_to_path(asset.canonical_uri))

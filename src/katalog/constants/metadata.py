@@ -410,9 +410,7 @@ VECTOR_INDEXED_COUNT = define_metadata(
 )
 
 # Sidecar metadata
-SIDECAR_TYPE = define_metadata(
-    "sidecar/type", MetadataType.STRING, "Sidecar type"
-)
+SIDECAR_TYPE = define_metadata("sidecar/type", MetadataType.STRING, "Sidecar type")
 SIDECAR_TARGET_NAME = define_metadata(
     "sidecar/target_name", MetadataType.STRING, "Sidecar target name"
 )

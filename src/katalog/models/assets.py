@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, TYPE_CHECKING, cast
+from typing import Any, TYPE_CHECKING
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
@@ -76,9 +76,8 @@ class Asset(BaseModel):
             )
             return None
 
-        params = entry.value if isinstance(entry.value, dict) else None
         try:
-            return cast(DataReader | None, plugin.get_data_reader(self, params=params))
+            return await plugin.get_data_reader(key, changes)
         except Exception:
             logger.exception(
                 "Source plugin {actor_id} failed to provide file reader",
