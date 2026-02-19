@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 from katalog.db.sqlspec import close_db
+from katalog.processors.executor_pool import shutdown_executors
 
 from katalog.api import (
     actors,
@@ -65,6 +66,7 @@ async def lifespan(app):
             snap.cancel()
         for snap in list(RUNNING_CHANGESETS.values()):
             await snap.wait_cancelled(timeout=5)
+        shutdown_executors(wait=True)
         # run shutdown logic
         await close_db()
 

@@ -1,3 +1,4 @@
+import fnmatch
 import os
 from pathlib import Path
 from typing import Any, Dict
@@ -67,6 +68,18 @@ class FilesystemClient(SourcePlugin):
             ge=0,
             description="Stop after this many files (0 means no limit)",
         )
+        include_patterns: list[str] = Field(
+            default_factory=list,
+            description=(
+                "Optional glob patterns to include. Matches both relative path and basename."
+            ),
+        )
+        exclude_patterns: list[str] = Field(
+            default_factory=list,
+            description=(
+                "Optional glob patterns to exclude. Matches both relative path and basename."
+            ),
+        )
 
     config_model = ConfigModel
 
@@ -74,8 +87,11 @@ class FilesystemClient(SourcePlugin):
         cfg = self.config_model.model_validate(config or {})
         super().__init__(actor, **config)
         # Store normalized values for runtime use.
-        self.root_path = str(cfg.root_path)
+        self.root_path_obj = cfg.root_path.expanduser().resolve()
+        self.root_path = str(self.root_path_obj)
         self.max_files = cfg.max_files
+        self.include_patterns = tuple(_normalize_patterns(cfg.include_patterns))
+        self.exclude_patterns = tuple(_normalize_patterns(cfg.exclude_patterns))
         self._namespace = self._resolve_namespace()
 
     def get_info(self) -> Dict[str, Any]:
@@ -117,6 +133,10 @@ class FilesystemClient(SourcePlugin):
             reported = 0
             for dirpath, dirnames, filenames in os.walk(self.root_path):
                 for filename in filenames:
+                    scan_path = Path(dirpath) / filename
+                    if not self._is_included(scan_path):
+                        continue
+
                     if self.max_files and seen >= self.max_files:
                         logger.info(
                             f"Reached max_files limit of {self.max_files}, stopping scan."
@@ -125,11 +145,10 @@ class FilesystemClient(SourcePlugin):
                         break
                     seen += 1
 
-                    full_path = os.path.join(dirpath, filename)
-                    abs_path = Path(full_path).resolve()
+                    abs_path = scan_path.resolve()
 
                     try:
-                        stat = os.stat(full_path)
+                        stat = os.stat(scan_path)
                         modified = timestamp_to_utc(stat.st_mtime)
                         created = timestamp_to_utc(stat.st_ctime)
                         inode = getattr(stat, "st_ino", None)
@@ -137,7 +156,7 @@ class FilesystemClient(SourcePlugin):
                             # st_ino survives renames on POSIX; namespace carries st_dev.
                             external_id = f"inode:{inode}"
                         else:
-                            external_id = f"path:{full_path}"
+                            external_id = f"path:{scan_path}"
 
                         asset = Asset(
                             external_id=external_id,
@@ -160,7 +179,7 @@ class FilesystemClient(SourcePlugin):
                     except Exception as e:
                         ignored += 1
                         logger.warning(
-                            f"Failed to stat {full_path} for source {self.actor.id}: {e}"
+                            f"Failed to stat {scan_path} for source {self.actor.id}: {e}"
                         )
                         continue
                     yield result
@@ -174,6 +193,8 @@ class FilesystemClient(SourcePlugin):
 
                 if status == OpStatus.CANCELED:
                     break
+                if status == OpStatus.PARTIAL:
+                    break
 
             if status == OpStatus.IN_PROGRESS:
                 status = OpStatus.COMPLETED
@@ -182,6 +203,29 @@ class FilesystemClient(SourcePlugin):
 
         scan_result = ScanResult(iterator=inner(), status=status)
         return scan_result
+
+    def _is_included(self, scan_path: Path) -> bool:
+        relative_path = self._relative_scan_path(scan_path)
+        basename = scan_path.name
+        if self.include_patterns and not _match_patterns(
+            self.include_patterns,
+            relative_path=relative_path,
+            basename=basename,
+        ):
+            return False
+        if self.exclude_patterns and _match_patterns(
+            self.exclude_patterns,
+            relative_path=relative_path,
+            basename=basename,
+        ):
+            return False
+        return True
+
+    def _relative_scan_path(self, scan_path: Path) -> str:
+        try:
+            return scan_path.relative_to(self.root_path_obj).as_posix()
+        except ValueError:
+            return scan_path.name
 
     def _resolve_namespace(self) -> str:
         try:
@@ -242,3 +286,24 @@ def _canonical_uri_to_path(uri: str) -> str:
             path = path.lstrip("/")
         return path or uri
     return uri
+
+
+def _normalize_patterns(patterns: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for pattern in patterns:
+        cleaned = pattern.strip()
+        if not cleaned:
+            continue
+        normalized.append(cleaned.replace("\\", "/"))
+    return normalized
+
+
+def _match_patterns(
+    patterns: tuple[str, ...], *, relative_path: str, basename: str
+) -> bool:
+    for pattern in patterns:
+        if fnmatch.fnmatch(relative_path, pattern):
+            return True
+        if fnmatch.fnmatch(basename, pattern):
+            return True
+    return False

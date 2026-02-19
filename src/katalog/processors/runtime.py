@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Awaitable, Sequence, cast
 
 from loguru import logger
@@ -20,6 +18,11 @@ from katalog.models import (
     ChangesetStats,
 )
 from katalog.processors.base import Processor, ProcessorResult
+from katalog.processors.executor_pool import (
+    get_process_executor as _get_process_executor,
+    get_thread_executor as _get_thread_executor,
+    record_cpu_processor as _record_cpu_processor,
+)
 from katalog.processors.process_executor import run_processor_in_process
 from katalog.processors.serialization import (
     dump_registry,
@@ -30,28 +33,6 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.db.actors import get_actor_repo
 from katalog.runtime.batch import get_batch_size, iter_batches
-
-DEFAULT_PROCESSOR_CONCURRENCY = max(4, (os.cpu_count() or 4))
-DEFAULT_THREAD_CONCURRENCY = DEFAULT_PROCESSOR_CONCURRENCY
-DEFAULT_PROCESS_CONCURRENCY = DEFAULT_PROCESSOR_CONCURRENCY
-
-_THREAD_EXECUTOR: ThreadPoolExecutor | None = None
-_PROCESS_EXECUTOR: ProcessPoolExecutor | None = None
-
-
-def _get_thread_executor() -> ThreadPoolExecutor:
-    global _THREAD_EXECUTOR
-    if _THREAD_EXECUTOR is None:
-        _THREAD_EXECUTOR = ThreadPoolExecutor(max_workers=DEFAULT_THREAD_CONCURRENCY)
-    return _THREAD_EXECUTOR
-
-
-def _get_process_executor() -> ProcessPoolExecutor:
-    global _PROCESS_EXECUTOR
-    if _PROCESS_EXECUTOR is None:
-        _PROCESS_EXECUTOR = ProcessPoolExecutor(max_workers=DEFAULT_PROCESS_CONCURRENCY)
-    return _PROCESS_EXECUTOR
-
 
 ProcessorStage = list[Processor]
 
@@ -186,6 +167,7 @@ async def _run_processor_process(
     actor_payload = processor.actor.model_dump(mode="json")
     changes_payload = changes.model_dump(mode="json")
     registry_payload = dump_registry()
+    _record_cpu_processor(processor.actor.plugin_id)
     loop = asyncio.get_running_loop()
     result_payload = await loop.run_in_executor(
         _get_process_executor(),
