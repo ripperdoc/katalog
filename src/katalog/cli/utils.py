@@ -1,57 +1,16 @@
 import asyncio
-from contextlib import asynccontextmanager
-from typing import Any, Awaitable, Callable, Literal, Mapping, Sequence, TypeVar
+from typing import Any, Awaitable, Callable, Mapping, Sequence, TypeVar
 
 import typer
-from loguru import logger
+
+from katalog.lifespan import InitMode, app_lifespan
 
 T = TypeVar("T")
-InitMode = Literal["full", "fast"]
-
-
-@asynccontextmanager
-async def cli_lifespan(*, init_mode: InitMode = "full") -> Any:
-    from katalog.api.state import RUNNING_CHANGESETS, event_manager
-    from katalog.db.sqlspec import close_db
-    from katalog.processors.executor_pool import processor_executor_scope
-    # CLI commands are one-shot: keep executors inside this lifespan so
-    # process-pool workers are shut down deterministically on exit.
-    async with processor_executor_scope():
-        if init_mode == "full":
-            from katalog.db.metadata import sync_config_db
-            from katalog.plugins.registry import refresh_plugins
-
-            plugins_found = refresh_plugins()
-            if not plugins_found:
-                logger.warning("No plugins discovered via entry points")
-            await sync_config_db()
-        else:
-            from katalog.config import DB_PATH
-            from katalog.db.sqlspec.query_metadata_registry import (
-                setup_db,
-                sync_metadata_registry,
-            )
-
-            await setup_db(DB_PATH)
-            # Fast mode avoids plugin discovery and user-editor setup.
-            # We still need registry ids loaded for metadata-key lookups.
-            await sync_metadata_registry()
-
-        event_manager.bind_loop(asyncio.get_running_loop())
-        event_manager.ensure_sink()
-        try:
-            yield
-        finally:
-            for snap in list(RUNNING_CHANGESETS.values()):
-                snap.cancel()
-            for snap in list(RUNNING_CHANGESETS.values()):
-                await snap.wait_cancelled(timeout=5)
-            await close_db()
 
 
 def run_cli(task: Callable[[], Awaitable[T]], *, init_mode: InitMode = "full") -> T:
     async def _run() -> T:
-        async with cli_lifespan(init_mode=init_mode):
+        async with app_lifespan(init_mode=init_mode):
             return await task()
 
     return asyncio.run(_run())

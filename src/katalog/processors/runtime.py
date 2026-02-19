@@ -17,12 +17,8 @@ from katalog.models import (
     MetadataChanges,
     ChangesetStats,
 )
+from katalog.processors.executors import ProcessorExecutorBundle
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.processors.executor_pool import (
-    get_process_executor as _get_process_executor,
-    get_thread_executor as _get_thread_executor,
-    record_cpu_processor as _record_cpu_processor,
-)
 from katalog.processors.process_executor import run_processor_in_process
 from katalog.processors.serialization import (
     dump_registry,
@@ -121,11 +117,12 @@ async def _run_processor(
 async def _run_processor_with_mode(
     processor: Processor,
     changes: MetadataChanges,
+    executors: ProcessorExecutorBundle,
 ) -> ProcessorResult:
     if processor.execution_mode == "threads":
-        return await _run_processor_thread(processor, changes)
+        return await _run_processor_thread(processor, changes, executors)
     if processor.execution_mode == "cpu":
-        return await _run_processor_process(processor, changes)
+        return await _run_processor_process(processor, changes, executors)
     return await _run_processor(processor, changes)
 
 
@@ -147,10 +144,11 @@ def _run_processor_sync(
 async def _run_processor_thread(
     processor: Processor,
     changes: MetadataChanges,
+    executors: ProcessorExecutorBundle,
 ) -> ProcessorResult:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        _get_thread_executor(),
+        executors.get_thread_executor(),
         _run_processor_sync,
         processor,
         changes,
@@ -160,6 +158,7 @@ async def _run_processor_thread(
 async def _run_processor_process(
     processor: Processor,
     changes: MetadataChanges,
+    executors: ProcessorExecutorBundle,
 ) -> ProcessorResult:
     asset = changes.asset
     if asset is None:
@@ -167,10 +166,10 @@ async def _run_processor_process(
     actor_payload = processor.actor.model_dump(mode="json")
     changes_payload = changes.model_dump(mode="json")
     registry_payload = dump_registry()
-    _record_cpu_processor(processor.actor.plugin_id)
+    executors.record_cpu_processor(processor.actor.plugin_id)
     loop = asyncio.get_running_loop()
     result_payload = await loop.run_in_executor(
-        _get_process_executor(),
+        executors.get_process_executor(),
         run_processor_in_process,
         actor_payload,
         changes_payload,
@@ -185,6 +184,7 @@ async def _run_pipeline(
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
+    executors: ProcessorExecutorBundle,
     force_run: bool = False,
 ) -> MetadataChanges:
     asset = changes.asset
@@ -208,7 +208,9 @@ async def _run_pipeline(
                 continue
             if not should_run:
                 continue
-            coros.append((processor, _run_processor_with_mode(processor, changes)))
+            coros.append(
+                (processor, _run_processor_with_mode(processor, changes, executors))
+            )
             if stats:
                 stats.processings_started += 1
         if not coros:
@@ -247,14 +249,26 @@ async def process_asset(
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
+    executors: ProcessorExecutorBundle | None = None,
     force_run: bool = False,
 ) -> set[MetadataKey]:
-    updated = await _run_pipeline(
-        changeset=changeset,
-        pipeline=pipeline,
-        changes=changes,
-        force_run=force_run,
-    )
+    owns_executors = executors is None
+    runtime_executors = executors or ProcessorExecutorBundle()
+    cancelled = False
+    try:
+        updated = await _run_pipeline(
+            changeset=changeset,
+            pipeline=pipeline,
+            changes=changes,
+            executors=runtime_executors,
+            force_run=force_run,
+        )
+    except asyncio.CancelledError:
+        cancelled = True
+        raise
+    finally:
+        if owns_executors:
+            runtime_executors.shutdown(cancelled=cancelled)
     md_db = get_metadata_repo()
     return await md_db.persist_changes(updated, changeset=changeset)
 
@@ -264,14 +278,26 @@ async def process_asset_collect(
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
     changes: MetadataChanges,
+    executors: ProcessorExecutorBundle | None = None,
     force_run: bool = False,
 ) -> MetadataChanges:
-    return await _run_pipeline(
-        changeset=changeset,
-        pipeline=pipeline,
-        changes=changes,
-        force_run=force_run,
-    )
+    owns_executors = executors is None
+    runtime_executors = executors or ProcessorExecutorBundle()
+    cancelled = False
+    try:
+        return await _run_pipeline(
+            changeset=changeset,
+            pipeline=pipeline,
+            changes=changes,
+            executors=runtime_executors,
+            force_run=force_run,
+        )
+    except asyncio.CancelledError:
+        cancelled = True
+        raise
+    finally:
+        if owns_executors:
+            runtime_executors.shutdown(cancelled=cancelled)
 
 
 async def _process_batch(
@@ -280,6 +306,7 @@ async def _process_batch(
     batch_label: str,
     changeset: Changeset,
     pipeline: Sequence[ProcessorStage],
+    executors: ProcessorExecutorBundle,
     stats: ChangesetStats,
     metadata_repo,
 ) -> None:
@@ -315,6 +342,7 @@ async def _process_batch(
                     changeset=changeset,
                     pipeline=pipeline,
                     changes=changes,
+                    executors=executors,
                     force_run=True,
                 )
             )
@@ -359,53 +387,63 @@ async def do_run_processors(
     db = get_asset_repo()
     md_db = get_metadata_repo()
     batch_index = 0
+    executors = ProcessorExecutorBundle()
+    cancelled = False
+    try:
+        if asset_ids:
+            for id_batch in iter_batches(sorted(asset_ids), batch_size):
+                batch_assets = await db.list_rows(order_by="id", id__in=id_batch)
+                if len(batch_assets) != len(id_batch):
+                    missing = set(id_batch) - {int(a.id) for a in batch_assets if a.id}
+                    raise ValueError(f"Asset ids not found: {sorted(missing)}")
+                batch_index += 1
+                await _process_batch(
+                    batch_assets=batch_assets,
+                    batch_label=f"{batch_index}",
+                    changeset=changeset,
+                    pipeline=pipeline,
+                    executors=executors,
+                    stats=stats,
+                    metadata_repo=md_db,
+                )
+            return
 
-    if asset_ids:
-        for id_batch in iter_batches(sorted(asset_ids), batch_size):
-            batch_assets = await db.list_rows(order_by="id", id__in=id_batch)
-            if len(batch_assets) != len(id_batch):
-                missing = set(id_batch) - {int(a.id) for a in batch_assets if a.id}
-                raise ValueError(f"Asset ids not found: {sorted(missing)}")
+        if assets is not None:
+            for batch_assets in iter_batches(assets, batch_size):
+                batch_index += 1
+                await _process_batch(
+                    batch_assets=batch_assets,
+                    batch_label=f"{batch_index}",
+                    changeset=changeset,
+                    pipeline=pipeline,
+                    executors=executors,
+                    stats=stats,
+                    metadata_repo=md_db,
+                )
+            return
+
+        offset = 0
+        while True:
+            batch_assets = await db.list_rows(
+                order_by="id",
+                limit=batch_size,
+                offset=offset,
+            )
+            if not batch_assets:
+                break
             batch_index += 1
             await _process_batch(
                 batch_assets=batch_assets,
                 batch_label=f"{batch_index}",
                 changeset=changeset,
                 pipeline=pipeline,
+                executors=executors,
                 stats=stats,
                 metadata_repo=md_db,
             )
-        return
-
-    if assets is not None:
-        for batch_assets in iter_batches(assets, batch_size):
-            batch_index += 1
-            await _process_batch(
-                batch_assets=batch_assets,
-                batch_label=f"{batch_index}",
-                changeset=changeset,
-                pipeline=pipeline,
-                stats=stats,
-                metadata_repo=md_db,
-            )
-        return
-
-    offset = 0
-    while True:
-        batch_assets = await db.list_rows(
-            order_by="id",
-            limit=batch_size,
-            offset=offset,
-        )
-        if not batch_assets:
-            break
-        batch_index += 1
-        await _process_batch(
-            batch_assets=batch_assets,
-            batch_label=f"{batch_index}",
-            changeset=changeset,
-            pipeline=pipeline,
-            stats=stats,
-            metadata_repo=md_db,
-        )
-        offset += batch_size
+            offset += batch_size
+    except asyncio.CancelledError:
+        cancelled = True
+        raise
+    finally:
+        executors.shutdown(cancelled=cancelled)

@@ -28,7 +28,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
     plugin_id = "katalog.processors.kreuzberg_document_extract.KreuzbergDocumentExtractProcessor"
     title = "Kreuzberg document extract"
     description = "Extract text, metadata, chunks and optional embeddings using kreuzberg."
-    execution_mode = "cpu"
+    execution_mode = "io"
     _dependencies = frozenset({DATA_KEY, FILE_SIZE, FILE_TYPE, TIME_MODIFIED})
     _outputs = frozenset(
         {

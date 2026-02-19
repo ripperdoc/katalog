@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import sys
 from time import perf_counter
@@ -8,8 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
-from katalog.db.sqlspec import close_db
-from katalog.processors.executor_pool import shutdown_executors
 
 from katalog.api import (
     actors,
@@ -24,10 +21,8 @@ from katalog.api import (
     workflows,
 )
 from katalog.api.helpers import ApiError
-from katalog.api.state import RUNNING_CHANGESETS, event_manager
 from katalog.config import DB_URL, WORKSPACE
-from katalog.db.metadata import sync_config_db
-from katalog.plugins.registry import refresh_plugins
+from katalog.lifespan import app_lifespan
 
 logging.getLogger("uvicorn.access").disabled = True
 logger.remove()
@@ -44,31 +39,9 @@ logger.info(f"Using database: {DB_URL}")
 
 @asynccontextmanager
 async def lifespan(app):
-    # run startup logic
-    plugins_found = refresh_plugins()
-    if plugins_found:
-        logger.info(
-            "Discovered plugins ({}): {}",
-            len(plugins_found),
-            ", ".join(sorted(plugins_found.keys())),
-        )
-    else:
-        logger.warning("No plugins discovered via entry points")
-
-    await sync_config_db()
-    event_manager.bind_loop(asyncio.get_running_loop())
-    event_manager.ensure_sink()
-    try:
+    _ = app
+    async with app_lifespan(init_mode="full", log_discovered_plugins=True):
         yield
-    finally:
-        # Best-effort cancel running changeset tasks on shutdown to avoid reload hangs.
-        for snap in list(RUNNING_CHANGESETS.values()):
-            snap.cancel()
-        for snap in list(RUNNING_CHANGESETS.values()):
-            await snap.wait_cancelled(timeout=5)
-        shutdown_executors(wait=True)
-        # run shutdown logic
-        await close_db()
 
 
 app = FastAPI(lifespan=lifespan)

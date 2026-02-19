@@ -15,7 +15,6 @@ from katalog.api.helpers import actor_identity_key, validate_and_normalize_confi
 from katalog.api.operations import run_processors, run_source
 from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
-from katalog.db.metadata import sync_config_db
 from katalog.models import Actor, ActorType, OpStatus
 from katalog.plugins.registry import get_plugin_class, get_plugin_spec, refresh_plugins
 
@@ -205,7 +204,6 @@ def _compute_processor_stages(spec: WorkflowSpec) -> list[list[str]]:
 
 async def sync_workflow_file(workflow_file: pathlib.Path) -> list[Actor]:
     specs = load_workflow_specs(workflow_file)
-    await sync_config_db()
 
     synced: list[Actor] = []
     db = get_actor_repo()
@@ -230,7 +228,7 @@ async def sync_workflow_file(workflow_file: pathlib.Path) -> list[Actor]:
         synced.append(actor)
 
     logger.info(
-        "Workflow sync complete file={file} actors={count}",
+        "Loaded workflow file={file} actors={count}",
         file=str(workflow_file),
         count=len(synced),
     )
@@ -239,7 +237,6 @@ async def sync_workflow_file(workflow_file: pathlib.Path) -> list[Actor]:
 
 async def _resolve_workflow_actors(workflow_file: pathlib.Path) -> list[Actor]:
     specs = load_workflow_specs(workflow_file)
-    await sync_config_db()
     db = get_actor_repo()
     resolved: list[Actor] = []
     for spec in specs:
@@ -306,7 +303,9 @@ async def run_workflow_file(
     processor_actors = [
         a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled
     ]
-    analyzer_actors = [a for a in actors if a.type == ActorType.ANALYZER and not a.disabled]
+    analyzer_actors = [
+        a for a in actors if a.type == ActorType.ANALYZER and not a.disabled
+    ]
 
     source_changesets: list[int] = []
     processor_changeset: int | None = None
@@ -322,7 +321,9 @@ async def run_workflow_file(
         source_changesets.append(int(changeset.id))
 
     if processor_actors:
-        processor_ids = [int(actor.id) for actor in processor_actors if actor.id is not None]
+        processor_ids = [
+            int(actor.id) for actor in processor_actors if actor.id is not None
+        ]
         if processor_ids:
             changeset = await run_processors(
                 processor_ids=processor_ids,
@@ -338,9 +339,9 @@ async def run_workflow_file(
         analyzer_changesets[-1]
         if analyzer_changesets
         else (
-        processor_changeset
-        if processor_changeset is not None
-        else (source_changesets[-1] if source_changesets else None)
+            processor_changeset
+            if processor_changeset is not None
+            else (source_changesets[-1] if source_changesets else None)
         )
     )
     return {
@@ -368,7 +369,9 @@ async def start_workflow_file(
     processor_actors = [
         a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled
     ]
-    analyzer_actors = [a for a in actors if a.type == ActorType.ANALYZER and not a.disabled]
+    analyzer_actors = [
+        a for a in actors if a.type == ActorType.ANALYZER and not a.disabled
+    ]
 
     source_changesets: list[int] = []
     for source in source_actors:
@@ -431,11 +434,15 @@ async def workflow_status(workflow_file: pathlib.Path) -> dict[str, Any]:
         if existing is not None:
             resolved += 1
 
-    source_count = sum(1 for actor in spec.actors if actor.actor_type == ActorType.SOURCE)
+    source_count = sum(
+        1 for actor in spec.actors if actor.actor_type == ActorType.SOURCE
+    )
     processor_count = sum(
         1 for actor in spec.actors if actor.actor_type == ActorType.PROCESSOR
     )
-    analyzer_count = sum(1 for actor in spec.actors if actor.actor_type == ActorType.ANALYZER)
+    analyzer_count = sum(
+        1 for actor in spec.actors if actor.actor_type == ActorType.ANALYZER
+    )
     status = "ready" if total == resolved else "not-synced"
     actor_names = [actor.name for actor in spec.actors]
     processor_stages = _compute_processor_stages(spec)
