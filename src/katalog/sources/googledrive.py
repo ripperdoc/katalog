@@ -16,7 +16,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from katalog.config import PORT, actor_path
 from katalog.constants.metadata import (
-    ACCESS_LAST_MODIFYING_USER,
+    ACCESS_LAST_MODIFIED_BY,
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
     ACCESS_SHARING_USER,
@@ -378,7 +378,7 @@ class GoogleDriveClient(SourcePlugin):
         result.set_metadata(FLAG_SHARED, int(bool(file.get("shared"))))
 
         result.set_metadata(
-            ACCESS_LAST_MODIFYING_USER,
+            ACCESS_LAST_MODIFIED_BY,
             get_user_email(file.get("lastModifyingUser")),
         )
 

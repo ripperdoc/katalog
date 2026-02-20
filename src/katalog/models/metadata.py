@@ -679,4 +679,12 @@ def _normalize_metadata_row(row: dict[str, Any]) -> dict[str, Any]:
     value_type = row.get("value_type")
     if value_type is not None and not isinstance(value_type, MetadataType):
         row["value_type"] = MetadataType(int(value_type))
+    if row.get("value_type") == MetadataType.JSON:
+        value_json = row.get("value_json")
+        if isinstance(value_json, str):
+            try:
+                row["value_json"] = json.loads(value_json)
+            except ValueError:
+                # Keep the original string when the DB value is not encoded JSON text.
+                row["value_json"] = value_json
     return row

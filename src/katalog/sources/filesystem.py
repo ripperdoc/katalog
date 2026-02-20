@@ -22,6 +22,7 @@ from katalog.models import (
 from katalog.models import OpStatus
 from katalog.constants.metadata import (
     DATA_FILE_READER,
+    FILE_NAME,
     FILE_PATH,
     FILE_SIZE,
     FLAG_HIDDEN,
@@ -169,6 +170,7 @@ class FilesystemClient(SourcePlugin):
                         # Store the fact that we can read file data, no special arguments needed.
                         result.set_metadata(DATA_FILE_READER, {})
 
+                        result.set_metadata(FILE_NAME, abs_path.name)
                         result.set_metadata(FILE_PATH, str(abs_path))
                         result.set_metadata(TIME_MODIFIED, modified)
                         result.set_metadata(TIME_CREATED, created)

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import FrozenSet, cast
+from typing import Collection, FrozenSet, cast
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -7,9 +7,11 @@ from katalog.models import (
     Asset,
     MetadataKey,
     Metadata,
+    MetadataScalar,
     OpStatus,
     Actor,
     MetadataChanges,
+    make_metadata,
 )
 from katalog.constants.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.plugins.base import PluginBase
@@ -18,10 +20,26 @@ from katalog.plugins.registry import get_actor_instance
 
 
 class ProcessorResult(BaseModel):
+    actor_id: int | None = None
     metadata: list[Metadata] = Field(default_factory=list)
     assets: list[Asset] = Field(default_factory=list)
     status: OpStatus = OpStatus.COMPLETED
     message: str | None = None
+
+    def set_metadata(self, metadata_key: MetadataKey, value: MetadataScalar) -> None:
+        """Append a metadata value produced by this processor."""
+        if self.actor_id is None:
+            raise ValueError("ProcessorResult.actor_id is required to set metadata")
+        self.metadata.append(make_metadata(metadata_key, value, self.actor_id))
+
+    def set_metadata_list(
+        self,
+        metadata_key: MetadataKey,
+        values: Collection[MetadataScalar],
+    ) -> None:
+        """Append multiple values for the same metadata key."""
+        for value in values:
+            self.set_metadata(metadata_key, value)
 
     @field_serializer("status")
     def _serialize_status(self, value: OpStatus) -> str:

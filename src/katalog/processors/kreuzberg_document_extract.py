@@ -1,33 +1,97 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, FrozenSet
+from typing import Any, FrozenSet, Mapping, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.constants.metadata import (
+    ACCESS_LAST_MODIFIED_BY,
+    FILE_CHILD_COUNT,
+    ARCHIVE_FORMAT,
+    ARCHIVE_UNCOMPRESSED_SIZE,
+    AUDIO_ALBUM,
+    AUDIO_ARTIST,
+    AUDIO_GENRE,
+    AUDIO_YEAR,
     DATA_FILE_READER,
     DATA_KEY,
+    DOC_AUTHOR,
+    DOC_CATEGORY,
     DOC_CHARS,
     DOC_CHUNK_COUNT,
     DOC_CHUNK_TEXT,
+    ACCESS_CREATED_BY,
+    DOC_KEYWORD,
     DOC_LANG,
+    DOC_LINES,
     DOC_PAGES,
+    DOC_SUMMARY,
     DOC_TEXT,
     DOC_WORDS,
+    FILE_VERSION,
+    FILE_DESCRIPTION,
     FILE_SIZE,
+    FILE_TITLE,
     FILE_TYPE,
+    IMAGE_APERTURE,
+    IMAGE_CAMERA_MAKE,
+    IMAGE_CAMERA_MODEL,
+    IMAGE_FOCAL_LENGTH,
+    IMAGE_GPS_LATITUDE,
+    IMAGE_GPS_LONGITUDE,
+    IMAGE_HEIGHT,
+    IMAGE_ISO,
+    IMAGE_ORIENTATION,
+    IMAGE_WIDTH,
+    PDF_ENCRYPTED,
+    PDF_PRODUCER,
+    PDF_VERSION,
+    TIME_CREATED,
     TIME_MODIFIED,
     MetadataKey,
 )
-from katalog.models import MetadataChanges, OpStatus, make_metadata
+from katalog.models import MetadataChanges, OpStatus
 from katalog.processors.base import Processor, ProcessorResult
+from katalog.utils.utils import parse_datetime_utc
+from kreuzberg import (
+    ChunkingConfig,
+    EmbeddingConfig,
+    EmbeddingModelType,
+    ExtractionConfig,
+    LanguageDetectionConfig,
+    ValidationError,
+    detect_mime_type_from_bytes,
+    extract_bytes,
+    extract_file,
+)
+
+
+# Note: We lack proper typing from Kreuzberg, so we define some minimal protocols here to help with type checking and code clarity.
+class Chunk(Protocol):
+    content: str
+
+
+class ExtractionResult(Protocol):
+    content: str
+    mime_type: str
+    detected_languages: list[str] | None
+    chunks: list[Chunk] | None
+    output_format: str | None
+    result_format: str | None
+
+    def get_page_count(self) -> int: ...
+    def get_chunk_count(self) -> int: ...
+    def get_detected_language(self) -> str | None: ...
+    def get_metadata_field(self, field_name: str) -> Any | None: ...
 
 
 class KreuzbergDocumentExtractProcessor(Processor):
     plugin_id = "katalog.processors.kreuzberg_document_extract.KreuzbergDocumentExtractProcessor"
     title = "Kreuzberg document extract"
-    description = "Extract text, metadata, chunks and optional embeddings using kreuzberg."
+    description = (
+        "Extract text, metadata, chunks and optional embeddings using kreuzberg."
+    )
     execution_mode = "io"
     _dependencies = frozenset({DATA_KEY, FILE_SIZE, FILE_TYPE, TIME_MODIFIED})
     _outputs = frozenset(
@@ -39,6 +103,37 @@ class KreuzbergDocumentExtractProcessor(Processor):
             DOC_PAGES,
             DOC_CHUNK_COUNT,
             DOC_CHUNK_TEXT,
+            DOC_KEYWORD,
+            FILE_TITLE,
+            FILE_VERSION,
+            FILE_DESCRIPTION,
+            DOC_AUTHOR,
+            DOC_CATEGORY,
+            DOC_SUMMARY,
+            DOC_LINES,
+            ACCESS_CREATED_BY,
+            TIME_CREATED,
+            ACCESS_LAST_MODIFIED_BY,
+            AUDIO_ARTIST,
+            AUDIO_ALBUM,
+            AUDIO_YEAR,
+            AUDIO_GENRE,
+            ARCHIVE_FORMAT,
+            FILE_CHILD_COUNT,
+            ARCHIVE_UNCOMPRESSED_SIZE,
+            IMAGE_CAMERA_MAKE,
+            IMAGE_CAMERA_MODEL,
+            IMAGE_ORIENTATION,
+            IMAGE_FOCAL_LENGTH,
+            IMAGE_APERTURE,
+            IMAGE_ISO,
+            IMAGE_GPS_LATITUDE,
+            IMAGE_GPS_LONGITUDE,
+            IMAGE_WIDTH,
+            IMAGE_HEIGHT,
+            PDF_VERSION,
+            PDF_PRODUCER,
+            PDF_ENCRYPTED,
         }
     )
 
@@ -63,6 +158,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
 
     def __init__(self, actor, **config):
         self.config = self.config_model.model_validate(config or {})
+        self.extraction_config = self._build_extraction_config(self.config)
         super().__init__(actor, **config)
 
     @property
@@ -74,10 +170,6 @@ class KreuzbergDocumentExtractProcessor(Processor):
         return self._outputs
 
     async def is_ready(self) -> tuple[bool, str | None]:
-        try:
-            import kreuzberg  # noqa: F401
-        except Exception as exc:  # noqa: BLE001
-            return False, f"kreuzberg import failed: {exc}"
         return True, None
 
     def should_run(self, changes: MetadataChanges) -> bool:
@@ -96,14 +188,6 @@ class KreuzbergDocumentExtractProcessor(Processor):
         return False
 
     async def run(self, changes: MetadataChanges) -> ProcessorResult:
-        from kreuzberg import (
-            ChunkingConfig,
-            EmbeddingConfig,
-            EmbeddingModelType,
-            ExtractionConfig,
-            extract_bytes,
-            extract_file,
-        )
 
         asset = changes.asset
         if asset is None:
@@ -122,18 +206,15 @@ class KreuzbergDocumentExtractProcessor(Processor):
                 status=OpStatus.SKIPPED,
                 message=f"Unsupported mime type for kreuzberg: {mime_type}",
             )
-        extraction_config = self._build_extraction_config(
-            ChunkingConfig=ChunkingConfig,
-            EmbeddingConfig=EmbeddingConfig,
-            EmbeddingModelType=EmbeddingModelType,
-            ExtractionConfig=ExtractionConfig,
-        )
+
+        doc: ExtractionResult
+        reader_path = reader.path
         try:
-            if getattr(reader, "path", None):
-                result = await extract_file(
-                    Path(reader.path),
+            if reader_path:
+                doc = await extract_file(
+                    Path(reader_path),
                     mime_type=mime_type,
-                    config=extraction_config,
+                    config=self.extraction_config,
                 )
             else:
                 data = await reader.read()
@@ -142,92 +223,318 @@ class KreuzbergDocumentExtractProcessor(Processor):
                         status=OpStatus.SKIPPED,
                         message="Asset data reader returned empty content",
                     )
-                result = await extract_bytes(
-                    data, mime_type=mime_type, config=extraction_config
+                inferred_mime_type = mime_type or detect_mime_type_from_bytes(data)
+                if not inferred_mime_type:
+                    return ProcessorResult(
+                        status=OpStatus.SKIPPED,
+                        message="Could not infer mime type for byte extraction",
+                    )
+                if not _is_supported_mime(inferred_mime_type):
+                    return ProcessorResult(
+                        status=OpStatus.SKIPPED,
+                        message=f"Unsupported mime type for kreuzberg: {inferred_mime_type}",
+                    )
+                doc = await extract_bytes(
+                    data,
+                    mime_type=inferred_mime_type,
+                    config=self.extraction_config,
                 )
-        except Exception as exc:  # noqa: BLE001
-            if "ValidationError" in str(exc):
-                return ProcessorResult(
-                    status=OpStatus.SKIPPED,
-                    message=f"Kreuzberg validation failed: {exc}",
-                )
-            raise
+        except ValidationError as exc:
+            return ProcessorResult(
+                status=OpStatus.SKIPPED,
+                message=f"Kreuzberg validation failed: {exc}",
+            )
 
-        metadata = self._build_metadata_payload(result)
-        return ProcessorResult(metadata=metadata)
+        return self._build_processor_result(doc)
 
     def _build_extraction_config(
         self,
-        *,
-        ChunkingConfig,
-        EmbeddingConfig,
-        EmbeddingModelType,
-        ExtractionConfig,
+        config: ConfigModel,
     ):
         chunking_config = None
-        if self.config.enable_chunking:
+        if config.enable_chunking:
             embedding_config = None
-            if self.config.enable_embeddings:
+            if config.enable_embeddings:
                 embedding_config = EmbeddingConfig(
-                    model=EmbeddingModelType.preset(self.config.embedding_model),
-                    batch_size=self.config.embedding_batch_size,
-                    normalize=self.config.embedding_normalize,
+                    model=EmbeddingModelType.preset(config.embedding_model),
+                    batch_size=config.embedding_batch_size,
+                    normalize=config.embedding_normalize,
                 )
             # Use Kreuzberg's default chunking strategy/limits.
             chunking_config = ChunkingConfig(embedding=embedding_config)
-        return ExtractionConfig(chunking=chunking_config)
+        extraction = ExtractionConfig(
+            chunking=chunking_config,
+            language_detection=LanguageDetectionConfig(enabled=True),
+        )
 
-    def _build_metadata_payload(self, extraction_result) -> list:
-        payload: list = []
-        text_content = extraction_result.content
-        if isinstance(text_content, str) and text_content:
-            payload.append(make_metadata(DOC_TEXT, text_content, self.actor.id))
+        # Use KeywordConfig
+        return extraction
 
-        detected_lang = extraction_result.get_detected_language()
-        if isinstance(detected_lang, str) and detected_lang:
-            payload.append(make_metadata(DOC_LANG, detected_lang, self.actor.id))
+    def _build_processor_result(self, doc: ExtractionResult) -> ProcessorResult:
+        result = ProcessorResult(actor_id=self.actor.id)
 
-        raw_meta = extraction_result.metadata
-        if isinstance(raw_meta, dict):
-            chars = raw_meta.get("character_count")
-            words = raw_meta.get("word_count")
-            pages = raw_meta.get("page_count")
-            if isinstance(chars, int):
-                payload.append(make_metadata(DOC_CHARS, chars, self.actor.id))
-            if isinstance(words, int):
-                payload.append(make_metadata(DOC_WORDS, words, self.actor.id))
-            if isinstance(pages, int):
-                payload.append(make_metadata(DOC_PAGES, pages, self.actor.id))
+        format_type = _first_metadata_field(doc, "format_type")
 
-        page_count = extraction_result.get_page_count()
-        if isinstance(page_count, int) and page_count > 0:
-            payload.append(make_metadata(DOC_PAGES, page_count, self.actor.id))
+        result.set_metadata(DOC_TEXT, _normalize_text(doc.content))
 
-        chunk_count = extraction_result.get_chunk_count()
-        chunks = extraction_result.chunks or []
-        chunk_texts = self._collect_chunk_texts(chunks)
-        if chunk_texts:
-            payload.append(
-                make_metadata(DOC_CHUNK_COUNT, len(chunk_texts), self.actor.id)
+        languages = _unique_strings(
+            [
+                *_to_string_list(doc.detected_languages),
+                *_to_string_list(doc.get_detected_language()),
+                *_to_string_list(_first_metadata_field(doc, "language")),
+            ]
+        )
+        result.set_metadata_list(DOC_LANG, languages)
+
+        pages = doc.get_page_count()
+        if pages <= 0:
+            pages = (
+                _to_int(
+                    _first_metadata_field(
+                        doc, "page_count", "slide_count", "sheet_count"
+                    )
+                )
+                or 0
             )
-            for chunk_text in chunk_texts:
-                payload.append(make_metadata(DOC_CHUNK_TEXT, chunk_text, self.actor.id))
-        elif isinstance(chunk_count, int):
-            payload.append(make_metadata(DOC_CHUNK_COUNT, chunk_count, self.actor.id))
-        return payload
+        result.set_metadata(DOC_PAGES, pages if pages > 0 else None)
 
-    def _collect_chunk_texts(self, chunks: list[Any]) -> list[str]:
-        values: list[str] = []
-        for chunk in chunks:
-            chunk_text = None
-            for attr in ("text", "content"):
-                candidate = getattr(chunk, attr, None)
-                if isinstance(candidate, str) and candidate.strip():
-                    chunk_text = candidate.strip()
-                    break
-            if chunk_text:
-                values.append(chunk_text)
-        return values
+        result.set_metadata(FILE_TYPE, doc.mime_type)
+
+        result.set_metadata(FILE_TITLE, _to_str(_first_metadata_field(doc, "title")))
+        result.set_metadata(
+            FILE_DESCRIPTION,
+            _to_str(_first_metadata_field(doc, "subject", "description")),
+        )
+        result.set_metadata(
+            DOC_SUMMARY,
+            _to_str(_first_metadata_field(doc, "abstract_text", "summary")),
+        )
+        result.set_metadata(
+            DOC_CATEGORY, _to_str(_first_metadata_field(doc, "category"))
+        )
+        result.set_metadata(
+            FILE_VERSION,
+            _to_str(_first_metadata_field(doc, "document_version")),
+        )
+
+        authors = _to_string_list(_first_metadata_field(doc, "authors"))
+        byline = _to_str(_first_metadata_field(doc, "author"))
+        if byline and byline not in authors:
+            authors.append(byline)
+        result.set_metadata_list(DOC_AUTHOR, authors)
+
+        created_at = parse_datetime_utc(
+            _to_str(_first_metadata_field(doc, "created_at", "creation_date")),
+            strict=False,
+        )
+        modified_at = parse_datetime_utc(
+            _to_str(_first_metadata_field(doc, "modified_at", "modification_date")),
+            strict=False,
+        )
+        result.set_metadata(TIME_CREATED, created_at)
+        result.set_metadata(TIME_MODIFIED, modified_at)
+
+        result.set_metadata(
+            ACCESS_CREATED_BY,
+            _to_str(_first_metadata_field(doc, "created_by", "creator")),
+        )
+        result.set_metadata(
+            ACCESS_LAST_MODIFIED_BY,
+            _to_str(_first_metadata_field(doc, "modified_by")),
+        )
+
+        result.set_metadata(
+            DOC_CHARS, _to_int(_first_metadata_field(doc, "character_count"))
+        )
+        result.set_metadata(
+            DOC_WORDS, _to_int(_first_metadata_field(doc, "word_count"))
+        )
+        result.set_metadata(
+            DOC_LINES, _to_int(_first_metadata_field(doc, "line_count"))
+        )
+
+        keywords = _unique_strings(
+            [
+                *_to_string_list(_first_metadata_field(doc, "keywords")),
+                *_to_string_list(_first_metadata_field(doc, "tags")),
+            ]
+        )
+        result.set_metadata_list(DOC_KEYWORD, keywords)
+
+        chunk_texts = [_normalize_text(chunk.content) for chunk in (doc.chunks or [])]
+        chunk_texts = [chunk_text for chunk_text in chunk_texts if chunk_text]
+        chunk_count = doc.get_chunk_count()
+        if chunk_count <= 0 and chunk_texts:
+            chunk_count = len(chunk_texts)
+        result.set_metadata(DOC_CHUNK_COUNT, chunk_count if chunk_count > 0 else None)
+        result.set_metadata_list(DOC_CHUNK_TEXT, chunk_texts)
+
+        result.set_metadata(
+            AUDIO_ARTIST,
+            _to_str(_first_metadata_field(doc, "artist", "audio_artist")),
+        )
+        result.set_metadata(
+            AUDIO_ALBUM,
+            _to_str(_first_metadata_field(doc, "album", "audio_album")),
+        )
+        result.set_metadata(
+            AUDIO_YEAR,
+            _to_int(_first_metadata_field(doc, "year", "audio_year")),
+        )
+        result.set_metadata(
+            AUDIO_GENRE,
+            _to_str(_first_metadata_field(doc, "genre", "audio_genre")),
+        )
+
+        if format_type == "archive":
+            result.set_metadata(
+                ARCHIVE_FORMAT, _to_str(_first_metadata_field(doc, "format"))
+            )
+            result.set_metadata(
+                FILE_CHILD_COUNT,
+                _to_int(_first_metadata_field(doc, "file_count")),
+            )
+            result.set_metadata(
+                ARCHIVE_UNCOMPRESSED_SIZE,
+                _to_int(_first_metadata_field(doc, "total_size")),
+            )
+
+        if format_type == "image":
+            result.set_metadata(
+                IMAGE_WIDTH, _to_int(_first_metadata_field(doc, "width"))
+            )
+            result.set_metadata(
+                IMAGE_HEIGHT, _to_int(_first_metadata_field(doc, "height"))
+            )
+
+            exif = _to_mapping(_first_metadata_field(doc, "exif"))
+            if exif:
+                result.set_metadata(
+                    IMAGE_CAMERA_MAKE,
+                    _to_str(
+                        _first_mapping_value(
+                            exif,
+                            "Make",
+                            "camera_make",
+                            "cameraMake",
+                        )
+                    ),
+                )
+                result.set_metadata(
+                    IMAGE_CAMERA_MODEL,
+                    _to_str(
+                        _first_mapping_value(
+                            exif,
+                            "Model",
+                            "camera_model",
+                            "cameraModel",
+                        )
+                    ),
+                )
+                result.set_metadata(
+                    IMAGE_ORIENTATION,
+                    _to_int(_first_mapping_value(exif, "Orientation", "orientation")),
+                )
+                result.set_metadata(
+                    IMAGE_FOCAL_LENGTH,
+                    _to_float(
+                        _first_mapping_value(
+                            exif,
+                            "FocalLength",
+                            "focal_length",
+                        )
+                    ),
+                )
+                result.set_metadata(
+                    IMAGE_APERTURE,
+                    _to_float(
+                        _first_mapping_value(
+                            exif,
+                            "FNumber",
+                            "ApertureValue",
+                            "aperture",
+                        )
+                    ),
+                )
+                result.set_metadata(
+                    IMAGE_ISO,
+                    _to_int(
+                        _first_mapping_value(
+                            exif,
+                            "ISO",
+                            "ISOSpeedRatings",
+                            "PhotographicSensitivity",
+                            "iso",
+                        )
+                    ),
+                )
+                result.set_metadata(
+                    IMAGE_GPS_LATITUDE,
+                    _to_float(
+                        _first_mapping_value(
+                            exif,
+                            "GPSLatitude",
+                            "gps_latitude",
+                        )
+                    ),
+                )
+                result.set_metadata(
+                    IMAGE_GPS_LONGITUDE,
+                    _to_float(
+                        _first_mapping_value(
+                            exif,
+                            "GPSLongitude",
+                            "gps_longitude",
+                        )
+                    ),
+                )
+
+        # Full office properties are mapped to other metadata fields already
+        # if format_type == "docx":
+        #     core_props = _first_metadata_field(doc, "core_properties")
+        #     app_props = _first_metadata_field(doc, "app_properties")
+        #     custom_props = _first_metadata_field(doc, "custom_properties")
+
+        # A bit too detailed for now
+        # if format_type == "html":
+        #     result.set_metadata(
+        #         HTML_CANONICAL_URL,
+        #         _to_str(_first_metadata_field(doc, "canonical_url", "canonical")),
+        #     )
+        #     result.set_metadata(
+        #         HTML_BASE_HREF,
+        #         _to_str(_first_metadata_field(doc, "base_href")),
+        #     )
+        #     result.set_metadata(
+        #         HTML_TEXT_DIRECTION,
+        #         _to_str(_first_metadata_field(doc, "text_direction")),
+        #     )
+        #     result.set_metadata(
+        #         HTML_OPEN_GRAPH,
+        #         _to_mapping(_first_metadata_field(doc, "open_graph")) or None,
+        #     )
+        #     result.set_metadata(
+        #         HTML_TWITTER_CARD,
+        #         _to_mapping(_first_metadata_field(doc, "twitter_card")) or None,
+        #     )
+        #     result.set_metadata(
+        #         HTML_META_TAGS,
+        #         _to_mapping(_first_metadata_field(doc, "meta_tags")) or None,
+        #     )
+
+        if format_type == "pdf":
+            result.set_metadata(
+                PDF_VERSION, _to_str(_first_metadata_field(doc, "pdf_version"))
+            )
+            result.set_metadata(
+                PDF_PRODUCER, _to_str(_first_metadata_field(doc, "producer"))
+            )
+            is_encrypted = _to_bool(_first_metadata_field(doc, "is_encrypted"))
+            result.set_metadata(
+                PDF_ENCRYPTED, None if is_encrypted is None else int(is_encrypted)
+            )
+
+        return result
 
     @staticmethod
     def _resolve_mime_type(changes: MetadataChanges) -> str | None:
@@ -235,6 +542,139 @@ class KreuzbergDocumentExtractProcessor(Processor):
         if value:
             return value
         return None
+
+
+def _first_metadata_field(doc: ExtractionResult, *field_names: str) -> Any | None:
+    for field_name in field_names:
+        value = doc.get_metadata_field(field_name)
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_text(value: Any) -> str | None:
+    text = _to_str(value)
+    if text is None:
+        return None
+    return text.strip() or None
+
+
+def _to_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return None
+
+
+def _to_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes"}:
+            return True
+        if normalized in {"0", "false", "no"}:
+            return False
+    return None
+
+
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if "/" in raw and raw.count("/") == 1:
+            numerator, denominator = raw.split("/")
+            try:
+                return float(numerator.strip()) / float(denominator.strip())
+            except (TypeError, ValueError, ZeroDivisionError):
+                return None
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _to_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return _unique_strings(
+            [part.strip() for part in value.split(",") if part.strip()]
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        output: list[str] = []
+        for item in value:
+            as_str = _to_str(item)
+            if as_str:
+                output.append(as_str)
+        return _unique_strings(output)
+    as_str = _to_str(value)
+    return [as_str] if as_str else []
+
+
+def _unique_strings(values: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(normalized)
+    return output
+
+
+def _to_mapping(value: Any) -> Mapping[str, Any] | None:
+    if isinstance(value, Mapping):
+        return value
+    return None
+
+
+def _first_mapping_value(mapping: Mapping[str, Any], *keys: str) -> Any | None:
+    lower_map = {str(key).lower(): value for key, value in mapping.items()}
+    for key in keys:
+        value = lower_map.get(key.lower())
+        if value is not None:
+            return value
+    return None
 
 
 def _is_supported_mime(mime_type: str) -> bool:
@@ -252,7 +692,5 @@ def _is_supported_mime(mime_type: str) -> bool:
     }
     if mime_type in supported_exact:
         return True
-    supported_prefixes = (
-        "application/vnd.openxmlformats-officedocument",
-    )
+    supported_prefixes = ("application/vnd.openxmlformats-officedocument",)
     return any(mime_type.startswith(prefix) for prefix in supported_prefixes)

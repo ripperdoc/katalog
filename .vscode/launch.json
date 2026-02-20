@@ -9,7 +9,7 @@
       "args": ["server", "--reload", "--reload-dir", "src"],
       "env": {
         "PYTHONPATH": "${workspaceFolder}",
-        "KATALOG_WORKSPACE": "workspace_pdx"
+        "KATALOG_WORKSPACE": "workspace_eval"
       },
       "jinja": true,
       "justMyCode": true,
@@ -46,6 +46,21 @@
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/ui",
       "preLaunchTask": "npm: dev (ui)"
+    },
+    {
+      "name": "Debug workflow apply (workspace_eval)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "katalog.cli",
+      "cwd": "${workspaceFolder}",
+      "args": ["-w", "workspace_eval", "workflows", "apply", "--file", "workflow.toml"],
+      "env": {
+        "KATALOG_WORKSPACE": "${workspaceFolder}/workspace_eval",
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "subProcess": true
     }
   ]
 }

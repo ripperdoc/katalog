@@ -220,6 +220,10 @@ FILE_TAGS = define_metadata(
 FILE_COMMENT = define_metadata(
     "file/comment", MetadataType.STRING, "Comment"
 )  # E.g. from Linux xattr user.comment
+FILE_CHILD_COUNT = define_metadata(
+    "file/child_count", MetadataType.INT, "Child file count"
+)
+
 
 ASSET_LOST = define_metadata(
     "asset/lost",
@@ -237,13 +241,16 @@ DATA_FILE_READER = define_metadata(
 
 
 ACCESS_OWNER = define_metadata("access/owner", MetadataType.STRING, "Owner")
+ACCESS_CREATED_BY = define_metadata(
+    "access/created_by", MetadataType.STRING, "Created by"
+)
 ACCESS_SHARED_WITH = define_metadata(
     "access/shared_with", MetadataType.STRING, "Shared with"
 )
 ACCESS_SHARING_USER = define_metadata(
     "access/sharing_user", MetadataType.STRING, "Sharing user"
 )
-ACCESS_LAST_MODIFYING_USER = define_metadata(
+ACCESS_LAST_MODIFIED_BY = define_metadata(
     "access/last_modifying_user", MetadataType.STRING, "Last modifying user"
 )
 
@@ -385,9 +392,6 @@ DOC_SUMMARY = define_metadata(
 DOC_TEXT = define_metadata(
     "document/text", MetadataType.STRING, "Extracted text content"
 )
-DOC_BYLINE = define_metadata(
-    "document/byline", MetadataType.STRING, "Byline / author string"
-)
 DOC_LANG = define_metadata("document/lang", MetadataType.STRING, "Document language")
 DOC_AUTHOR = define_metadata("document/author", MetadataType.STRING, "Document author")
 DOC_KEYWORD = define_metadata(
@@ -398,6 +402,7 @@ DOC_CATEGORY = define_metadata(
 )  # e.g. from PDF metadata or OpenGraph type
 DOC_CHARS = define_metadata("document/chars", MetadataType.INT, "Character count")
 DOC_WORDS = define_metadata("document/words", MetadataType.INT, "Word count")
+DOC_LINES = define_metadata("document/lines", MetadataType.INT, "Line count")
 DOC_PAGES = define_metadata("document/pages", MetadataType.INT, "Page count")
 DOC_CHUNK_COUNT = define_metadata(
     "document/chunk_count", MetadataType.INT, "Chunk count"
@@ -470,6 +475,23 @@ IMAGE_GPS_LONGITUDE = define_metadata(
     "image/gps_longitude", MetadataType.FLOAT, "GPS longitude (decimal)"
 )
 # e.g. -0.1278
+IMAGE_WIDTH = define_metadata("image/width", MetadataType.INT, "Image width (px)")
+IMAGE_HEIGHT = define_metadata("image/height", MetadataType.INT, "Image height (px)")
+
+# Archive metadata
+ARCHIVE_FORMAT = define_metadata(
+    "archive/format", MetadataType.STRING, "Archive format"
+)
+
+ARCHIVE_UNCOMPRESSED_SIZE = define_metadata(
+    "archive/uncompressed_size", MetadataType.INT, "Archive total size (bytes)"
+)
+
+
+# PDF metadata
+PDF_VERSION = define_metadata("pdf/version", MetadataType.STRING, "PDF version")
+PDF_PRODUCER = define_metadata("pdf/producer", MetadataType.STRING, "PDF producer")
+PDF_ENCRYPTED = define_metadata("pdf/encrypted", MetadataType.INT, "PDF encrypted flag")
 
 
 # ID3 / audio tag scalars (also inside `audio/tags` container)

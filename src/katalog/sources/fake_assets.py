@@ -10,7 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.constants.metadata import (
-    ACCESS_LAST_MODIFYING_USER,
+    ACCESS_LAST_MODIFIED_BY,
     ACCESS_OWNER,
     ACCESS_SHARED_WITH,
     ACCESS_SHARING_USER,
@@ -319,7 +319,7 @@ class FakeAssetSource(SourcePlugin):
                 # Access metadata.
                 owner = rng.choice(_OWNER_POOL)
                 result.set_metadata(ACCESS_OWNER, owner)
-                result.set_metadata(ACCESS_LAST_MODIFYING_USER, owner)
+                result.set_metadata(ACCESS_LAST_MODIFIED_BY, owner)
                 result.set_metadata(ACCESS_SHARING_USER, rng.choice(_OWNER_POOL))
 
                 # Relation metadata (RELATION type) uses direct Metadata instances.

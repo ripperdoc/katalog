@@ -4,14 +4,16 @@ from typing import Any, cast
 
 import pytest
 
-from katalog.constants.metadata import FILE_TAGS
+from katalog.constants.metadata import FILE_TAGS, MetadataType, get_metadata_id
 from katalog.models import (
     MetadataChanges,
     OpStatus,
     Changeset,
+    Metadata,
     make_metadata,
 )
 from katalog.models.assets import Asset
+from katalog.models.metadata import _normalize_metadata_row
 
 
 @pytest.mark.asyncio
@@ -95,3 +97,38 @@ async def test_persist_json_empty_object_is_saved(pipeline_db):
     assert FILE_TAGS in changed_keys
     assert len(to_create) == 1
     assert to_create[0].value_json == {}
+
+
+@pytest.mark.asyncio
+async def test_persist_json_dedupes_when_existing_value_loaded_as_json_text(pipeline_db):
+    asset = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
+    existing_row = {
+        "id": 1,
+        "asset_id": 1,
+        "actor_id": 1,
+        "changeset_id": 1,
+        "metadata_key_id": int(get_metadata_id(FILE_TAGS)),
+        "value_type": int(MetadataType.JSON),
+        "value_text": None,
+        "value_int": None,
+        "value_real": None,
+        "value_datetime": None,
+        "value_json": "{}",
+        "value_relation_id": None,
+        "value_collection_id": None,
+        "removed": 0,
+        "confidence": None,
+    }
+    existing = Metadata.model_validate(_normalize_metadata_row(existing_row))
+    assert existing.value_json == {}
+
+    changeset2 = Changeset(id=2, status=OpStatus.IN_PROGRESS)
+    staged = [make_metadata(FILE_TAGS, {}, actor_id=1, asset=asset)]
+    changes = MetadataChanges(asset=asset, loaded=[existing], staged=staged)
+    to_create, changed = changes.prepare_persist(
+        changeset=changeset2,
+        existing_metadata=[existing],
+    )
+
+    assert changed == set()
+    assert to_create == []
