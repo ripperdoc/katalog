@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from time import perf_counter
 
@@ -35,6 +36,11 @@ if WORKSPACE is None or DB_URL is None:
     raise RuntimeError("KATALOG_WORKSPACE must be set when running the server")
 logger.info(f"Using workspace: {WORKSPACE}")
 logger.info(f"Using database: {DB_URL}")
+
+
+def _env_flag(name: str) -> bool:
+    value = os.environ.get(name, "")
+    return value.lower() in {"1", "true", "yes", "on"}
 
 
 @asynccontextmanager
@@ -89,3 +95,9 @@ app.include_router(plugins.router)
 app.include_router(metadata.router)
 app.include_router(system.router)
 app.include_router(workflows.router)
+
+if _env_flag("KATALOG_ENABLE_MCP"):
+    from katalog.mcp import create_mcp_http_app
+
+    app.mount("/mcp", create_mcp_http_app(path="/"))
+    logger.info("MCP endpoint enabled at /mcp")

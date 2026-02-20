@@ -15,7 +15,7 @@
 - Avoid code bloat and complexity by following these rules of thumb:
   - Better to modify an existing API / method / property than add a similar but different one. Ask
     if the API change would be significant.
-  - If a change becomes complex because of work arounds to still support existing APIs, stop and
+  - If a change becomes complex because of workarounds to still support existing APIs, stop and
     check if there is a better way
   - Don't assume backward compatibility, ask if it's necessary
 - Lookup docs for libraries I reference with web search
@@ -30,12 +30,15 @@
 - Don't write `type ignore` comments unless confirming with user first
 - Don't create temporary test code. If a test seems necessary, ask the user for permission to create
   a pytest unit test instead.
-- Avoid using `getattr` and `setattr`, it is bug prone and messes up typing. If there is no other
-  way, hide it behind an instance method where possible.
+- Avoid using `getattr` and `setattr` and similar, it is bug prone and messes up typing. If there is
+  no other way, hide it behind an instance method where possible.
 - Avoid shell scripting if possible - solve it in main code, write a standalone Python script or
   make as simple bash scripts as possible where other commands do the heavy lifting
 - Avoid complicated CI-actions and scripting, rely on existing tools or write tools in e.g Python
   that CI can call
+- Follow the application layers from DESIGN.md for separation of concerns: all external actions goes
+  through the `katalog.api` layer: all clients talk to the API layer, and the API layer can't use
+  the DB directly, it must go through an implementation in the `katalog.db` layer.
 
 # Tools in this repo
 

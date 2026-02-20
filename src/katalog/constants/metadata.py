@@ -36,8 +36,8 @@ class MetadataDef(BaseModel):
     title: str = ""
     description: str = ""
     width: int | None = None  # For UI display purposes
-    skip_false: bool = False  # Skip persisting falsey values when staging metadata
-    clear_on_false: bool = False  # Tombstone existing values when staging falsey values
+    skip_false: bool = False  # Skip persisting falsy values when staging metadata
+    clear_on_false: bool = False  # Tombstone existing values when staging falsy values
     searchable: bool | None = None  # None means infer from value_type
 
     @field_serializer("key")
