@@ -190,8 +190,8 @@ outside":
   serializing and deserializing input to match the API layers typed objects, but should otherwise do
   as little as possible.
 - **Client layer**. We can have multiple different client implementations interacting with the
-  application, such as a Web UI or a CLI. They should have in common that they all interact with the
-  same typed API layer or if needed, a serialization layer.
+  application, such as a Web UI, CLI or MCP client. They should have in common that they all
+  interact with the same typed API layer or if needed, a serialization layer.
 
 ### Workspace model
 

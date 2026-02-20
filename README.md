@@ -30,6 +30,14 @@ Start the server:
 katalog -w /path/to/workspace server
 ```
 
+Start the server with MCP endpoint enabled (mounted at `/mcp`):
+
+```bash
+katalog -w /path/to/workspace server --with-mcp
+```
+
+For ChatGPT connector setup, see `docs/mcp-chatgpt.md`.
+
 Use client commands (no server needed) to call the API layer directly:
 
 ```bash
@@ -161,6 +169,9 @@ the FastAPI backend for local exploration.
 ```bash
 python -m katalog.cli --workspace workspace/path server
 ```
+
+To expose MCP on the same process and port, add `--with-mcp`. The MCP endpoint will be available at
+`http://localhost:8000/mcp`.
 
 Replace `workspace/path` with any workspace directory that includes `katalog.db`.
 

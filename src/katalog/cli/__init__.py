@@ -99,6 +99,7 @@ def _run_server(
     ws: pathlib.Path,
     *,
     port: int | None,
+    with_mcp: bool,
     test_workspace: bool,
     seed_assets: int,
     workflow_file: str | None,
@@ -108,6 +109,10 @@ def _run_server(
     repo_root = _repo_root()
 
     _set_workspace_env(ws)
+    if with_mcp:
+        os.environ["KATALOG_ENABLE_MCP"] = "1"
+    else:
+        os.environ.pop("KATALOG_ENABLE_MCP", None)
     # Change working directory so server reads workspace-local files
     os.chdir(str(ws))
     _ensure_src_on_path()
@@ -213,6 +218,11 @@ def server(
         "--port",
         help="Port to bind the server to (default: config PORT)",
     ),
+    with_mcp: bool = typer.Option(
+        False,
+        "--with-mcp",
+        help="Enable MCP endpoint at /mcp in the same server process",
+    ),
     test_workspace: bool = typer.Option(
         False,
         "--test-workspace",
@@ -244,6 +254,7 @@ def server(
     _run_server(
         ws,
         port=port,
+        with_mcp=with_mcp,
         test_workspace=test_workspace,
         seed_assets=seed_assets,
         workflow_file=workflow_file,
