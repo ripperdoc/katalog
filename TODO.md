@@ -14,7 +14,6 @@
 - [ ] Run a full eval cycle and optimize the document/metadata search
 - [ ] Fictive: ability to export library back to Google Storage so we don't have to recreate it
       every time. Or: run on remote library?
-- [ ] MCP client
 - [ ] Sidecars are created as separate assets, meant to be linked into the main asset. But which of
       the metadata is applied? E.g. what to do with the TIME_MODIFIED on the sidecar, it doesn't
       really say anything about the target file. Also should we skip running extractor on sidecar

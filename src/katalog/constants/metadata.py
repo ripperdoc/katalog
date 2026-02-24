@@ -336,7 +336,7 @@ FLAG_REVIEW = define_metadata(
 FLAG_REJECTED = define_metadata(
     "flag/rejected",
     MetadataType.INT,
-    "Rejecedt",
+    "Rejected",
     width=100,
     skip_false=True,
     clear_on_false=True,
