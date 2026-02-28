@@ -285,6 +285,12 @@ FILE_THUMBNAIL_URI = define_metadata(
     "file/thumbnail_link", MetadataType.STRING, "Thumbnail URI"
 )
 FILE_URI = define_metadata("file/uri", MetadataType.STRING, "URI")
+SOURCE_JSON_RECORD = define_metadata(
+    "source/json_record",
+    MetadataType.JSON,
+    "Source JSON record",
+    "Raw JSON payload from a JSON list source record.",
+)
 FILE_TITLE = define_metadata(
     "file/title", MetadataType.STRING, "Title"
 )  # E.g. IPTC headline field

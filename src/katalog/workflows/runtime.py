@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import pathlib
 import traceback
-import tomllib
 from typing import Any
 
 from loguru import logger
@@ -11,129 +9,26 @@ from loguru import logger
 from katalog.analyzers.base import AnalyzerScope
 from katalog.analyzers.runtime import do_run_analyzer
 from katalog.api.actors import ActorCreate, create_actor
-from katalog.api.helpers import actor_identity_key, validate_and_normalize_config
+from katalog.api.helpers import actor_identity_key
 from katalog.api.operations import run_processors, run_source
 from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import Actor, ActorType, OpStatus
-from katalog.plugins.registry import get_plugin_class, get_plugin_spec, refresh_plugins
-
-
-@dataclass(frozen=True)
-class WorkflowActorSpec:
-    name: str
-    plugin_id: str
-    actor_type: ActorType
-    config: dict
-    disabled: bool
-
-
-@dataclass(frozen=True)
-class WorkflowSpec:
-    file_name: str
-    file_path: str
-    workflow_id: str | None
-    name: str
-    description: str | None
-    version: str | None
-    actors: list[WorkflowActorSpec]
-
-
-def _parse_workflow(workflow_file: pathlib.Path) -> WorkflowSpec:
-    if not workflow_file.exists():
-        raise FileNotFoundError(f"Workflow file not found: {workflow_file}")
-    try:
-        raw = tomllib.loads(workflow_file.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"{workflow_file.name}: invalid TOML syntax: {exc}") from exc
-
-    workflow_block = raw.get("workflow") or {}
-    if workflow_block and not isinstance(workflow_block, dict):
-        raise ValueError(f"{workflow_file.name}: 'workflow' must be a table")
-
-    entries = raw.get("actors") or []
-    if not isinstance(entries, list):
-        raise ValueError(f"{workflow_file.name}: 'actors' must be a list")
-
-    plugins = refresh_plugins()
-    actor_specs: list[WorkflowActorSpec] = []
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise ValueError(
-                f"{workflow_file.name}: actor #{index + 1} must be a table"
-            )
-        plugin_id = entry.get("plugin_id")
-        if not plugin_id or not isinstance(plugin_id, str):
-            raise ValueError(
-                f"{workflow_file.name}: actor #{index + 1} is missing 'plugin_id'"
-            )
-        plugin_spec = get_plugin_spec(plugin_id) or plugins.get(plugin_id)
-        if plugin_spec is None:
-            raise ValueError(
-                f"{workflow_file.name}: actor #{index + 1} references unknown plugin '{plugin_id}'"
-            )
-        name = str(entry.get("name") or plugin_id)
-        disabled = bool(entry.get("disabled")) if "disabled" in entry else False
-        if "config" in entry:
-            config = entry.get("config") or {}
-            if not isinstance(config, dict):
-                raise ValueError(
-                    f"{workflow_file.name}: actor #{index + 1} config must be a table"
-                )
-        else:
-            reserved = {"name", "plugin_id", "disabled"}
-            config = {k: v for k, v in entry.items() if k not in reserved}
-        try:
-            plugin_cls = (
-                plugin_spec.cls
-                if hasattr(plugin_spec, "cls") and plugin_spec.cls
-                else get_plugin_class(plugin_id)
-            )
-            config = validate_and_normalize_config(plugin_cls, config)
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(
-                f"{workflow_file.name}: actor #{index + 1} has invalid config: {exc}"
-            ) from exc
-        actor_specs.append(
-            WorkflowActorSpec(
-                name=name,
-                plugin_id=plugin_id,
-                actor_type=plugin_spec.actor_type,
-                config=config,
-                disabled=disabled,
-            )
-        )
-    return WorkflowSpec(
-        file_name=workflow_file.name,
-        file_path=str(workflow_file),
-        workflow_id=workflow_block.get("id")
-        if isinstance(workflow_block.get("id"), str)
-        else None,
-        name=(
-            workflow_block.get("name")
-            if isinstance(workflow_block.get("name"), str)
-            else workflow_file.stem
-        ),
-        description=(
-            workflow_block.get("description")
-            if isinstance(workflow_block.get("description"), str)
-            else None
-        ),
-        version=(
-            workflow_block.get("version")
-            if isinstance(workflow_block.get("version"), str)
-            else None
-        ),
-        actors=actor_specs,
-    )
+from katalog.plugins.registry import get_plugin_class
+from katalog.workflows.specs import (
+    WorkflowActorSpec,
+    WorkflowSpec,
+    parse_workflow_file,
+    parse_workflow_payload,
+)
 
 
 def load_workflow_specs(workflow_file: pathlib.Path) -> list[WorkflowActorSpec]:
-    return _parse_workflow(workflow_file).actors
+    return parse_workflow_file(workflow_file).actors
 
 
 def load_workflow_spec(workflow_file: pathlib.Path) -> WorkflowSpec:
-    return _parse_workflow(workflow_file)
+    return parse_workflow_file(workflow_file)
 
 
 def discover_workflow_files(workspace: pathlib.Path) -> list[pathlib.Path]:
@@ -202,9 +97,9 @@ def _compute_processor_stages(spec: WorkflowSpec) -> list[list[str]]:
     return stages
 
 
-async def sync_workflow_file(workflow_file: pathlib.Path) -> list[Actor]:
-    specs = load_workflow_specs(workflow_file)
-
+async def _sync_workflow_actor_specs(
+    specs: list[WorkflowActorSpec], *, workflow_label: str
+) -> list[Actor]:
     synced: list[Actor] = []
     db = get_actor_repo()
     for spec in specs:
@@ -229,14 +124,50 @@ async def sync_workflow_file(workflow_file: pathlib.Path) -> list[Actor]:
 
     logger.info(
         "Loaded workflow file={file} actors={count}",
-        file=str(workflow_file),
+        file=workflow_label,
         count=len(synced),
     )
     return synced
 
 
-async def _resolve_workflow_actors(workflow_file: pathlib.Path) -> list[Actor]:
-    specs = load_workflow_specs(workflow_file)
+def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec:
+    if isinstance(workflow, WorkflowSpec):
+        payload = {
+            "workflow": {
+                "id": workflow.workflow_id,
+                "name": workflow.name,
+                "description": workflow.description,
+                "version": workflow.version,
+            },
+            "actors": [
+                {
+                    "name": actor.name,
+                    "plugin_id": actor.plugin_id,
+                    "disabled": actor.disabled,
+                    "config": actor.config or {},
+                }
+                for actor in workflow.actors
+            ],
+        }
+        return parse_workflow_payload(
+            payload,
+            file_name=workflow.file_name,
+            file_path=workflow.file_path,
+            fallback_name=workflow.name or "in-memory-workflow",
+        )
+    return load_workflow_spec(workflow)
+
+
+async def sync_workflow_file(workflow_file: pathlib.Path | WorkflowSpec) -> list[Actor]:
+    spec = _coerce_workflow_spec(workflow_file)
+    return await _sync_workflow_actor_specs(spec.actors, workflow_label=spec.file_path)
+
+
+async def _resolve_workflow_actors(
+    *,
+    specs: list[WorkflowActorSpec],
+    workflow_label: str,
+) -> list[Actor]:
     db = get_actor_repo()
     resolved: list[Actor] = []
     for spec in specs:
@@ -250,7 +181,7 @@ async def _resolve_workflow_actors(workflow_file: pathlib.Path) -> list[Actor]:
         actor = await db.get_or_none(type=spec.actor_type, identity_key=identity)
         if actor is None:
             raise ValueError(
-                f"Workflow actor '{spec.name}' ({spec.plugin_id}) is missing from DB. Run workflow sync first."
+                f"Workflow actor '{spec.name}' ({spec.plugin_id}) is missing from DB for '{workflow_label}'. Run workflow sync first."
             )
         resolved.append(actor)
     return resolved
@@ -292,12 +223,16 @@ async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[int]:
 
 
 async def run_workflow_file(
-    workflow_file: pathlib.Path, *, sync_first: bool = False
+    workflow_file: pathlib.Path | WorkflowSpec, *, sync_first: bool = False
 ) -> dict:
+    spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
-        actors = await sync_workflow_file(workflow_file)
+        actors = await sync_workflow_file(spec)
     else:
-        actors = await _resolve_workflow_actors(workflow_file)
+        actors = await _resolve_workflow_actors(
+            specs=spec.actors,
+            workflow_label=spec.file_path,
+        )
 
     source_actors = [a for a in actors if a.type == ActorType.SOURCE and not a.disabled]
     processor_actors = [
@@ -335,17 +270,8 @@ async def run_workflow_file(
     if analyzer_actors:
         analyzer_changesets = await _run_workflow_analyzers(analyzer_actors)
 
-    last_changeset_id = (
-        analyzer_changesets[-1]
-        if analyzer_changesets
-        else (
-            processor_changeset
-            if processor_changeset is not None
-            else (source_changesets[-1] if source_changesets else None)
-        )
-    )
     return {
-        "workflow_file": str(workflow_file),
+        "workflow_file": spec.file_path,
         "actors": len(actors),
         "sources_run": len(source_changesets),
         "processors_run": len(processor_actors),
@@ -353,17 +279,29 @@ async def run_workflow_file(
         "source_changesets": source_changesets,
         "processor_changeset": processor_changeset,
         "analyzer_changesets": analyzer_changesets,
-        "last_changeset_id": last_changeset_id,
+        "last_changeset_id": (
+            analyzer_changesets[-1]
+            if analyzer_changesets
+            else (
+                processor_changeset
+                if processor_changeset is not None
+                else (source_changesets[-1] if source_changesets else None)
+            )
+        ),
     }
 
 
 async def start_workflow_file(
-    workflow_file: pathlib.Path, *, sync_first: bool = False
+    workflow_file: pathlib.Path | WorkflowSpec, *, sync_first: bool = False
 ) -> dict[str, Any]:
+    spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
-        actors = await sync_workflow_file(workflow_file)
+        actors = await sync_workflow_file(spec)
     else:
-        actors = await _resolve_workflow_actors(workflow_file)
+        actors = await _resolve_workflow_actors(
+            specs=spec.actors,
+            workflow_label=spec.file_path,
+        )
 
     source_actors = [a for a in actors if a.type == ActorType.SOURCE and not a.disabled]
     processor_actors = [
@@ -398,7 +336,7 @@ async def start_workflow_file(
             processor_changeset = started
 
     return {
-        "workflow_file": str(workflow_file),
+        "workflow_file": spec.file_path,
         "actors": len(actors),
         "sources_run": len(source_changesets),
         "processors_run": len(processor_actors),
@@ -417,8 +355,8 @@ async def start_workflow_file(
     }
 
 
-async def workflow_status(workflow_file: pathlib.Path) -> dict[str, Any]:
-    spec = load_workflow_spec(workflow_file)
+async def workflow_status(workflow_file: pathlib.Path | WorkflowSpec) -> dict[str, Any]:
+    spec = _coerce_workflow_spec(workflow_file)
     db = get_actor_repo()
     resolved = 0
     total = len(spec.actors)

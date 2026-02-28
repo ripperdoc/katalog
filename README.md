@@ -106,8 +106,10 @@ _Supported sources of digital assets_
 
 - ✓ Local filesystems
 - ✓ Google Drive
+- ✓ List of URLs (web scanning seeds)
+- ✓ JSON list of documents (URLs + metadata mappings)
+- ✓ HTTP URL recursive metadata fetcher (used during source recursion)
 - ⏳ (planned) Compressed archives
-- ⏳ (planned) List of URLs (web scraping)
 - ⏳ (planned) List of data (e.g CSVs, Google Sheets)
 - ⏳ (planned) Dropbox
 - ⏳ (planned) OneDrive
@@ -194,6 +196,47 @@ VITE_API_BASE_URL="http://localhost:8000" npm run build
 
 The UI currently lets you enter a source id, query `/files/{actor_id}` with the `flat` or `complete`
 view, and render each file record with its metadata payload.
+
+## Python workflow API
+
+Workflow runtime functions accept either a workflow TOML path or an in-memory `WorkflowSpec`
+instance.
+
+```python
+from katalog.models import ActorType
+from katalog.workflows import WorkflowActorSpec, WorkflowSpec, run_workflow_file
+
+spec = WorkflowSpec(
+    file_name="in-memory.workflow.toml",
+    file_path="<in-memory>",
+    workflow_id="library-ingest",
+    name="Library ingest",
+    description=None,
+    version="1.0.0",
+    actors=[
+        WorkflowActorSpec(
+            name="JSON document list",
+            plugin_id="katalog.sources.json_list.JsonListSource",
+            actor_type=ActorType.SOURCE,
+            config={"json_file": "ingest/documents.json"},
+            disabled=False,
+        ),
+        WorkflowActorSpec(
+            name="HTTP recursive",
+            plugin_id="katalog.sources.http_url.HttpUrlSource",
+            actor_type=ActorType.SOURCE,
+            config={},
+            disabled=False,
+        ),
+    ],
+)
+
+# Run source scan and sync actors first.
+result = await run_workflow_file(spec, sync_first=True)
+```
+
+When `HttpUrlSource` is present in the same workspace/workflow, URL assets emitted by `UrlListSource`
+or `JsonListSource` can be recursively scanned to fetch HTTP metadata.
 
 # AI policy
 

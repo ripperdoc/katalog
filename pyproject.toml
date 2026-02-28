@@ -48,6 +48,7 @@ filesystem = "katalog.sources.filesystem:FilesystemClient"
 gdrive = "katalog.sources.googledrive:GoogleDriveClient"
 fake_assets = "katalog.sources.fake_assets:FakeAssetSource"
 url_list = "katalog.sources.url_list:UrlListSource"
+json_list = "katalog.sources.json_list:JsonListSource"
 http_url = "katalog.sources.http_url:HttpUrlSource"
 google_storage = "katalog.sources.google_storage:GoogleStorageSource"
 

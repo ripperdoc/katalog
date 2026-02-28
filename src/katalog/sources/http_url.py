@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import email.utils as email_utils
 import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import timedelta, timezone
 from typing import Any, Literal
@@ -11,6 +12,7 @@ from crawlee import Request
 from crawlee.crawlers import HttpCrawler, HttpCrawlingContext
 from crawlee.storage_clients import MemoryStorageClient
 from crawlee.storages import RequestQueue
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.constants.metadata import (
@@ -85,6 +87,10 @@ class HttpUrlSource(SourcePlugin):
         timeout_seconds: float = Field(default=30.0, gt=0)
         user_agent: str = Field(default="katalog/0.1")
         max_request_retries: int = Field(default=1, ge=0)
+        verbose_crawler_logs: bool = Field(
+            default=False,
+            description="Enable verbose Crawlee retry/failure logs for HTTP requests.",
+        )
 
     config_model = ConfigModel
 
@@ -94,6 +100,7 @@ class HttpUrlSource(SourcePlugin):
         self.timeout_seconds = cfg.timeout_seconds
         self.user_agent = cfg.user_agent
         self.max_request_retries = cfg.max_request_retries
+        self.verbose_crawler_logs = cfg.verbose_crawler_logs
 
     def get_info(self) -> dict[str, Any]:
         return {
@@ -194,14 +201,23 @@ class HttpUrlSource(SourcePlugin):
             alias=f"http-url-{secrets.token_hex(4)}",
             storage_client=storage_client,
         )
+        crawler_logger: logging.Logger | None = None
+        if not self.verbose_crawler_logs:
+            crawler_logger = logging.getLogger(
+                f"katalog.sources.http_url.crawler.{self.actor.id or 'unknown'}"
+            )
+            crawler_logger.disabled = False
+            crawler_logger.setLevel(logging.CRITICAL + 1)
+            crawler_logger.propagate = False
         crawler = HttpCrawler(
             storage_client=storage_client,
             request_manager=request_queue,
             max_request_retries=self.max_request_retries,
             use_session_pool=False,
             retry_on_blocked=False,
-            configure_logging=False,
+            configure_logging=self.verbose_crawler_logs,
             navigation_timeout=timedelta(seconds=self.timeout_seconds),
+            _logger=crawler_logger,
         )
 
         @crawler.router.default_handler
@@ -221,6 +237,14 @@ class HttpUrlSource(SourcePlugin):
 
         try:
             await crawler.run([request])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "HTTP crawl failed method={method} url={url} error={error}",
+                method=method,
+                url=url,
+                error=str(exc),
+            )
+            return None
         finally:
             try:
                 request_manager = await crawler.get_request_manager()
@@ -228,6 +252,12 @@ class HttpUrlSource(SourcePlugin):
             except Exception:
                 # Request queue cleanup should not break processing.
                 pass
+        if result is None:
+            logger.warning(
+                "HTTP crawl returned no response method={method} url={url}",
+                method=method,
+                url=url,
+            )
         return result
 
     @staticmethod

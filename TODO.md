@@ -1,5 +1,11 @@
 # TODO
 
+# Recently done
+
+- [x] Workflow runtime now accepts in-memory `WorkflowSpec` objects in Python API (not only TOML
+      paths)
+- [x] Added coverage for `JsonListSource` recursive HTTP scan behavior with minimal network stubbing
+
 # Next up
 
 - [ ] Fix partly broken `react-jsonschema-form`s that render the current config form for plugins.
