@@ -13,22 +13,23 @@ from katalog.db.changesets import get_changeset_repo
 from katalog.processors.runtime import do_run_processors, sort_processors
 from katalog.sources.runtime import run_sources
 
-from katalog.api.state import RUNNING_CHANGESETS
+from katalog.api.state import get_running_changesets
 from katalog.api.helpers import ApiError
 
 router = APIRouter()
 
 def _track_changeset(changeset: Changeset) -> None:
-    RUNNING_CHANGESETS[changeset.id] = changeset
+    get_running_changesets()[changeset.id] = changeset
 
 
 def _start_tracked_operation(
     changeset: Changeset, coro_factory
 ) -> None:
+    running_changesets = get_running_changesets()
     task = changeset.start_operation(coro_factory)
 
     def _cleanup(_task) -> None:
-        RUNNING_CHANGESETS.pop(changeset.id, None)
+        running_changesets.pop(changeset.id, None)
 
     task.add_done_callback(_cleanup)
 

@@ -18,7 +18,7 @@ from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
 from katalog.models import Changeset
 from katalog.utils.exports import build_tables_from_stats, write_csv_tables
-from katalog.config import WORKSPACE
+from katalog.config import current_workspace
 
 
 class StatsAnalyzer(Analyzer):
@@ -108,10 +108,11 @@ class StatsAnalyzer(Analyzer):
         prefix = f"changeset-{changeset.id}_actor-{self.actor.id}_stats"
         csv_paths = write_csv_tables(tables, prefix=prefix)
         if csv_paths:
+            workspace = current_workspace()
             output["exports"] = {
                 "csv": [
-                    str(path.relative_to(WORKSPACE))
-                    if path.is_relative_to(WORKSPACE)
+                    str(path.relative_to(workspace))
+                    if workspace is not None and path.is_relative_to(workspace)
                     else str(path)
                     for path in csv_paths
                 ]

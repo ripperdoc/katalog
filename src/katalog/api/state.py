@@ -1,6 +1,11 @@
-from katalog.utils.changeset_events import ChangesetEventManager
-from katalog.models import Changeset
+from __future__ import annotations
 
-event_manager = ChangesetEventManager()
+from katalog.config import current_app_context
 
-RUNNING_CHANGESETS: dict[int, Changeset] = {}
+
+def get_event_manager():
+    return current_app_context().event_manager
+
+
+def get_running_changesets():
+    return current_app_context().running_changesets

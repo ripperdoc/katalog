@@ -10,7 +10,7 @@ from katalog.db.changesets import get_changeset_repo
 from katalog.utils.changeset_events import sse_event
 
 from katalog.editors.user_editor import ensure_user_editor
-from katalog.api.state import RUNNING_CHANGESETS, event_manager
+from katalog.api.state import get_event_manager, get_running_changesets
 from katalog.api.helpers import ApiError
 from katalog.api.schemas import ChangesetChangesResponse
 
@@ -68,7 +68,7 @@ async def get_changeset(
 
     return (
         changeset,
-        event_manager.get_buffer(changeset_id),
+        get_event_manager().get_buffer(changeset_id),
         changeset.status == OpStatus.IN_PROGRESS,
     )
 
@@ -142,8 +142,10 @@ async def stream_changeset_events(changeset_id: int):
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
 
+    event_manager = get_event_manager()
+    running_changesets = get_running_changesets()
     history, queue = event_manager.subscribe(changeset_id)
-    run_state = RUNNING_CHANGESETS.get(changeset_id)
+    run_state = running_changesets.get(changeset_id)
     done_event = (
         run_state.done_event if run_state and run_state.done_event else asyncio.Event()
     )
@@ -204,7 +206,8 @@ async def cancel_changeset(
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
-    running_changeset = RUNNING_CHANGESETS.get(changeset_id)
+    running_changesets = get_running_changesets()
+    running_changeset = running_changesets.get(changeset_id)
     if running_changeset is None or (
         running_changeset.done_event and running_changeset.done_event.is_set()
     ):

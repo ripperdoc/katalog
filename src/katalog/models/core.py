@@ -153,9 +153,9 @@ class Changeset(BaseModel):
             finished=self._tasks_finished,
         )
         try:
-            from katalog.api.state import event_manager
+            from katalog.api.state import get_event_manager
 
-            event_manager.emit(
+            get_event_manager().emit(
                 int(self.id),
                 "changeset_progress",
                 payload={
@@ -198,9 +198,9 @@ class Changeset(BaseModel):
             try:
                 with context_cm:
                     try:
-                        from katalog.api.state import event_manager
+                        from katalog.api.state import get_event_manager
 
-                        event_manager.emit(
+                        get_event_manager().emit(
                             int(self.id),
                             "changeset_start",
                             payload=self.model_dump(mode="json"),
@@ -335,9 +335,9 @@ class Changeset(BaseModel):
         db = get_changeset_repo()
         await db.save(self, update_data=data_payload)
         try:
-            from katalog.api.state import event_manager
+            from katalog.api.state import get_event_manager
 
-            event_manager.emit(
+            get_event_manager().emit(
                 int(self.id),
                 "changeset_status",
                 payload=self.model_dump(mode="json"),

@@ -75,7 +75,7 @@ async def test_run_sources_marks_assets_lost_when_followup_scan_is_empty(db_sess
         "batch_jitter_ms": 0,
     }
     await actor_db.save(actor)
-    plugin_registry._INSTANCE_CACHE.clear()
+    plugin_registry.clear_instance_cache()
 
     second = await changeset_db.begin(
         actors=[actor], message="empty", status=OpStatus.IN_PROGRESS

@@ -8,13 +8,15 @@ from katalog.constants.metadata import (
     MetadataDef,
     MetadataKey,
     MetadataType,
+    metadata_registry_for_current_db,
+    set_metadata_registry_cache,
 )
 from katalog.models import OpStatus
 
 
 def dump_registry() -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
-    for definition in METADATA_REGISTRY.values():
+    for definition in metadata_registry_for_current_db().values():
         payload.append(
             {
                 "plugin_id": definition.plugin_id,
@@ -35,6 +37,7 @@ def dump_registry() -> list[dict[str, Any]]:
 def seed_registry(payload: list[dict[str, Any]]) -> None:
     METADATA_REGISTRY.clear()
     METADATA_REGISTRY_BY_ID.clear()
+    key_to_id: dict[MetadataKey, int] = {}
     for item in payload:
         key = MetadataKey(item["key"])
         value_type = MetadataType(int(item["value_type"]))
@@ -52,7 +55,14 @@ def seed_registry(payload: list[dict[str, Any]]) -> None:
         )
         METADATA_REGISTRY[definition.key] = definition
         if definition.registry_id is not None:
-            METADATA_REGISTRY_BY_ID[int(definition.registry_id)] = definition
+            registry_id = int(definition.registry_id)
+            METADATA_REGISTRY_BY_ID[registry_id] = definition
+            key_to_id[definition.key] = registry_id
+
+    set_metadata_registry_cache(
+        key_to_id=key_to_id,
+        defs_by_id=METADATA_REGISTRY_BY_ID,
+    )
 
 
 def normalize_metadata_changes_payload(payload: dict[str, Any]) -> dict[str, Any]:

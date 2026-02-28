@@ -2,13 +2,14 @@ from pathlib import Path
 
 from loguru import logger
 
-from katalog.config import DB_PATH
+from katalog.config import current_db_path
 from katalog.constants.metadata import (
     METADATA_REGISTRY,
     METADATA_REGISTRY_BY_ID,
     MetadataDef,
     MetadataKey,
     MetadataType,
+    set_metadata_registry_cache,
 )
 from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec import init_db, session_scope
@@ -71,7 +72,8 @@ async def sync_metadata_registry() -> None:
         )
 
     # Reload to capture generated IDs and rebuild mappings.
-    METADATA_REGISTRY_BY_ID.clear()
+    key_to_id: dict[MetadataKey, int] = {}
+    defs_by_id: dict[int, MetadataDef] = {}
     for row in rows:
         key = MetadataKey(row["key"])
         existing = METADATA_REGISTRY.get(key)
@@ -85,15 +87,26 @@ async def sync_metadata_registry() -> None:
             width=row.get("width"),
             skip_false=existing.skip_false if existing else False,
             clear_on_false=existing.clear_on_false if existing else False,
+            searchable=existing.searchable if existing else None,
         )
         METADATA_REGISTRY[updated.key] = updated
         if updated.registry_id is not None:
-            METADATA_REGISTRY_BY_ID[int(updated.registry_id)] = updated
+            registry_id = int(updated.registry_id)
+            key_to_id[updated.key] = registry_id
+            defs_by_id[registry_id] = updated
+
+    set_metadata_registry_cache(
+        key_to_id=key_to_id,
+        defs_by_id=defs_by_id,
+    )
+    # Legacy global map retained for old call sites and tests.
+    METADATA_REGISTRY_BY_ID.clear()
+    METADATA_REGISTRY_BY_ID.update(defs_by_id)
 
 
 async def sync_config_db():
     """Initialize database and registry. Legacy name kept for compatibility."""
-    await setup_db(DB_PATH)
+    await setup_db(current_db_path())
     await sync_metadata_registry()
     from katalog.editors.user_editor import ensure_user_editor
 

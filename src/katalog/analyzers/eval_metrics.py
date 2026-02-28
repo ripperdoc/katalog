@@ -9,7 +9,7 @@ from loguru import logger
 
 from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
 from katalog.analyzers.utils import build_scoped_assets_cte
-from katalog.config import WORKSPACE
+from katalog.config import current_workspace
 from katalog.constants.metadata import (
     ASSET_CANONICAL_URI,
     EVAL_AVG_SENTENCE_WORDS,
@@ -214,19 +214,21 @@ class EvalMetricsAnalyzer(Analyzer):
             ingestion_rows=ingester_rows,
         )
         if csv_paths:
+            workspace = current_workspace()
             output["exports"] = {
                 "csv": [
-                    str(path.relative_to(WORKSPACE))
-                    if path.is_relative_to(WORKSPACE)
+                    str(path.relative_to(workspace))
+                    if workspace is not None and path.is_relative_to(workspace)
                     else str(path)
                     for path in csv_paths
                 ]
             }
         if extra_paths:
             exports = dict(output.get("exports") or {})
+            workspace = current_workspace()
             exports["text"] = [
-                str(path.relative_to(WORKSPACE))
-                if path.is_relative_to(WORKSPACE)
+                str(path.relative_to(workspace))
+                if workspace is not None and path.is_relative_to(workspace)
                 else str(path)
                 for path in extra_paths
             ]
@@ -276,12 +278,16 @@ def _write_eval_text_reports(
     mime_breakdown: list[dict[str, Any]],
     ingestion_rows: list[dict[str, Any]],
 ) -> list[Path]:
-    exports_dir = WORKSPACE / "exports"
+    workspace = current_workspace()
+    if workspace is None:
+        raise ValueError("Workspace is not configured for eval exports")
+
+    exports_dir = workspace / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
-    eval_latest_dir = WORKSPACE / "eval" / "latest"
+    eval_latest_dir = workspace / "eval" / "latest"
     eval_latest_dir.mkdir(parents=True, exist_ok=True)
     run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    eval_run_dir = WORKSPACE / "eval" / "output" / f"eval_run_{run_timestamp}"
+    eval_run_dir = workspace / "eval" / "output" / f"eval_run_{run_timestamp}"
     eval_run_dir.mkdir(parents=True, exist_ok=True)
     actor_label = actor_id if actor_id is not None else "unknown"
     prefix = f"changeset-{changeset_id}_actor-{actor_label}_eval"

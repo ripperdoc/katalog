@@ -22,6 +22,7 @@ class ChangesetEventManager:
         self.listeners: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self._sink_added = False
+        self._sink_id: int | None = None
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
@@ -29,13 +30,25 @@ class ChangesetEventManager:
     def ensure_sink(self) -> None:
         if self._sink_added:
             return
-        logger.add(
+        self._sink_id = logger.add(
             self._handle_message,
             filter=lambda record: "changeset_id" in record["extra"],
             backtrace=False,
             diagnose=False,
         )
         self._sink_added = True
+
+    def close(self) -> None:
+        if self._sink_id is not None:
+            try:
+                logger.remove(self._sink_id)
+            except Exception:
+                pass
+        self._sink_id = None
+        self._sink_added = False
+        self.loop = None
+        self.buffers.clear()
+        self.listeners.clear()
 
     def _handle_message(self, message) -> None:
         extra = message.record["extra"]

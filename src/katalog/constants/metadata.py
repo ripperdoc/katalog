@@ -3,6 +3,7 @@ from enum import IntEnum
 from typing import Any, Mapping, NewType
 
 from pydantic import BaseModel, ConfigDict, field_serializer
+from katalog.config import current_app_context
 
 
 MetadataScalar = (
@@ -54,6 +55,67 @@ METADATA_REGISTRY: dict[MetadataKey, MetadataDef] = {}
 
 # Fast lookup from DB integer id -> definition. Populated by `sync_metadata_registry()`.
 METADATA_REGISTRY_BY_ID: dict[int, MetadataDef] = {}
+
+def _registry_caches() -> tuple[dict[MetadataKey, int], dict[int, MetadataDef]]:
+    state = current_app_context().state
+    ids = state.get("metadata_registry_ids")
+    defs = state.get("metadata_registry_defs_by_id")
+    if ids is None:
+        ids = {}
+        state["metadata_registry_ids"] = ids
+    if defs is None:
+        defs = {}
+        state["metadata_registry_defs_by_id"] = defs
+    return ids, defs
+
+
+def set_metadata_registry_cache(
+    *,
+    key_to_id: dict[MetadataKey, int],
+    defs_by_id: dict[int, MetadataDef],
+) -> None:
+    ids, defs = _registry_caches()
+    ids.clear()
+    ids.update(key_to_id)
+    defs.clear()
+    defs.update(defs_by_id)
+
+
+def clear_metadata_registry_cache() -> None:
+    ids, defs = _registry_caches()
+    ids.clear()
+    defs.clear()
+
+
+def metadata_registry_by_id_for_current_db() -> dict[int, MetadataDef]:
+    _, defs = _registry_caches()
+    return defs or METADATA_REGISTRY_BY_ID
+
+
+def metadata_registry_for_current_db() -> dict[MetadataKey, MetadataDef]:
+    registry_ids = _metadata_registry_ids_for_current_db()
+    if not registry_ids:
+        return METADATA_REGISTRY
+
+    resolved: dict[MetadataKey, MetadataDef] = {}
+    for key, definition in METADATA_REGISTRY.items():
+        registry_id = registry_ids.get(key)
+        if registry_id is None or definition.registry_id == registry_id:
+            resolved[key] = definition
+        else:
+            resolved[key] = definition.model_copy(update={"registry_id": int(registry_id)})
+    return resolved
+
+
+def _metadata_registry_ids_for_current_db() -> dict[MetadataKey, int]:
+    ids, _ = _registry_caches()
+    if ids:
+        return ids
+    return {
+        key: int(definition.registry_id)
+        for key, definition in METADATA_REGISTRY.items()
+        if definition.registry_id is not None
+    }
 
 
 def editable_metadata_schema() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -135,15 +197,26 @@ def define_metadata(
 
 
 def get_metadata_id(key: MetadataKey) -> int:
-    definition = get_metadata_def_by_key(key)
+    registry_ids = _metadata_registry_ids_for_current_db()
+    registry_id = registry_ids.get(key)
+    if registry_id is not None:
+        return int(registry_id)
+    definition = METADATA_REGISTRY.get(key)
+    if definition is not None and definition.registry_id is not None:
+        return int(definition.registry_id)
+    if definition is None:
+        raise ValueError(f"Unknown metadata key {key!s}")
     if definition.registry_id is None:
         raise RuntimeError(
             f"Metadata key {key!s} has no registry_id; did you call setup()/sync_metadata_registry()?"
         )
-    return definition.registry_id
+    return int(definition.registry_id)
 
 
 def get_metadata_def_by_id(registry_id: int) -> MetadataDef:
+    cached = metadata_registry_by_id_for_current_db()
+    if registry_id in cached:
+        return cached[registry_id]
     try:
         return METADATA_REGISTRY_BY_ID[registry_id]
     except KeyError:  # pragma: no cover
@@ -154,7 +227,7 @@ def get_metadata_def_by_id(registry_id: int) -> MetadataDef:
 
 
 def get_metadata_schema(key: MetadataKey) -> dict:
-    definition = METADATA_REGISTRY.get(key)
+    definition = get_metadata_def_by_key(key)
     if definition is None:
         return {}
     else:
@@ -163,9 +236,13 @@ def get_metadata_schema(key: MetadataKey) -> dict:
 
 def get_metadata_def_by_key(key: MetadataKey) -> MetadataDef:
     try:
-        return METADATA_REGISTRY[key]
+        definition = METADATA_REGISTRY[key]
     except KeyError:  # pragma: no cover
         raise ValueError(f"Unknown metadata key {key!s}")
+    registry_id = _metadata_registry_ids_for_current_db().get(key)
+    if registry_id is None or definition.registry_id == registry_id:
+        return definition
+    return definition.model_copy(update={"registry_id": int(registry_id)})
 
 
 # Special keys to signal changes

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
 from typing import Iterable, TypeVar, cast, overload
@@ -11,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from katalog.models import Actor, ActorType
 from katalog.db.actors import get_actor_repo
 from katalog.plugins.base import PluginBase
+from katalog.config import current_app_context
 from katalog.utils.utils import import_plugin_class
 
 
@@ -115,7 +117,15 @@ def get_plugin_class(plugin_id: str) -> type:
 
 
 _InstanceT = TypeVar("_InstanceT", bound="PluginBase")
-_INSTANCE_CACHE: dict[int, PluginBase] = {}
+
+
+def _instance_cache() -> dict[int, PluginBase]:
+    state = current_app_context().state
+    cache = state.get("plugin_instance_cache")
+    if cache is None:
+        cache = {}
+        state["plugin_instance_cache"] = cache
+    return cache
 
 
 @overload
@@ -144,13 +154,40 @@ async def get_actor_instance(actor) -> PluginBase:
     if actor_obj.plugin_id is None:
         raise ValueError(f"Actor {actor!r} is missing a plugin_id")
 
-    cached = _INSTANCE_CACHE.get(actor_obj.id)
+    cache = _instance_cache()
+    cache_key = int(actor_obj.id)
+    cached = cache.get(cache_key)
     if cached is not None:
         return cached
     PluginClass = cast(type[PluginBase], get_plugin_class(actor_obj.plugin_id))
     instance = PluginClass(actor=actor_obj, **(actor_obj.config or {}))
-    _INSTANCE_CACHE[actor_obj.id] = instance
+    cache[cache_key] = instance
     return instance
+
+
+async def close_instance_cache() -> None:
+    cache = _instance_cache()
+    keys = list(cache.keys())
+    for cache_key in keys:
+        instance = cache.pop(cache_key, None)
+        if instance is None:
+            continue
+        close_method = getattr(instance, "close", None)
+        if close_method is None:
+            continue
+        try:
+            result = close_method()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception(
+                "Failed to close plugin instance cache_key={cache_key}",
+                cache_key=cache_key,
+            )
+
+
+def clear_instance_cache() -> None:
+    _instance_cache().clear()
 
 
 def plugins_for_type(actor_type: ActorType) -> list[PluginSpec]:

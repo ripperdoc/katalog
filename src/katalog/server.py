@@ -1,9 +1,8 @@
 import logging
 import os
 import sys
+from functools import partial
 from time import perf_counter
-
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -22,7 +21,6 @@ from katalog.api import (
     workflows,
 )
 from katalog.api.helpers import ApiError
-from katalog.config import DB_URL, WORKSPACE
 from katalog.lifespan import app_lifespan
 
 logging.getLogger("uvicorn.access").disabled = True
@@ -32,25 +30,14 @@ logger.add(
     format="<green>{time:HH:mm:ss.SSS}</green> | <level>{level:<8}</level> | {message}",
 )
 
-if WORKSPACE is None or DB_URL is None:
-    raise RuntimeError("KATALOG_WORKSPACE must be set when running the server")
-logger.info(f"Using workspace: {WORKSPACE}")
-logger.info(f"Using database: {DB_URL}")
-
-
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.lower() in {"1", "true", "yes", "on"}
 
 
-@asynccontextmanager
-async def lifespan(app):
-    _ = app
-    async with app_lifespan(init_mode="full", log_discovered_plugins=True):
-        yield
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=partial(app_lifespan, init_mode="full", log_discovered_plugins=True)
+)
 
 
 @app.middleware("http")

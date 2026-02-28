@@ -4,7 +4,7 @@ import json
 import time
 from typing import Any, Iterable, Mapping
 
-from katalog.constants.metadata import METADATA_REGISTRY_BY_ID
+from katalog.constants.metadata import get_metadata_def_by_id
 from katalog.db.utils import build_where
 from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec import session_scope
@@ -269,10 +269,11 @@ class SqlspecChangesetRepo:
 
             items: list[dict[str, Any]] = []
             for row in rows:
-                registry = METADATA_REGISTRY_BY_ID.get(int(row["metadata_key_id"]))
-                key_str = (
-                    str(registry.key) if registry else f"id:{row['metadata_key_id']}"
-                )
+                try:
+                    registry = get_metadata_def_by_id(int(row["metadata_key_id"]))
+                    key_str = str(registry.key)
+                except KeyError:
+                    key_str = f"id:{row['metadata_key_id']}"
                 items.append(
                     {
                         "id": int(row["id"]),

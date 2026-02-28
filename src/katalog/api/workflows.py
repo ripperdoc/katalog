@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import pathlib
-
 from fastapi import APIRouter
 
 from katalog.api.helpers import ApiError
-from katalog.config import WORKSPACE
+from katalog.config import current_workspace
 from katalog.workflows import (
     discover_workflow_files,
     load_workflow_spec,
@@ -18,14 +16,11 @@ from katalog.workflows import (
 router = APIRouter()
 
 
-def _workspace() -> pathlib.Path:
-    if WORKSPACE is None:
+def _resolve_workflow_file(workflow_name: str):
+    workspace = current_workspace()
+    if workspace is None:
         raise ApiError(status_code=500, detail="Workspace is not configured")
-    return pathlib.Path(WORKSPACE)
-
-
-def _resolve_workflow_file(workflow_name: str) -> pathlib.Path:
-    files = discover_workflow_files(_workspace())
+    files = discover_workflow_files(workspace)
     by_name = {path.name: path for path in files}
     file_path = by_name.get(workflow_name)
     if file_path is None:
@@ -35,8 +30,11 @@ def _resolve_workflow_file(workflow_name: str) -> pathlib.Path:
 
 @router.get("/workflows")
 async def list_workflows_rest():
+    workspace = current_workspace()
+    if workspace is None:
+        raise ApiError(status_code=500, detail="Workspace is not configured")
     results: list[dict] = []
-    for file_path in discover_workflow_files(_workspace()):
+    for file_path in discover_workflow_files(workspace):
         try:
             results.append(await workflow_status(file_path))
         except Exception as exc:  # noqa: BLE001

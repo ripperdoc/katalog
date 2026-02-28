@@ -5,7 +5,7 @@ from katalog.api.search import semantic_hits_for_query
 from katalog.constants.metadata import (
     MetadataDef,
     editable_metadata_schema,
-    METADATA_REGISTRY_BY_ID,
+    metadata_registry_by_id_for_current_db,
 )
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
@@ -23,7 +23,7 @@ async def metadata_schema_editable() -> EditableMetadataSchemaResponse:
 
 async def metadata_registry() -> dict[str, dict[int, MetadataDef]]:
     """Return metadata registry keyed by registry id."""
-    return {"registry": METADATA_REGISTRY_BY_ID}
+    return {"registry": metadata_registry_by_id_for_current_db()}
 
 
 async def list_metadata(query: AssetQuery) -> dict:

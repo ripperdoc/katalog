@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 from typing import Any, Iterable
 
-from katalog.config import WORKSPACE
+from katalog.config import current_workspace
 
 
 def build_tables_from_stats(stats: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -53,7 +53,10 @@ def write_csv_tables(
     prefix: str,
     directory: Path | None = None,
 ) -> list[Path]:
-    export_dir = directory or (WORKSPACE / "exports")
+    workspace = current_workspace()
+    if directory is None and workspace is None:
+        raise ValueError("Workspace is not configured for exports")
+    export_dir = directory or (workspace / "exports")
     export_dir.mkdir(parents=True, exist_ok=True)
 
     paths: list[Path] = []
@@ -81,7 +84,10 @@ def analyzer_export_dir(
     Current layout:
     <workspace>/exports/<changeset_id>/<analyzer_slug>[_actor-<id>]/
     """
-    root = (workspace or WORKSPACE) / "exports" / str(int(changeset_id))
+    active_workspace = workspace or current_workspace()
+    if active_workspace is None:
+        raise ValueError("Workspace is not configured for exports")
+    root = active_workspace / "exports" / str(int(changeset_id))
     slug = _safe_filename(analyzer_plugin_id)
     name = f"{slug}_actor-{actor_id}" if actor_id is not None else slug
     target = root / name
