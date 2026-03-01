@@ -80,12 +80,13 @@ def run_workflow(
         path = _resolve_workflow_path(ctx, workflow_file)
         result = await run_workflow_file(path, sync_first=False)
         changeset_ids = [
-            *result.get("source_changesets", []),
-            *([result["processor_changeset"]] if result.get("processor_changeset") else []),
-            *result.get("analyzer_changesets", []),
+            *result.source_changesets,
+            *([result.processor_changeset] if result.processor_changeset else []),
+            *result.analyzer_changesets,
         ]
-        result["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
-        return result
+        payload = result.model_dump(mode="json")
+        payload["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
+        return payload
 
     result = run_cli(_run)
     if wants_json(ctx):
@@ -117,12 +118,13 @@ def apply_workflow(
         path = _resolve_workflow_path(ctx, workflow_file)
         result = await run_workflow_file(path, sync_first=True)
         changeset_ids = [
-            *result.get("source_changesets", []),
-            *([result["processor_changeset"]] if result.get("processor_changeset") else []),
-            *result.get("analyzer_changesets", []),
+            *result.source_changesets,
+            *([result.processor_changeset] if result.processor_changeset else []),
+            *result.analyzer_changesets,
         ]
-        result["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
-        return result
+        payload = result.model_dump(mode="json")
+        payload["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
+        return payload
 
     result = run_cli(_run)
     if wants_json(ctx):

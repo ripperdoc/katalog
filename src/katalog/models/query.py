@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from katalog.constants.metadata import MetadataType
+from katalog.constants.metadata import MetadataKey, MetadataType, get_metadata_def_by_key
 from katalog.models.views import get_view
 
 
@@ -124,6 +124,7 @@ class AssetQuery(BaseModel):
     # Pagination.
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=100, gt=0)
+    columns: list[str] | None = None
 
     # Metadata projection controls.
     metadata_actor_ids: list[int] | None = None
@@ -131,6 +132,7 @@ class AssetQuery(BaseModel):
     metadata_aggregation: Literal["latest", "array", "objects"] = "latest"
     metadata_include_counts: bool = True
     metadata_include_linked_sidecars: bool = False
+    include_lost_assets: bool = False
 
     @field_validator("view_id")
     @classmethod
@@ -156,6 +158,21 @@ class AssetQuery(BaseModel):
             return value
         cleaned = [item.strip() for item in value if item and item.strip()]
         return cleaned or None
+
+    @field_validator("columns")
+    @classmethod
+    def _validate_columns(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            column = raw.strip() if isinstance(raw, str) else ""
+            if not column or column in seen:
+                continue
+            seen.add(column)
+            ordered.append(column)
+        return ordered or None
 
     @field_validator("filters", mode="before")
     @classmethod
@@ -194,19 +211,23 @@ class AssetQuery(BaseModel):
             self.view_id = "default"
         view = get_view(self.view_id)
         column_map = view.column_map()
+        selected_columns = self.columns or []
+
+        for column_id in selected_columns:
+            if column_id in column_map:
+                continue
+            _resolve_metadata_type(column_id)
 
         if self.filters:
             for filt in self.filters:
                 key = filt.key
                 operator = filt.op
                 value = filt.value or ""
-                column = column_map.get(key)
-                if column is None:
-                    raise ValueError(f"Unknown filter key: {key}")
-                allowed = _allowed_operators(column.value_type)
+                value_type = _resolve_column_type(column_map, key)
+                allowed = _allowed_operators(value_type)
                 if operator not in allowed:
                     raise ValueError(
-                        f"Operator {operator} not valid for {key} ({column.value_type})"
+                        f"Operator {operator} not valid for {key} ({value_type})"
                     )
                 if operator in {"between", "notBetween", "in", "notIn"}:
                     if not filt.values:
@@ -223,13 +244,12 @@ class AssetQuery(BaseModel):
                 if len(item) != 2:
                     raise ValueError("sort entries must be (key, direction)")
                 key, direction = item
-                if key not in column_map:
-                    raise ValueError(f"Unknown sort key: {key}")
+                _resolve_column_type(column_map, key)
                 if direction not in {"asc", "desc"}:
                     raise ValueError("sort direction must be asc or desc")
 
-        if self.group_by is not None and self.group_by not in column_map:
-            raise ValueError(f"Unknown group_by key: {self.group_by}")
+        if self.group_by is not None:
+            _resolve_column_type(column_map, self.group_by)
 
         if self.search_mode in {"semantic", "hybrid"}:
             if not self.search or not self.search.strip():
@@ -306,3 +326,21 @@ def _allowed_operators(value_type: MetadataType) -> set[str]:
     if value_type == MetadataType.JSON:
         return json_ops
     return bool_ops
+
+
+def _resolve_metadata_type(key: str) -> MetadataType:
+    try:
+        definition = get_metadata_def_by_key(MetadataKey(key))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Unknown column key: {key}") from exc
+    return definition.value_type
+
+
+def _resolve_column_type(
+    column_map: dict[str, Any],
+    key: str,
+) -> MetadataType:
+    column = column_map.get(key)
+    if column is not None:
+        return column.value_type
+    return _resolve_metadata_type(key)

@@ -16,6 +16,7 @@ from katalog.constants.metadata import (
     MetadataKey,
     MetadataType,
     get_metadata_def_by_id,
+    get_metadata_def_by_key,
     get_metadata_id,
 )
 from katalog.db.sqlspec.sql_helpers import execute, scalar, select, select_one_or_none
@@ -41,6 +42,7 @@ def _build_assets_where(
     actor_id: int | None,
     filters: list[Any] | None,
     search: str | None,
+    include_lost_assets: bool,
 ) -> tuple[str, list[Any]]:
     conditions, filter_params = filter_conditions(filters)
 
@@ -58,6 +60,23 @@ def _build_assets_where(
             "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
         )
         filter_params.append(fts_query)
+
+    if not include_lost_assets:
+        lost_key_id = int(get_metadata_id(ASSET_LOST))
+        conditions.append(
+            "NOT EXISTS ("
+            "SELECT 1 FROM metadata m "
+            "WHERE m.id = ("
+            "    SELECT m2.id FROM metadata m2 "
+            "    WHERE m2.asset_id = a.id AND m2.metadata_key_id = ? "
+            "    ORDER BY m2.changeset_id DESC, m2.id DESC "
+            "    LIMIT 1"
+            ") "
+            "AND m.removed = 0 "
+            "AND m.value_int = 1"
+            ")"
+        )
+        filter_params.append(lost_key_id)
 
     where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     return where_sql, filter_params
@@ -282,6 +301,7 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
+            include_lost_assets=query.include_lost_assets,
         )
 
         async with session_scope() as session:
@@ -308,6 +328,7 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
+            include_lost_assets=query.include_lost_assets,
         )
 
         async with session_scope() as session:
@@ -344,15 +365,32 @@ class SqlspecAssetRepo:
         limit = query.limit
         sort = query.sort[0] if query.sort else None
         filters = query.filters
-        columns = None
+        columns = query.columns
         search = query.search
 
         if limit < 0 or offset < 0:
             raise ValueError("offset and limit must be non-negative")
 
         column_map = view.column_map()
-        requested_columns = set(columns) if columns else set(column_map)
-        unknown = requested_columns - set(column_map)
+        requested_columns = (
+            [column_id for column_id in columns if column_id]
+            if columns
+            else [column.id for column in view.columns]
+        )
+        seen_columns: set[str] = set()
+        requested_columns = [
+            column_id
+            for column_id in requested_columns
+            if not (column_id in seen_columns or seen_columns.add(column_id))
+        ]
+        unknown: list[str] = []
+        for column_id in requested_columns:
+            if column_id in column_map:
+                continue
+            try:
+                get_metadata_def_by_key(MetadataKey(column_id))
+            except Exception:  # noqa: BLE001
+                unknown.append(column_id)
         if unknown:
             raise ValueError(f"Unknown columns requested: {sorted(unknown)}")
 
@@ -366,10 +404,12 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=filters,
             search=search,
+            include_lost_assets=query.include_lost_assets,
         )
-
         metadata_keys = [
-            col_id for col_id in requested_columns if col_id not in asset_sort_fields
+            col_id
+            for col_id in requested_columns
+            if col_id not in asset_sort_fields
         ]
         metadata_ids = [get_metadata_id(MetadataKey(key)) for key in metadata_keys]
 
@@ -415,9 +455,28 @@ class SqlspecAssetRepo:
 
             assets: dict[int, dict[str, Any]] = {}
             ordered_columns: list[Mapping[str, Any]] = []
-            for col in view.columns:
-                if col.id in requested_columns:
-                    ordered_columns.append(col.model_dump(mode="json"))
+            for column_id in requested_columns:
+                spec = column_map.get(column_id)
+                if spec is not None:
+                    ordered_columns.append(spec.model_dump(mode="json"))
+                    continue
+                definition = get_metadata_def_by_key(MetadataKey(column_id))
+                ordered_columns.append(
+                    {
+                        "key": str(definition.key),
+                        "id": str(definition.key),
+                        "value_type": int(definition.value_type),
+                        "registry_id": definition.registry_id,
+                        "title": definition.title or str(definition.key),
+                        "description": definition.description,
+                        "width": definition.width,
+                        "hidden": False,
+                        "sortable": False,
+                        "filterable": False,
+                        "searchable": False,
+                        "plugin_id": definition.plugin_id,
+                    }
+                )
 
             page_asset_ids: list[int] = []
             for row in asset_rows:
@@ -711,17 +770,12 @@ class SqlspecAssetRepo:
         group_by = query.group_by or group_by
         field_expr, field_type = _resolve_group_field(group_by)
         started_at = time.perf_counter()
-
-        conditions, filter_params = filter_conditions(filters)
-        if search is not None and search.strip():
-            fts_query = fts5_query_from_user_text(search)
-            if not fts_query:
-                raise ValueError("Invalid search query")
-            conditions.append(
-                "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
-            )
-            filter_params.append(fts_query)
-        where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_sql, filter_params = _build_assets_where(
+            actor_id=None,
+            filters=filters,
+            search=search,
+            include_lost_assets=query.include_lost_assets,
+        )
 
         if field_type == "asset":
             group_sql = f"""

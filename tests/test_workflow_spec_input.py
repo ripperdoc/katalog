@@ -42,7 +42,8 @@ async def test_run_workflow_file_accepts_workflow_spec_object(db_session) -> Non
     result = await run_workflow_file(spec, sync_first=True)
     status = await workflow_status(spec)
 
-    assert result["workflow_file"] == "<in-memory>"
-    assert result["sources_run"] == 1
+    assert result.workflow_file == "<in-memory>"
+    assert result.sources_run == 1
+    assert result.successful is True
     assert status["status"] == "ready"
     assert status["resolved_actor_count"] == 1

@@ -33,6 +33,8 @@ def build_asset_query(
     metadata_aggregation: str | None = None,
     metadata_include_counts: bool | None = None,
     metadata_include_linked_sidecars: bool | None = None,
+    columns: list[str] | None = None,
+    include_lost_assets: bool | None = None,
 ) -> AssetQuery:
     payload: dict[str, object] = {
         "view_id": view_id,
@@ -53,4 +55,8 @@ def build_asset_query(
         payload["metadata_include_counts"] = metadata_include_counts
     if metadata_include_linked_sidecars is not None:
         payload["metadata_include_linked_sidecars"] = metadata_include_linked_sidecars
+    if columns is not None:
+        payload["columns"] = columns
+    if include_lost_assets is not None:
+        payload["include_lost_assets"] = include_lost_assets
     return AssetQuery.model_validate(payload)

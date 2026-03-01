@@ -65,6 +65,8 @@ async def list_assets_for_view_rest(
     metadata_aggregation: Optional[str] = Query(None),
     metadata_include_counts: bool = Query(True),
     metadata_include_linked_sidecars: bool = Query(False),
+    columns: list[str] | None = Query(None),
+    include_lost_assets: bool = Query(False),
 ):
     try:
         query = build_asset_query(
@@ -79,6 +81,8 @@ async def list_assets_for_view_rest(
             metadata_aggregation=metadata_aggregation,
             metadata_include_counts=metadata_include_counts,
             metadata_include_linked_sidecars=metadata_include_linked_sidecars,
+            columns=columns,
+            include_lost_assets=include_lost_assets,
         )
     except Exception as exc:
         raise ApiError(status_code=400, detail=str(exc)) from exc

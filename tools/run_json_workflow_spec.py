@@ -161,7 +161,7 @@ async def _run(args: argparse.Namespace) -> dict:
 
     async with app_lifespan(workspace=workspace, init_mode="full"):
         result = await run_workflow_file(spec, sync_first=True)
-    return {"workspace": str(workspace), "result": result}
+    return {"workspace": str(workspace), "result": result.model_dump(mode="json")}
 
 
 def _configure_http_error_logging(verbose_http_errors: bool) -> None:

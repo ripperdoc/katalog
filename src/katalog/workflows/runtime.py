@@ -15,6 +15,7 @@ from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import Actor, ActorType, OpStatus
 from katalog.plugins.registry import get_plugin_class
+from katalog.workflows.results import WorkflowChangesetResult, WorkflowRunResult
 from katalog.workflows.specs import (
     WorkflowActorSpec,
     WorkflowSpec,
@@ -187,11 +188,11 @@ async def _resolve_workflow_actors(
     return resolved
 
 
-async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[int]:
+async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[WorkflowChangesetResult]:
     if not analyzers:
         return []
     changeset_db = get_changeset_repo()
-    analyzer_changesets: list[int] = []
+    analyzer_changesets: list[WorkflowChangesetResult] = []
     for analyzer in analyzers:
         if analyzer.id is None:
             continue
@@ -218,13 +219,13 @@ async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[int]:
             changeset.data = data
             await changeset.finalize(status=OpStatus.ERROR)
             raise
-        analyzer_changesets.append(int(changeset.id))
+        analyzer_changesets.append(WorkflowChangesetResult.from_changeset(changeset))
     return analyzer_changesets
 
 
 async def run_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec, *, sync_first: bool = False
-) -> dict:
+) -> WorkflowRunResult:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
         actors = await sync_workflow_file(spec)
@@ -242,9 +243,9 @@ async def run_workflow_file(
         a for a in actors if a.type == ActorType.ANALYZER and not a.disabled
     ]
 
-    source_changesets: list[int] = []
-    processor_changeset: int | None = None
-    analyzer_changesets: list[int] = []
+    source_results: list[WorkflowChangesetResult] = []
+    processor_result: WorkflowChangesetResult | None = None
+    analyzer_results: list[WorkflowChangesetResult] = []
     for source in source_actors:
         if source.id is None:
             continue
@@ -253,7 +254,7 @@ async def run_workflow_file(
             finalize=True,
             run_processors=False,
         )
-        source_changesets.append(int(changeset.id))
+        source_results.append(WorkflowChangesetResult.from_changeset(changeset))
 
     if processor_actors:
         processor_ids = [
@@ -265,30 +266,19 @@ async def run_workflow_file(
                 asset_ids=None,
                 finalize=True,
             )
-            processor_changeset = int(changeset.id)
+            processor_result = WorkflowChangesetResult.from_changeset(changeset)
 
     if analyzer_actors:
-        analyzer_changesets = await _run_workflow_analyzers(analyzer_actors)
+        analyzer_results = await _run_workflow_analyzers(analyzer_actors)
 
-    return {
-        "workflow_file": spec.file_path,
-        "actors": len(actors),
-        "sources_run": len(source_changesets),
-        "processors_run": len(processor_actors),
-        "analyzers_run": len(analyzer_changesets),
-        "source_changesets": source_changesets,
-        "processor_changeset": processor_changeset,
-        "analyzer_changesets": analyzer_changesets,
-        "last_changeset_id": (
-            analyzer_changesets[-1]
-            if analyzer_changesets
-            else (
-                processor_changeset
-                if processor_changeset is not None
-                else (source_changesets[-1] if source_changesets else None)
-            )
-        ),
-    }
+    return WorkflowRunResult.build(
+        workflow_file=spec.file_path,
+        actors=len(actors),
+        processors_run=len(processor_actors),
+        source_results=source_results,
+        processor_result=processor_result,
+        analyzer_results=analyzer_results,
+    )
 
 
 async def start_workflow_file(

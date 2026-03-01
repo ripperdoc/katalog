@@ -9,6 +9,7 @@ from .runtime import (
     sync_workflow_file,
     workflow_status,
 )
+from .results import WorkflowChangesetResult, WorkflowRunResult
 
 __all__ = [
     "discover_workflow_files",
@@ -20,4 +21,6 @@ __all__ = [
     "sync_workflow_file",
     "run_workflow_file",
     "workflow_status",
+    "WorkflowChangesetResult",
+    "WorkflowRunResult",
 ]
