@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 import logging
 from typing import Any
 
+from katalog.config import build_app_context, use_app_context
 from katalog.processors.serialization import (
     normalize_metadata_changes_payload,
     seed_registry,
@@ -29,25 +31,34 @@ def run_processor_in_process(
     actor_payload: dict[str, Any],
     changes_payload: dict[str, Any],
     registry_payload: list[dict[str, Any]] | None = None,
+    app_context_payload: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
+        context_scope = nullcontext()
+        if app_context_payload:
+            workspace = app_context_payload.get("workspace")
+            db_url = app_context_payload.get("db_url")
+            app_context = build_app_context(workspace=workspace, db_url=db_url)
+            context_scope = use_app_context(app_context)
+
         global _REGISTRY_READY
-        if not _REGISTRY_READY:
-            if registry_payload is not None:
-                seed_registry(registry_payload)
-            _REGISTRY_READY = True
-        actor_type = actor_payload.get("type")
-        if isinstance(actor_type, str):
-            try:
-                actor_payload = dict(actor_payload)
-                actor_payload["type"] = ActorType[actor_type]
-            except KeyError:
-                pass
-        actor = Actor.model_validate(actor_payload)
-        normalized_changes = normalize_metadata_changes_payload(changes_payload)
-        changes = MetadataChanges.model_validate(normalized_changes)
-        result = asyncio.run(_run_processor(actor=actor, changes=changes))
-        return result.model_dump(mode="json")
+        with context_scope:
+            if not _REGISTRY_READY:
+                if registry_payload is not None:
+                    seed_registry(registry_payload)
+                _REGISTRY_READY = True
+            actor_type = actor_payload.get("type")
+            if isinstance(actor_type, str):
+                try:
+                    actor_payload = dict(actor_payload)
+                    actor_payload["type"] = ActorType[actor_type]
+                except KeyError:
+                    pass
+            actor = Actor.model_validate(actor_payload)
+            normalized_changes = normalize_metadata_changes_payload(changes_payload)
+            changes = MetadataChanges.model_validate(normalized_changes)
+            result = asyncio.run(_run_processor(actor=actor, changes=changes))
+            return result.model_dump(mode="json")
     except Exception as exc:  # noqa: BLE001
         asset_payload = changes_payload.get("asset") if isinstance(changes_payload, dict) else None
         asset_id = asset_payload.get("id") if isinstance(asset_payload, dict) else None

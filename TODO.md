@@ -1,13 +1,12 @@
 # TODO
 
-# Recently done
-
-- [x] Workflow runtime now accepts in-memory `WorkflowSpec` objects in Python API (not only TOML
-      paths)
-- [x] Added coverage for `JsonListSource` recursive HTTP scan behavior with minimal network stubbing
-
 # Next up
 
+- [ ] Katalog server that can server multiple workspaces and switch between them?
+- [ ] Endpoint that can show some space stats about the database (to understand why the size is like
+      it is)
+- [ ] Kreuzberg returns inline SVG images for HTML pages, too large, can be removed?
+- [ ] JSONList/HTTPSource is not providing Path, Filename, Created and Modified for items
 - [ ] Fix partly broken `react-jsonschema-form`s that render the current config form for plugins.
 - [ ] Unify workflow, processor, scan and analyzer runtimes if possible, and include batch
       processing

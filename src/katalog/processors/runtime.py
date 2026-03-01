@@ -29,6 +29,7 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.db.actors import get_actor_repo
 from katalog.runtime.batch import get_batch_size, iter_batches
+from katalog.config import current_db_url, current_workspace
 
 ProcessorStage = list[Processor]
 
@@ -166,6 +167,10 @@ async def _run_processor_process(
     actor_payload = processor.actor.model_dump(mode="json")
     changes_payload = changes.model_dump(mode="json")
     registry_payload = dump_registry()
+    app_context_payload = {
+        "workspace": str(current_workspace()),
+        "db_url": current_db_url(),
+    }
     executors.record_cpu_processor(processor.actor.plugin_id)
     loop = asyncio.get_running_loop()
     result_payload = await loop.run_in_executor(
@@ -174,6 +179,7 @@ async def _run_processor_process(
         actor_payload,
         changes_payload,
         registry_payload,
+        app_context_payload,
     )
     normalized = normalize_processor_result_payload(result_payload)
     return ProcessorResult.model_validate(normalized)

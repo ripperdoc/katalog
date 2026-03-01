@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "katalog"
 version = "0.1.0"
@@ -74,3 +78,15 @@ sidecar_links = "katalog.analyzers.sidecar_links:SidecarLinksAnalyzer"
 
 [project.entry-points."katalog.editor"]
 user_editor = "katalog.editors.user_editor:UserEditor"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["katalog*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+katalog = ["sql/*.sql"]
