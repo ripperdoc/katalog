@@ -25,6 +25,7 @@ const AppHeader = ({ children, breadcrumbLabel }: AppHeaderProps) => {
       assets: "Assets",
       collections: "Collections",
       changesets: "History",
+      stats: "Stats",
     };
     const topLabel = topMap[topLevel];
     if (!topLabel) {
@@ -78,6 +79,7 @@ const AppHeader = ({ children, breadcrumbLabel }: AppHeaderProps) => {
           <Link to="/assets">Assets</Link>
           <Link to="/collections">Collections</Link>
           <Link to="/changesets">History</Link>
+          <Link to="/stats">Stats</Link>
         </nav>
       </div>
       {children && <div className="page-header">{children}</div>}

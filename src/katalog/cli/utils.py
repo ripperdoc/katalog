@@ -34,6 +34,56 @@ def render_table(rows: Sequence[dict], headers: Sequence[str], keys: Sequence[st
         )
 
 
+def format_bytes(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        size = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    unit = 0
+    while size >= 1024 and unit < len(units) - 1:
+        size /= 1024
+        unit += 1
+    if unit == 0:
+        return f"{int(size)} {units[unit]}"
+    return f"{size:.2f} {units[unit]}"
+
+
+def mapping_to_rows(
+    mapping: Mapping[str, Any],
+    *,
+    prefix: str = "",
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for key in sorted(mapping.keys()):
+        path = f"{prefix}.{key}" if prefix else key
+        value = mapping[key]
+        if isinstance(value, Mapping):
+            rows.extend(mapping_to_rows(value, prefix=path))
+            continue
+        if isinstance(value, list):
+            if all(not isinstance(item, (Mapping, list)) for item in value):
+                rendered = ", ".join(str(item) for item in value)
+            else:
+                rendered = f"[{len(value)} items]"
+            rows.append({"key": path, "value": rendered})
+            continue
+        rows.append({"key": path, "value": str(value)})
+    return rows
+
+
+def render_mapping(mapping: Mapping[str, Any], *, title: str | None = None) -> None:
+    rows = mapping_to_rows(mapping)
+    if title:
+        typer.echo(title)
+    if not rows:
+        typer.echo("(empty)")
+        return
+    render_table(rows, ["Key", "Value"], ["key", "value"])
+
+
 def changeset_summary(changeset: Any) -> dict[str, Any]:
     status = changeset.status.value if hasattr(changeset.status, "value") else str(changeset.status)
     return {

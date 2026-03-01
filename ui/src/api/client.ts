@@ -23,6 +23,7 @@ import type {
   CollectionRemoveAssetsResponse,
   WorkflowActionResponse,
   WorkflowListResponse,
+  WorkspaceStatsResponse,
 } from "../types/api";
 
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
@@ -500,4 +501,11 @@ export async function syncConfig(): Promise<void> {
 
 export function changesetEventsUrl(changesetId: number): string {
   return `${API_BASE}/changesets/${changesetId}/events`;
+}
+
+export async function fetchWorkspaceStats(): Promise<WorkspaceStatsResponse> {
+  const response = await fetch(`${API_BASE}/stats`, {
+    headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
 }

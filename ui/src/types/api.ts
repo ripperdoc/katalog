@@ -288,3 +288,5 @@ export interface ChangesetChangesResponse {
     limit: number;
   };
 }
+
+export type WorkspaceStatsResponse = Record<string, unknown>;

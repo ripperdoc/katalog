@@ -9,6 +9,7 @@ import ChangesetsRoute from "./routes/ChangesetsRoute";
 import CollectionsRoute from "./routes/CollectionsRoute";
 import CollectionDetailRoute from "./routes/CollectionDetailRoute";
 import ChangesetProgressBar from "./components/ChangesetProgressBar";
+import StatsRoute from "./routes/StatsRoute";
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
         <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
         <Route path="/collections" element={<CollectionsRoute />} />
         <Route path="/collections/:collectionId" element={<CollectionDetailRoute />} />
+        <Route path="/stats" element={<StatsRoute />} />
         <Route path="*" element={<Navigate to="/actors" replace />} />
       </Routes>
       <ChangesetProgressBar />
