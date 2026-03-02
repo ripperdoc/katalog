@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AssetTable from "../components/AssetTable";
 import AppHeader from "../components/AppHeader";
-import { createCollection, fetchAssets } from "../api/client";
+import { createCollection, fetchAssets, fetchMetadataSearch } from "../api/client";
 import type { ViewAssetsResponse } from "../types/api";
 
 const DEFAULT_VIEW_ID = "default";
@@ -22,6 +22,7 @@ function AssetsRoute() {
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
+  const [resultType, setResultType] = useState<"assets" | "metadata">("assets");
 
   const fetchPage = useCallback(
     ({
@@ -63,6 +64,33 @@ function AssetsRoute() {
     [navigate],
   );
 
+  const fetchMetadataPage = useCallback(
+    ({
+      offset,
+      limit,
+      filters,
+      search,
+      searchMode,
+      searchMinScore,
+    }: {
+      offset: number;
+      limit: number;
+      filters?: string[];
+      search?: string;
+      searchMode?: "fts" | "semantic" | "hybrid";
+      searchMinScore?: number;
+    }) =>
+      fetchMetadataSearch({
+        offset,
+        limit,
+        filters,
+        search,
+        searchMode,
+        searchMinScore,
+      }),
+    [],
+  );
+
   const handleLoadComplete = useCallback(
     ({ response, params }: { response: ViewAssetsResponse; params: typeof lastParams }) => {
       setLastResponse(response);
@@ -79,6 +107,11 @@ function AssetsRoute() {
       return;
     }
     const savingSelected = selectedIds.length > 0;
+    const saveAllAllowed = resultType === "assets";
+    if (!savingSelected && !saveAllAllowed) {
+      window.alert("Metadata result mode supports saving selected assets only.");
+      return;
+    }
     const saveCount = savingSelected ? selectedIds.length : totalCount;
     const defaultName = `Collection ${new Date().toISOString().slice(0, 19)}`;
     if (
@@ -130,13 +163,16 @@ function AssetsRoute() {
     } finally {
       setSaving(false);
     }
-  }, [lastParams, lastResponse, navigate, selectedAssetIds]);
+  }, [lastParams, lastResponse, navigate, resultType, selectedAssetIds]);
 
   const selectedCount = selectedAssetIds.size;
+  const saveAllAllowed = resultType === "assets";
   const saveLabel =
     selectedCount > 0
       ? `Add ${selectedCount.toLocaleString()} to collection`
-      : "Add all to collection";
+      : saveAllAllowed
+        ? "Add all to collection"
+        : "Select assets to add";
 
   return (
     <>
@@ -156,9 +192,11 @@ function AssetsRoute() {
         <AssetTable
           title="Assets"
           fetchPage={fetchPage}
+          fetchMetadataPage={fetchMetadataPage}
           onRowClick={handleRowClick}
           onLoadComplete={handleLoadComplete}
           onSelectionChange={setSelectedAssetIds}
+          onResultTypeChange={setResultType}
           searchPlaceholder="Search all assets…"
         />
       </main>

@@ -1,5 +1,6 @@
 import type {
   ViewAssetsResponse,
+  MetadataSearchResponse,
   ViewListResponse,
   ViewResponse,
   ActorListResponse,
@@ -85,6 +86,51 @@ export async function fetchAssets(
   params.set("view_id", viewId);
   const response = await fetch(`${API_BASE}/assets?${params}`, {
     headers: { Accept: "application/json" },
+  });
+  return handleResponse(response);
+}
+
+export async function fetchMetadataSearch({
+  offset = 0,
+  limit = 100,
+  filters,
+  search,
+  searchMode,
+  searchMinScore,
+}: {
+  offset?: number;
+  limit?: number;
+  filters?: string[] | undefined;
+  search?: string | undefined;
+  searchMode?: "fts" | "semantic" | "hybrid" | undefined;
+  searchMinScore?: number | undefined;
+}): Promise<MetadataSearchResponse> {
+  const payload: Record<string, unknown> = {
+    view_id: "default",
+    search_granularity: "metadata",
+    offset,
+    limit,
+  };
+  if (filters && filters.length > 0) {
+    payload.filters = filters;
+  }
+  if (search) {
+    payload.search = search;
+  }
+  if (searchMode) {
+    payload.search_mode = searchMode;
+  }
+  if (searchMinScore !== undefined) {
+    payload.search_min_score = searchMinScore;
+  }
+
+  const response = await fetch(`${API_BASE}/metadata/search`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
   return handleResponse(response);
 }

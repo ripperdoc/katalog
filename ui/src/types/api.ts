@@ -59,6 +59,38 @@ export interface ViewAssetsResponse {
   };
 }
 
+export interface MetadataSearchHit {
+  asset_id: number;
+  metadata_id: number | null;
+  metadata_key_id: number | null;
+  metadata_key: string;
+  value: MetadataValue;
+  text: string;
+  fts_rank?: number | null;
+  distance?: number | null;
+  score?: number | null;
+  cosine_similarity?: number | null;
+  asset_namespace?: string | null;
+  asset_external_id?: string | null;
+  asset_canonical_uri?: string | null;
+  actor_id?: number | null;
+  changeset_id?: number | null;
+  removed?: boolean;
+}
+
+export interface MetadataSearchResponse {
+  items: MetadataSearchHit[];
+  stats: {
+    returned: number;
+    total: number | null;
+    duration_ms?: number | null;
+  };
+  pagination: {
+    offset: number;
+    limit: number;
+  };
+}
+
 export interface Actor {
   id: number;
   name: string;

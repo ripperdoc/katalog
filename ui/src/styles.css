@@ -409,6 +409,10 @@ footer {
   max-width: 8.5rem;
 }
 
+.search-target-toggle {
+  margin-bottom: 0;
+}
+
 .toggle-inline {
   display: inline-flex;
   align-items: center;

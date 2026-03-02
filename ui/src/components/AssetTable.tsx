@@ -8,12 +8,19 @@ import {
   ValueFormatterProps,
   ValueGetterProps,
 } from "simple-table-core";
-import { Asset, ColumnDefinition, MetadataValueEntry, ViewAssetsResponse } from "../types/api";
+import {
+  Asset,
+  ColumnDefinition,
+  MetadataSearchResponse,
+  MetadataValueEntry,
+  ViewAssetsResponse,
+} from "../types/api";
 import "simple-table-core/styles.css";
 import AssetCell from "./AssetCell";
 import { ActorCellPure } from "./ActorCell";
 import ExternalIdCell from "./ExternalIdCell";
 import { makeFlagCell, ThumbnailCell } from "./FlagCell";
+import MetadataSearchTable from "./MetadataSearchTable";
 import TableFooter from "./TableFooter";
 import { useRegistry } from "../utils/registry";
 
@@ -264,15 +271,25 @@ type FetchArgs = {
 };
 
 type FetchPage = (args: FetchArgs) => Promise<ViewAssetsResponse>;
+type FetchMetadataPage = (args: {
+  offset: number;
+  limit: number;
+  filters?: string[] | undefined;
+  search?: string | undefined;
+  searchMode?: "fts" | "semantic" | "hybrid" | undefined;
+  searchMinScore?: number | undefined;
+}) => Promise<MetadataSearchResponse>;
 
 interface AssetTableProps {
   title: string;
   subtitle?: string;
   fetchPage: FetchPage;
+  fetchMetadataPage?: FetchMetadataPage;
   defaultLimit?: number;
   onRowClick?: (assetId: number) => void;
   onLoadComplete?: (payload: { response: ViewAssetsResponse; params: FetchArgs }) => void;
   onSelectionChange?: (selectedAssetIds: Set<number>) => void;
+  onResultTypeChange?: (resultType: "assets" | "metadata") => void;
   actions?: ReactNode;
   searchPlaceholder?: string;
 }
@@ -281,15 +298,20 @@ const AssetTable = ({
   title,
   subtitle,
   fetchPage,
+  fetchMetadataPage,
   defaultLimit = 200,
   onRowClick,
   onLoadComplete,
   onSelectionChange,
+  onResultTypeChange,
   actions,
   searchPlaceholder = "Search…",
 }: AssetTableProps) => {
   const { data: registryData } = useRegistry();
   const [records, setRecords] = useState<Asset[]>([]);
+  const [metadataRecords, setMetadataRecords] = useState<MetadataSearchResponse["items"]>(
+    [],
+  );
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [schema, setSchema] = useState<ColumnDefinition[]>([]);
@@ -307,6 +329,7 @@ const AssetTable = ({
   const [useServerSort, setUseServerSort] = useState<boolean>(true);
   const [semanticSearchEnabled, setSemanticSearchEnabled] = useState<boolean>(false);
   const [semanticMinScoreInput, setSemanticMinScoreInput] = useState<string>("");
+  const [resultType, setResultType] = useState<"assets" | "metadata">("assets");
   const searchRef = useRef("");
   const lastRequestRef = useRef<string | null>(null);
 
@@ -371,7 +394,9 @@ const AssetTable = ({
           ? Math.max(0, Math.min(1, parsedMinScore))
           : undefined;
       const searchIncludeMatchesParam = searchModeParam === "semantic";
+      const isMetadataResult = resultType === "metadata";
       const requestKey = JSON.stringify({
+        result_type: resultType,
         page,
         limit,
         sort: sortParam,
@@ -388,6 +413,30 @@ const AssetTable = ({
       setLoading(true);
       setError(null);
       try {
+        if (isMetadataResult) {
+          if (!fetchMetadataPage) {
+            throw new Error("Metadata search is not available for this table.");
+          }
+          const response = await fetchMetadataPage({
+            offset: (page - 1) * limit,
+            limit,
+            filters: filterParams,
+            search: searchParam,
+            searchMode: searchModeParam,
+            searchMinScore: searchMinScoreParam,
+          });
+          setMetadataRecords(response.items ?? []);
+          setRecords([]);
+          setSchema([]);
+          setPagination({
+            limit,
+            page,
+          });
+          setTotal(response.stats?.total ?? null);
+          setDurationMs(response.stats?.duration_ms ?? null);
+          return;
+        }
+
         const response = await fetchPage({
           offset: (page - 1) * limit,
           limit,
@@ -497,6 +546,7 @@ const AssetTable = ({
           });
         }
         setRecords(normalizedRecords);
+        setMetadataRecords([]);
         setSchema(normalizedSchema);
         setPagination({
           limit,
@@ -530,13 +580,19 @@ const AssetTable = ({
       sort,
       filters,
       fetchPage,
+      fetchMetadataPage,
       onLoadComplete,
       useServerFilters,
       useServerSort,
       semanticSearchEnabled,
       semanticMinScoreInput,
+      resultType,
     ],
   );
+
+  useEffect(() => {
+    onResultTypeChange?.(resultType);
+  }, [resultType, onResultTypeChange]);
 
   useEffect(() => {
     void loadPage(1);
@@ -547,7 +603,15 @@ const AssetTable = ({
       void loadPage(1, undefined, sort, filters, searchQuery);
     }, 1000);
     return () => window.clearTimeout(handle);
-  }, [searchQuery, semanticSearchEnabled, semanticMinScoreInput, loadPage, sort, filters]);
+  }, [
+    searchQuery,
+    semanticSearchEnabled,
+    semanticMinScoreInput,
+    loadPage,
+    sort,
+    filters,
+    resultType,
+  ]);
 
   return (
     <section className="panel">
@@ -585,6 +649,34 @@ const AssetTable = ({
           onKeyDown={(event) => event.stopPropagation()}
           aria-label="Search"
         />
+        {fetchMetadataPage && (
+          <div className="table-toolbar search-target-toggle">
+            <button
+              type="button"
+              className={`app-btn button-toggle ${resultType === "assets" ? "is-active" : ""}`}
+              aria-pressed={resultType === "assets"}
+              onClick={() => {
+                setResultType("assets");
+                setSelectedAssetIds(new Set());
+                onSelectionChange?.(new Set());
+              }}
+            >
+              Assets
+            </button>
+            <button
+              type="button"
+              className={`app-btn button-toggle ${resultType === "metadata" ? "is-active" : ""}`}
+              aria-pressed={resultType === "metadata"}
+              onClick={() => {
+                setResultType("metadata");
+                setSelectedAssetIds(new Set());
+                onSelectionChange?.(new Set());
+              }}
+            >
+              Metadata values
+            </button>
+          </div>
+        )}
         <label className="toggle-inline">
           <input
             type="checkbox"
@@ -611,73 +703,90 @@ const AssetTable = ({
       {error && <p className="error">{error}</p>}
 
       <div className="table-container">
-        <SimpleTable
-          defaultHeaders={headers}
-          rows={records}
-          height="100%"
-          autoExpandColumns={false}
-          selectableCells={true}
-          columnResizing={true}
-          shouldPaginate={true}
-          rowsPerPage={pagination.limit}
-          serverSidePagination={true}
-          enableRowSelection={true}
-          totalRowCount={total ?? records.length}
-          externalSortHandling={useServerSort}
-          externalFilterHandling={useServerFilters}
-          footerRenderer={(props) => (
-            <TableFooter
-              {...props}
-              queryTimeMs={durationMs}
-              selectedCount={selectedAssetIds.size}
-            />
-          )}
-          onPageChange={(page) => {
-            if (page === pagination.page) {
-              return;
-            }
-            void loadPage(page, undefined, sort, filters, searchQuery);
-          }}
-          isLoading={loading}
-          onRowSelectionChange={({ row, isSelected, selectedRows }) => {
-            const assetId = Number(row["asset/id"]);
-            const nextSelected = new Set<number>(selectedAssetIds);
-            if (Number.isNaN(assetId)) return;
-            if (isSelected) {
-              nextSelected.add(assetId);
-            } else {
-              nextSelected.delete(assetId);
-            }
-            setSelectedAssetIds(nextSelected);
-            onSelectionChange?.(nextSelected);
-          }}
-          onSortChange={(sortArg) => {
-            const normalized = normalizeSort(sortArg);
-            if (!normalized) {
-              setSort(null);
-              if (useServerSort) {
-                void loadPage(1, undefined, null, filters);
+        {resultType === "metadata" && fetchMetadataPage ? (
+          <MetadataSearchTable
+            items={metadataRecords}
+            loading={loading}
+            limit={pagination.limit}
+            page={pagination.page}
+            total={total}
+            queryTimeMs={durationMs}
+            onPageChange={(page) => {
+              void loadPage(page, undefined, sort, filters, searchQuery);
+            }}
+            onSelectionChange={(nextSelected) => {
+              setSelectedAssetIds(nextSelected);
+              onSelectionChange?.(nextSelected);
+            }}
+          />
+        ) : (
+          <SimpleTable
+            defaultHeaders={headers}
+            rows={records}
+            height="100%"
+            autoExpandColumns={false}
+            selectableCells={true}
+            columnResizing={true}
+            shouldPaginate={true}
+            rowsPerPage={pagination.limit}
+            serverSidePagination={true}
+            enableRowSelection={true}
+            totalRowCount={total ?? records.length}
+            externalSortHandling={useServerSort}
+            externalFilterHandling={useServerFilters}
+            footerRenderer={(props) => (
+              <TableFooter
+                {...props}
+                queryTimeMs={durationMs}
+                selectedCount={selectedAssetIds.size}
+              />
+            )}
+            onPageChange={(page) => {
+              if (page === pagination.page) {
+                return;
               }
-              return;
-            }
-            setSort(normalized);
-            if (useServerSort) {
-              void loadPage(1, undefined, normalized, filters);
-            }
-          }}
-          onFilterChange={(state) => {
-            const nextFilters = state || {};
-            const currentSig = JSON.stringify(filters || {});
-            const nextSig = JSON.stringify(nextFilters || {});
-            if (currentSig === nextSig) {
-              return;
-            }
-            setFilters(nextFilters);
-            if (useServerFilters) {
-              void loadPage(1, undefined, sort, nextFilters);
-            }
-          }}
-        />
+              void loadPage(page, undefined, sort, filters, searchQuery);
+            }}
+            isLoading={loading}
+            onRowSelectionChange={({ selectedRows }) => {
+              const nextSelected = new Set<number>();
+              for (const selectedRowId of selectedRows) {
+                const assetId = Number(selectedRowId);
+                if (!Number.isNaN(assetId)) {
+                  nextSelected.add(assetId);
+                }
+              }
+              setSelectedAssetIds(nextSelected);
+              onSelectionChange?.(nextSelected);
+            }}
+            onSortChange={(sortArg) => {
+              const normalized = normalizeSort(sortArg);
+              if (!normalized) {
+                setSort(null);
+                if (useServerSort) {
+                  void loadPage(1, undefined, null, filters);
+                }
+                return;
+              }
+              setSort(normalized);
+              if (useServerSort) {
+                void loadPage(1, undefined, normalized, filters);
+              }
+            }}
+            onFilterChange={(state) => {
+              const nextFilters = state || {};
+              const currentSig = JSON.stringify(filters || {});
+              const nextSig = JSON.stringify(nextFilters || {});
+              if (currentSig === nextSig) {
+                return;
+              }
+              setFilters(nextFilters);
+              if (useServerFilters) {
+                void loadPage(1, undefined, sort, nextFilters);
+              }
+            }}
+          />
+        )}
       </div>
     </section>
   );
