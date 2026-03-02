@@ -19,6 +19,19 @@ class SqlspecVectorRepo:
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
 
+    async def has_index_records(self, *, actor_id: int, dim: int) -> bool:
+        vec_table = self._vec_table_name(actor_id, dim)
+        async with session_scope(analysis=True) as session:
+            table_rows = await select(
+                session,
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+                [vec_table],
+            )
+            if not table_rows:
+                return False
+            data_rows = await select(session, f'SELECT 1 FROM "{vec_table}" LIMIT 1')
+        return bool(data_rows)
+
     async def upsert_asset_points(
         self,
         *,

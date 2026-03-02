@@ -5,7 +5,7 @@ POST http://127.0.0.1:8000/sources/run HTTP/1.1
 POST http://127.0.0.1:8000/analyzers/3/run HTTP/1.1
 
 ### First page of asset
-GET http://127.0.0.1:8000/views/default/assets?offset=0&limit=200 HTTP/1.1
+GET http://127.0.0.1:8000/assets?view_id=default&offset=0&limit=200 HTTP/1.1
 
 ### List actors
 GET http://127.0.0.1:8000/actors HTTP/1.1

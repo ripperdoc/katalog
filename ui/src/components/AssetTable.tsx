@@ -204,6 +204,34 @@ const headerLabelById: Record<string, string> = {
 
 const valueFormatterById: Record<string, HeaderObject["valueFormatter"]> = {
   "file/size": (props: ValueFormatterProps) => formatBytes(valueGetter(props)),
+  "search/cosine_similarity": (props: ValueFormatterProps) => {
+    const rawValue = props.row[props.accessor];
+    if (rawValue === null || rawValue === undefined) {
+      return "";
+    }
+    if (typeof rawValue === "string" && rawValue.trim().length === 0) {
+      return "";
+    }
+    const numericValue = typeof rawValue === "number" ? rawValue : Number(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      return "";
+    }
+    return numericValue.toFixed(3);
+  },
+  "search/distance": (props: ValueFormatterProps) => {
+    const rawValue = props.row[props.accessor];
+    if (rawValue === null || rawValue === undefined) {
+      return "";
+    }
+    if (typeof rawValue === "string" && rawValue.trim().length === 0) {
+      return "";
+    }
+    const numericValue = typeof rawValue === "number" ? rawValue : Number(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      return "";
+    }
+    return numericValue.toFixed(4);
+  },
 };
 
 export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
@@ -230,6 +258,9 @@ type FetchArgs = {
   sort?: [string, "asc" | "desc"][] | undefined;
   filters?: string[] | undefined;
   search?: string | undefined;
+  searchMode?: "fts" | "semantic" | "hybrid" | undefined;
+  searchMinScore?: number | undefined;
+  searchIncludeMatches?: boolean | undefined;
 };
 
 type FetchPage = (args: FetchArgs) => Promise<ViewAssetsResponse>;
@@ -274,6 +305,8 @@ const AssetTable = ({
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
   const [useServerFilters, setUseServerFilters] = useState<boolean>(true);
   const [useServerSort, setUseServerSort] = useState<boolean>(true);
+  const [semanticSearchEnabled, setSemanticSearchEnabled] = useState<boolean>(false);
+  const [semanticMinScoreInput, setSemanticMinScoreInput] = useState<string>("");
   const searchRef = useRef("");
   const lastRequestRef = useRef<string | null>(null);
 
@@ -328,12 +361,25 @@ const AssetTable = ({
         });
       }
       const searchParam = effectiveSearch.length > 0 ? effectiveSearch : undefined;
+      const searchModeParam =
+        searchParam && semanticSearchEnabled ? "semantic" : searchParam ? "fts" : undefined;
+      const parsedMinScore = Number(semanticMinScoreInput);
+      const searchMinScoreParam =
+        searchModeParam === "semantic" &&
+        semanticMinScoreInput.trim().length > 0 &&
+        Number.isFinite(parsedMinScore)
+          ? Math.max(0, Math.min(1, parsedMinScore))
+          : undefined;
+      const searchIncludeMatchesParam = searchModeParam === "semantic";
       const requestKey = JSON.stringify({
         page,
         limit,
         sort: sortParam,
         filters: filterParams,
         search: searchParam,
+        search_mode: searchModeParam,
+        search_min_score: searchMinScoreParam,
+        search_include_matches: searchIncludeMatchesParam,
       });
       if (!forceReload && lastRequestRef.current === requestKey) {
         return;
@@ -348,13 +394,110 @@ const AssetTable = ({
           sort: sortParam,
           filters: filterParams,
           search: searchParam,
+          searchMode: searchModeParam,
+          searchMinScore: searchMinScoreParam,
+          searchIncludeMatches: searchIncludeMatchesParam,
         });
         const fetchedRecords = (response.items ?? []).map((item) => ({
           ...item,
           id: item["asset/id"] ?? item.id,
         }));
-        setRecords(fetchedRecords);
-        setSchema(response.schema ?? []);
+        let normalizedSchema = response.schema ?? [];
+        let normalizedRecords = fetchedRecords;
+        if (searchModeParam === "semantic") {
+          const semanticColumns: ColumnDefinition[] = [
+            {
+              id: "search/cosine_similarity",
+              key: "search/cosine_similarity",
+              value_type: 2,
+              registry_id: null,
+              title: "Cosine",
+              description: "Top semantic match cosine similarity",
+              width: 110,
+              sortable: false,
+              filterable: false,
+              searchable: false,
+              plugin_id: null,
+            },
+            {
+              id: "search/distance",
+              key: "search/distance",
+              value_type: 2,
+              registry_id: null,
+              title: "Distance",
+              description: "Top semantic match L2 distance",
+              width: 120,
+              sortable: false,
+              filterable: false,
+              searchable: false,
+              plugin_id: null,
+            },
+            {
+              id: "search/match",
+              key: "search/match",
+              value_type: 0,
+              registry_id: null,
+              title: "Best Match",
+              description: "Top semantic match preview",
+              width: 420,
+              sortable: false,
+              filterable: false,
+              searchable: false,
+              plugin_id: null,
+            },
+          ];
+          const schemaIds = new Set(normalizedSchema.map((column) => column.id));
+          for (const column of semanticColumns) {
+            if (!schemaIds.has(column.id)) {
+              normalizedSchema = [...normalizedSchema, column];
+            }
+          }
+          normalizedRecords = fetchedRecords.map((item) => {
+            const topCosineRaw = (item as Record<string, unknown>).search_cosine_similarity;
+            const topMatchRaw = (item as Record<string, unknown>).search_match;
+            const topDistanceRaw = (item as Record<string, unknown>).search_distance;
+            let topCosine = Number.isFinite(Number(topCosineRaw))
+              ? Number(topCosineRaw)
+              : null;
+            let topDistance = Number.isFinite(Number(topDistanceRaw))
+              ? Number(topDistanceRaw)
+              : null;
+            let topMatch =
+              typeof topMatchRaw === "string"
+                ? topMatchRaw.replace(/\s+/g, " ").trim()
+                : "";
+            if (topMatch.length > 180) {
+              topMatch = `${topMatch.slice(0, 177)}...`;
+            }
+
+            const matchesRaw = (item as Record<string, unknown>).search_matches;
+            const matches = Array.isArray(matchesRaw)
+              ? (matchesRaw as Record<string, unknown>[])
+              : [];
+            for (const match of matches) {
+              const cosineValue = Number(match.cosine_similarity);
+              if (!Number.isFinite(cosineValue)) {
+                continue;
+              }
+              if (topCosine === null || cosineValue > topCosine) {
+                topCosine = cosineValue;
+                const distanceValue = Number(match.distance);
+                topDistance = Number.isFinite(distanceValue) ? distanceValue : topDistance;
+                const compact = String(match.text ?? "").replace(/\s+/g, " ").trim();
+                topMatch =
+                  compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
+              }
+            }
+            return {
+              ...item,
+              "search/cosine_similarity": topCosine,
+              "search/distance": topDistance,
+              "search/match": topMatch || null,
+            };
+          });
+        }
+        setRecords(normalizedRecords);
+        setSchema(normalizedSchema);
         setPagination({
           limit,
           page,
@@ -369,6 +512,9 @@ const AssetTable = ({
             sort: sortParam,
             filters: filterParams,
             search: effectiveSearch.length > 0 ? effectiveSearch : undefined,
+            searchMode: searchModeParam,
+            searchMinScore: searchMinScoreParam,
+            searchIncludeMatches: searchIncludeMatchesParam,
           },
         });
       } catch (err) {
@@ -387,6 +533,8 @@ const AssetTable = ({
       onLoadComplete,
       useServerFilters,
       useServerSort,
+      semanticSearchEnabled,
+      semanticMinScoreInput,
     ],
   );
 
@@ -399,7 +547,7 @@ const AssetTable = ({
       void loadPage(1, undefined, sort, filters, searchQuery);
     }, 1000);
     return () => window.clearTimeout(handle);
-  }, [searchQuery, loadPage, sort, filters]);
+  }, [searchQuery, semanticSearchEnabled, semanticMinScoreInput, loadPage, sort, filters]);
 
   return (
     <section className="panel">
@@ -437,6 +585,28 @@ const AssetTable = ({
           onKeyDown={(event) => event.stopPropagation()}
           aria-label="Search"
         />
+        <label className="toggle-inline">
+          <input
+            type="checkbox"
+            checked={semanticSearchEnabled}
+            onChange={(event) => setSemanticSearchEnabled(event.target.checked)}
+          />
+          Semantic
+        </label>
+        {semanticSearchEnabled && (
+          <input
+            type="number"
+            className="search-min-score"
+            min={0}
+            max={1}
+            step={0.01}
+            placeholder="Min cosine"
+            value={semanticMinScoreInput}
+            onChange={(event) => setSemanticMinScoreInput(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            aria-label="Semantic minimum cosine similarity"
+          />
+        )}
       </div>
       {error && <p className="error">{error}</p>}
 

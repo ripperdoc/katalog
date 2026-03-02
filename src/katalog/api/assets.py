@@ -1,8 +1,8 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence
 
 from fastapi import APIRouter, Query, Request
 
-from katalog.api.search import semantic_hits_for_query
+from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import MetadataKey
 from katalog.db.assets import get_asset_repo
 from katalog.editors.user_editor import ensure_user_editor
@@ -24,6 +24,7 @@ router = APIRouter()
 
 
 async def list_assets(query: AssetQuery) -> AssetsListResponse:
+    await ensure_fts_index_ready(query)
     if query.search_mode in {"semantic", "hybrid"} and query.search_granularity == "asset":
         return await _list_assets_semantic(query)
     view = get_view(query.view_id or "default")
@@ -132,6 +133,18 @@ async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
         seen_asset_ids.add(hit.asset_id)
         ordered_asset_ids.append(hit.asset_id)
 
+    top_hit_by_asset: dict[int, dict[str, Any]] = {}
+    for hit in hits:
+        best = top_hit_by_asset.get(hit.asset_id)
+        if best is None or float(hit.score) > float(best["score"]):
+            top_hit_by_asset[hit.asset_id] = {
+                "score": float(hit.score),
+                "cosine_similarity": float(hit.cosine_similarity),
+                "text": hit.text,
+                "distance": float(hit.distance),
+                "metadata_key": hit.metadata_key,
+            }
+
     start = int(query.offset)
     end = start + int(query.limit)
     page_asset_ids = ordered_asset_ids[start:end]
@@ -160,8 +173,31 @@ async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
     db = get_asset_repo()
     response = await db.list_assets_for_view_db(view, query=scoped_query)
     rank = {asset_id: index for index, asset_id in enumerate(page_asset_ids)}
-    response.items.sort(key=lambda item: rank.get(int(item.asset_id), 10**9))
-    if query.search_include_matches:
+    sorted_items = sorted(response.items, key=lambda item: rank.get(int(item.asset_id), 10**9))
+    updated_items: list[Any] = []
+    for item in sorted_items:
+        best = top_hit_by_asset.get(int(item.asset_id))
+        updates: dict[str, Any]
+        if best is None:
+            updates = {
+                "search_score": None,
+                "search_cosine_similarity": None,
+                "search_match": None,
+                "search_distance": None,
+                "search_metadata_key": None,
+            }
+        else:
+            updates = {
+                "search_score": float(best["score"]),
+                "search_cosine_similarity": float(best["cosine_similarity"]),
+                "search_match": str(best.get("text") or ""),
+                "search_distance": float(best["distance"]),
+                "search_metadata_key": str(best.get("metadata_key") or ""),
+            }
+        updated_items.append(item.model_copy(update=updates))
+
+    response.items = updated_items
+    if query.search_include_matches and response.items:
         matches_by_asset: dict[int, list[dict[str, Any]]] = {}
         for hit in hits:
             matches_by_asset.setdefault(hit.asset_id, []).append(
@@ -171,11 +207,16 @@ async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
                     "metadata_key": hit.metadata_key,
                     "distance": hit.distance,
                     "score": hit.score,
+                    "cosine_similarity": hit.cosine_similarity,
                     "text": hit.text,
                 }
             )
-        for item in response.items:
-            item.__dict__["search_matches"] = matches_by_asset.get(int(item.asset_id), [])
+        response.items = [
+            item.model_copy(
+                update={"search_matches": matches_by_asset.get(int(item.asset_id), [])}
+            )
+            for item in response.items
+        ]
     response.stats.total = len(ordered_asset_ids)
     response.stats.returned = len(response.items)
     response.pagination.offset = query.offset
@@ -185,11 +226,21 @@ async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
 
 @router.get("/assets")
 async def list_assets_rest(
+    view_id: Optional[str] = Query("default"),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     sort: list[str] | None = Query(None),
     filters: list[str] | None = Query(None),
     search: Optional[str] = Query(None),
+    search_mode: Literal["fts", "semantic", "hybrid"] | None = Query(None),
+    search_index: int | None = Query(None),
+    search_top_k: int | None = Query(None, ge=1),
+    search_metadata_keys: list[str] | None = Query(None),
+    search_min_score: float | None = Query(None),
+    search_include_matches: bool = Query(False),
+    search_dimension: int | None = Query(None, ge=1),
+    search_embedding_model: str | None = Query(None),
+    search_embedding_backend: Literal["preset", "fastembed"] | None = Query(None),
     metadata_actor_ids: list[int] | None = Query(None),
     metadata_include_removed: bool = Query(False),
     metadata_aggregation: Optional[str] = Query(None),
@@ -200,12 +251,21 @@ async def list_assets_rest(
 ):
     try:
         query = build_asset_query(
-            view_id="default",
+            view_id=view_id,
             offset=offset,
             limit=limit,
             sort=sort,
             filters=filters,
             search=search,
+            search_mode=search_mode,
+            search_index=search_index,
+            search_top_k=search_top_k,
+            search_metadata_keys=search_metadata_keys,
+            search_min_score=search_min_score,
+            search_include_matches=search_include_matches,
+            search_dimension=search_dimension,
+            search_embedding_model=search_embedding_model,
+            search_embedding_backend=search_embedding_backend,
             metadata_actor_ids=metadata_actor_ids,
             metadata_include_removed=metadata_include_removed,
             metadata_aggregation=metadata_aggregation,

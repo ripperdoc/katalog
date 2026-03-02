@@ -60,12 +60,10 @@ def create_mcp_server() -> FastMCP:
         return {"view": _jsonable(view)}
 
     @mcp.tool(
-        name="views.list_assets",
-        description=(
-            "List assets for a view with pagination, filtering, sorting and metadata projection options."
-        ),
+        name="assets.list",
+        description="List assets for a given view with pagination, filtering and sorting.",
     )
-    async def list_view_assets(
+    async def list_assets(
         view_id: str = "default",
         offset: int = 0,
         limit: int = 100,
@@ -92,40 +90,12 @@ def create_mcp_server() -> FastMCP:
                 metadata_aggregation=metadata_aggregation,
                 metadata_include_counts=metadata_include_counts,
             )
-            response = await views.list_assets_for_view(view_id=view_id, query=query)
+            response = await assets.list_assets(query=query)
         except ApiError as exc:
             raise _tool_error(exc) from exc
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
         return _jsonable(response)
-
-    @mcp.tool(
-        name="assets.list",
-        description="List assets from the default view.",
-    )
-    async def list_assets(
-        offset: int = 0,
-        limit: int = 100,
-        sort: list[str] | None = None,
-        filters: list[str] | None = None,
-        search: str | None = None,
-        metadata_actor_ids: list[int] | None = None,
-        metadata_include_removed: bool = False,
-        metadata_aggregation: Literal["latest", "array", "objects"] | None = None,
-        metadata_include_counts: bool = True,
-    ) -> dict[str, Any]:
-        return await list_view_assets(
-            view_id="default",
-            offset=offset,
-            limit=limit,
-            sort=sort,
-            filters=filters,
-            search=search,
-            metadata_actor_ids=metadata_actor_ids,
-            metadata_include_removed=metadata_include_removed,
-            metadata_aggregation=metadata_aggregation,
-            metadata_include_counts=metadata_include_counts,
-        )
 
     @mcp.tool(
         name="assets.grouped",

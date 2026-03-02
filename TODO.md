@@ -6,6 +6,8 @@
 - [ ] Endpoint that can show some space stats about the database (to understand why the size is like
       it is)
 - [ ] Kreuzberg returns inline SVG images for HTML pages, too large, can be removed?
+- [ ] Test the ability to crawl URLs into multiple URLs, and how do we list child assets when
+      scanning recursively?
 - [ ] JSONList/HTTPSource is not providing Path, Filename, Created and Modified for items
 - [ ] Fix partly broken `react-jsonschema-form`s that render the current config form for plugins.
 - [ ] Unify workflow, processor, scan and analyzer runtimes if possible, and include batch

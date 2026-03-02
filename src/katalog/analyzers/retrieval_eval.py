@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.api.assets import list_assets as list_assets_api
 from katalog.api.metadata import list_metadata as list_metadata_api
+from katalog.api.search import l2_distance_to_cosine_similarity
 from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
 from katalog.constants.metadata import (
     DOC_CHUNK_TEXT,
@@ -163,6 +164,11 @@ class RetrievalEvalAnalyzer(Analyzer):
                     "top_hit_asset_id": top_hit.asset_id if top_hit is not None else "",
                     "top_hit_metadata_id": top_hit.metadata_id if top_hit is not None else "",
                     "top_hit_distance": top_hit.distance if top_hit is not None else "",
+                    "top_hit_cosine_similarity": (
+                        l2_distance_to_cosine_similarity(top_hit.distance)
+                        if top_hit is not None
+                        else ""
+                    ),
                     "top_hit_text": top_hit.source_text if top_hit is not None else "",
                 }
             )
@@ -337,7 +343,7 @@ class RetrievalEvalAnalyzer(Analyzer):
         for hit in hits:
             if int(hit.metadata_key_id) not in key_id_set:
                 continue
-            score = 1.0 / (1.0 + max(0.0, float(hit.distance)))
+            score = l2_distance_to_cosine_similarity(float(hit.distance))
             if self.config.min_score is not None and score < float(self.config.min_score):
                 continue
             out.append(hit)

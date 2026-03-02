@@ -22,6 +22,32 @@ class SemanticHit:
     text: str
     distance: float
     score: float
+    cosine_similarity: float
+
+
+def l2_distance_to_cosine_similarity(distance: float) -> float:
+    """Map L2 distance between unit-normalized vectors to cosine similarity."""
+    clamped_distance = max(0.0, float(distance))
+    cosine = 1.0 - ((clamped_distance * clamped_distance) / 2.0)
+    return max(-1.0, min(1.0, cosine))
+
+
+async def ensure_fts_index_ready(query: AssetQuery) -> None:
+    if query.search_mode != "fts":
+        return
+    search_text = (query.search or "").strip()
+    if not search_text:
+        return
+    asset_db = get_asset_repo()
+    if await asset_db.has_fts_records():
+        return
+    raise ApiError(
+        status_code=409,
+        detail=(
+            "FTS search index has no records. "
+            "Run the search index processor to generate 'asset/search_doc' entries."
+        ),
+    )
 
 
 async def semantic_hits_for_query(query: AssetQuery) -> tuple[list[SemanticHit], int, int]:
@@ -40,10 +66,23 @@ async def semantic_hits_for_query(query: AssetQuery) -> tuple[list[SemanticHit],
             detail=f"Vector search is not ready: {reason or 'unknown reason'}",
         )
 
-    asset_db = get_asset_repo()
     scope_asset_ids = await _scope_asset_ids(query)
 
     vector_actor_id = await _resolve_vector_actor_id(query.search_index)
+    has_records = await vec_db.has_index_records(
+        actor_id=vector_actor_id,
+        dim=int(query.search_dimension),
+    )
+    if not has_records:
+        raise ApiError(
+            status_code=409,
+            detail=(
+                f"Vector index has no records for actor_id={vector_actor_id} "
+                f"and dimension={int(query.search_dimension)}. "
+                "Run the vector index processor to build embeddings first."
+            ),
+        )
+
     top_k = query.search_top_k or max(50, query.limit * 5)
     query_vector = await embed_text_kreuzberg(
         search_text,
@@ -123,8 +162,8 @@ def _filter_hits(
     for hit in hits:
         if key_ids is not None and hit.metadata_key_id not in key_ids:
             continue
-        score = 1.0 / (1.0 + max(0.0, float(hit.distance)))
-        if min_score is not None and score < float(min_score):
+        cosine_similarity = l2_distance_to_cosine_similarity(float(hit.distance))
+        if min_score is not None and cosine_similarity < float(min_score):
             continue
         try:
             key = str(get_metadata_def_by_id(hit.metadata_key_id).key)
@@ -138,7 +177,8 @@ def _filter_hits(
                 metadata_key=key,
                 text=hit.source_text,
                 distance=float(hit.distance),
-                score=score,
+                score=cosine_similarity,
+                cosine_similarity=cosine_similarity,
             )
         )
     return filtered

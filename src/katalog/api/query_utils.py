@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from katalog.models.query import AssetQuery
 
 
@@ -35,6 +37,15 @@ def build_asset_query(
     metadata_include_linked_sidecars: bool | None = None,
     columns: list[str] | None = None,
     include_lost_assets: bool | None = None,
+    search_mode: Literal["fts", "semantic", "hybrid"] | None = None,
+    search_index: int | None = None,
+    search_top_k: int | None = None,
+    search_metadata_keys: list[str] | None = None,
+    search_min_score: float | None = None,
+    search_include_matches: bool | None = None,
+    search_dimension: int | None = None,
+    search_embedding_model: str | None = None,
+    search_embedding_backend: Literal["preset", "fastembed"] | None = None,
 ) -> AssetQuery:
     payload: dict[str, object] = {
         "view_id": view_id,
@@ -59,4 +70,22 @@ def build_asset_query(
         payload["columns"] = columns
     if include_lost_assets is not None:
         payload["include_lost_assets"] = include_lost_assets
+    if search_mode is not None:
+        payload["search_mode"] = search_mode
+    if search_index is not None:
+        payload["search_index"] = search_index
+    if search_top_k is not None:
+        payload["search_top_k"] = search_top_k
+    if search_metadata_keys is not None:
+        payload["search_metadata_keys"] = search_metadata_keys
+    if search_min_score is not None:
+        payload["search_min_score"] = search_min_score
+    if search_include_matches is not None:
+        payload["search_include_matches"] = search_include_matches
+    if search_dimension is not None:
+        payload["search_dimension"] = search_dimension
+    if search_embedding_model is not None:
+        payload["search_embedding_model"] = search_embedding_model
+    if search_embedding_backend is not None:
+        payload["search_embedding_backend"] = search_embedding_backend
     return AssetQuery.model_validate(payload)

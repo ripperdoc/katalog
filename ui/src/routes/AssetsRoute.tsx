@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AssetTable from "../components/AssetTable";
 import AppHeader from "../components/AppHeader";
-import { createCollection, fetchViewAssets } from "../api/client";
+import { createCollection, fetchAssets } from "../api/client";
 import type { ViewAssetsResponse } from "../types/api";
 
 const DEFAULT_VIEW_ID = "default";
@@ -16,6 +16,9 @@ function AssetsRoute() {
     sort?: [string, "asc" | "desc"][];
     filters?: string[];
     search?: string;
+    searchMode?: "fts" | "semantic" | "hybrid";
+    searchMinScore?: number;
+    searchIncludeMatches?: boolean;
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
@@ -27,19 +30,28 @@ function AssetsRoute() {
       sort,
       filters,
       search,
+      searchMode,
+      searchMinScore,
+      searchIncludeMatches,
     }: {
       offset: number;
       limit: number;
       sort?: [string, "asc" | "desc"][];
       filters?: string[];
       search?: string;
+      searchMode?: "fts" | "semantic" | "hybrid";
+      searchMinScore?: number;
+      searchIncludeMatches?: boolean;
     }) =>
-      fetchViewAssets(DEFAULT_VIEW_ID, {
+      fetchAssets(DEFAULT_VIEW_ID, {
         offset,
         limit,
         sort,
         filters,
         search,
+        searchMode,
+        searchMinScore,
+        searchIncludeMatches,
       }),
     [],
   );
@@ -96,6 +108,9 @@ function AssetsRoute() {
         sort: lastParams?.sort,
         filters: lastParams?.filters,
         search: lastParams?.search,
+        search_mode: lastParams?.searchMode,
+        search_min_score: lastParams?.searchMinScore,
+        search_include_matches: lastParams?.searchIncludeMatches,
       };
       const source = {
         query: {

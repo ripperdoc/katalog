@@ -22,6 +22,7 @@ class VectorSearchHit:
 
 class VectorRepo(Protocol):
     async def is_ready(self) -> tuple[bool, str | None]: ...
+    async def has_index_records(self, *, actor_id: int, dim: int) -> bool: ...
 
     async def upsert_asset_points(
         self,

@@ -37,7 +37,7 @@ async function handleResponse(response: Response) {
   return response.json();
 }
 
-export async function fetchViewAssets(
+export async function fetchAssets(
   viewId: string,
   {
     offset = 0,
@@ -45,12 +45,18 @@ export async function fetchViewAssets(
     sort,
     filters,
     search,
+    searchMode,
+    searchMinScore,
+    searchIncludeMatches,
   }: {
     offset?: number;
     limit?: number;
     sort?: [string, "asc" | "desc"][] | undefined;
     filters?: string[] | undefined;
     search?: string | undefined;
+    searchMode?: "fts" | "semantic" | "hybrid" | undefined;
+    searchMinScore?: number | undefined;
+    searchIncludeMatches?: boolean | undefined;
   },
 ): Promise<ViewAssetsResponse> {
   const params = new URLSearchParams();
@@ -67,7 +73,17 @@ export async function fetchViewAssets(
   if (search) {
     params.set("search", search);
   }
-  const response = await fetch(`${API_BASE}/views/${encodeURIComponent(viewId)}/assets?${params}`, {
+  if (searchMode) {
+    params.set("search_mode", searchMode);
+  }
+  if (searchMinScore !== undefined) {
+    params.set("search_min_score", String(searchMinScore));
+  }
+  if (searchIncludeMatches) {
+    params.set("search_include_matches", "true");
+  }
+  params.set("view_id", viewId);
+  const response = await fetch(`${API_BASE}/assets?${params}`, {
     headers: { Accept: "application/json" },
   });
   return handleResponse(response);

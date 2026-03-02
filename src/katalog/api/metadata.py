@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
 from katalog.api.helpers import ApiError
-from katalog.api.search import semantic_hits_for_query
+from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import (
     MetadataDef,
     editable_metadata_schema,
@@ -27,6 +27,7 @@ async def metadata_registry() -> dict[str, dict[int, MetadataDef]]:
 
 
 async def list_metadata(query: AssetQuery) -> dict:
+    await ensure_fts_index_ready(query)
     if query.search_granularity != "metadata":
         raise ApiError(
             status_code=400,
@@ -60,6 +61,7 @@ async def _list_metadata_semantic(query: AssetQuery) -> dict:
                 "value": hit.text,
                 "distance": hit.distance,
                 "score": hit.score,
+                "cosine_similarity": hit.cosine_similarity,
                 "text": hit.text,
                 "asset_namespace": asset.namespace if asset else None,
                 "asset_external_id": asset.external_id if asset else None,
@@ -149,6 +151,7 @@ async def _list_metadata_direct(query: AssetQuery) -> dict:
                     "value": value,
                     "distance": None,
                     "score": None,
+                    "cosine_similarity": None,
                     "text": text,
                     "actor_id": int(entry.actor_id) if entry.actor_id is not None else None,
                     "changeset_id": int(entry.changeset_id)

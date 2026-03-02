@@ -239,6 +239,17 @@ def filter_conditions(filters):
                 }
                 conditions.append(f"{column_name} {op_map[operator]} ?")
                 filter_params.append(cast_value(value))
+            elif operator in {"in", "notIn"}:
+                raw_values = values
+                if not raw_values and value is not None:
+                    raw_values = [value]
+                if not raw_values:
+                    raise ValueError("Filter values are required")
+                cast_values = [cast_value(item) for item in raw_values]
+                placeholders = ", ".join("?" for _ in cast_values)
+                in_op = "IN" if operator == "in" else "NOT IN"
+                conditions.append(f"{column_name} {in_op} ({placeholders})")
+                filter_params.extend(cast_values)
             elif col_type == "str" and operator in {
                 "contains",
                 "notContains",

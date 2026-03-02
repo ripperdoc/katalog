@@ -97,6 +97,21 @@ async def _has_canonical_merges(session, asset_table: str) -> bool:
 
 
 class SqlspecAssetRepo:
+    async def has_fts_records(self) -> bool:
+        async with session_scope() as session:
+            table_rows = await select(
+                session,
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+                ["asset_search"],
+            )
+            if not table_rows:
+                return False
+            data_rows = await select(
+                session,
+                "SELECT 1 FROM asset_search LIMIT 1",
+            )
+        return bool(data_rows)
+
     async def get_or_none(self, **filters: Any) -> Asset | None:
         rows = await self.list_rows(limit=1, **filters)
         return rows[0] if rows else None

@@ -388,15 +388,44 @@ footer {
 }
 
 .search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
 .search-bar input {
-  width: 100%;
+  flex: 1;
+  width: auto;
   border: 1px solid #cbd5f5;
   border-radius: 0.5rem;
   padding: 0.6rem 0.8rem;
   font-size: 1rem;
+  background-color: #fff;
+}
+
+.search-min-score {
+  width: 8.5rem;
+  max-width: 8.5rem;
+}
+
+.toggle-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.toggle-inline input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.25rem;
   background-color: #fff;
 }
 

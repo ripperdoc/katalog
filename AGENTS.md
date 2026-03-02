@@ -9,12 +9,10 @@
   suggesting something with large ramifications.
 - Always ask the user if a requirement appears unclear.
 - If solving a bug, explain root cause in addition to fixing the bug.
-- Run tests using `pytest` CLI or try it in terminal to verify issues or check that code is working
-- The `katalog` CLI can be a fast, easy way to run API-level checks against a workspace
 - Don't write tests unless explicitly asked for it
 - Avoid code bloat and complexity by following these rules of thumb:
   - Better to modify an existing API / method / property than add a similar but different one. Ask
-    if the API change would be significant.
+    user if the API change would be significant.
   - If a change becomes complex because of workarounds to still support existing APIs, stop and
     check if there is a better way
   - Don't assume backward compatibility, ask if it's necessary
@@ -24,6 +22,8 @@
 
 # Code in this repo
 
+- Run tests using `pytest` CLI or try it in terminal to verify issues or check that code is working
+- The `katalog` CLI can be a fast, easy way to run API-level checks against a workspace
 - Don't remove comments or commented out code unless explicitly told to
 - Write comments if some change you are doing is not obvious
 - Prefer f-strings vs other ways of string formatting
