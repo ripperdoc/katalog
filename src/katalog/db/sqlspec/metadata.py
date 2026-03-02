@@ -6,7 +6,6 @@ from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.tables import METADATA_TABLE
 from katalog.db.sqlspec.sql_helpers import select
 from katalog.models.metadata import _metadata_to_row, _normalize_metadata_row, Metadata
-from katalog.constants.metadata import ASSET_SEARCH_DOC, get_metadata_id
 from katalog.db.sqlspec.sql_helpers import execute
 from typing import Iterable
 
@@ -124,8 +123,6 @@ class SqlspecMetadataRepo:
         existing_metadata: Sequence[Metadata] | None = None,
         session: Any | None = None,
     ) -> set["MetadataKey"]:
-        search_doc_id = get_metadata_id(ASSET_SEARCH_DOC)
-
         async def _persist(active_session: Any, *, commit: bool) -> set["MetadataKey"]:
             resolved_asset = changes.asset
             if resolved_asset is None:
@@ -141,38 +138,7 @@ class SqlspecMetadataRepo:
                 existing_metadata=loaded_metadata,
             )
             if to_create:
-                search_rows: list[dict[str, Any]] = []
-                normal_rows: list[Metadata] = []
-                delete_rows: list[dict[str, Any]] = []
-                for entry in to_create:
-                    if entry.metadata_key_id == search_doc_id:
-                        if entry.removed or entry.value is None:
-                            if entry.asset_id is not None:
-                                delete_rows.append({"rowid": int(entry.asset_id)})
-                            continue
-                        if entry.asset_id is not None:
-                            search_rows.append(
-                                {
-                                    "rowid": int(entry.asset_id),
-                                    "doc": str(entry.value),
-                                }
-                            )
-                        continue
-                    normal_rows.append(entry)
-
-                if normal_rows:
-                    await self.bulk_create(normal_rows, session=active_session)
-                if search_rows:
-                    await active_session.execute_many(
-                        "INSERT OR REPLACE INTO asset_search(rowid, doc) "
-                        "VALUES (:rowid, :doc)",
-                        search_rows,
-                    )
-                if delete_rows:
-                    await active_session.execute_many(
-                        "DELETE FROM asset_search WHERE rowid = :rowid",
-                        delete_rows,
-                    )
+                await self.bulk_create(to_create, session=active_session)
                 if commit:
                     await active_session.commit()
             return changed_keys
@@ -190,14 +156,10 @@ class SqlspecMetadataRepo:
         *,
         session: Any | None = None,
     ) -> tuple[int, int, int]:
-        search_doc_id = get_metadata_id(ASSET_SEARCH_DOC)
-
         async def _persist_batch(
             active_session: Any, *, commit: bool
         ) -> tuple[int, int, int]:
             normal_rows: list[Metadata] = []
-            search_rows: list[dict[str, int | str]] = []
-            delete_rows: list[dict[str, int]] = []
             for changes in changes_list:
                 asset = changes.asset
                 if asset is None:
@@ -209,38 +171,13 @@ class SqlspecMetadataRepo:
                     changeset=changeset,
                     existing_metadata=existing,
                 )
-                for entry in to_create:
-                    if entry.metadata_key_id == search_doc_id:
-                        if entry.removed or entry.value is None:
-                            if entry.asset_id is not None:
-                                delete_rows.append({"rowid": int(entry.asset_id)})
-                            continue
-                        if entry.asset_id is not None:
-                            search_rows.append(
-                                {
-                                    "rowid": int(entry.asset_id),
-                                    "doc": str(entry.value),
-                                }
-                            )
-                        continue
-                    normal_rows.append(entry)
+                normal_rows.extend(to_create)
 
             if normal_rows:
                 await self.bulk_create(normal_rows, session=active_session)
-            if search_rows:
-                await active_session.execute_many(
-                    "INSERT OR REPLACE INTO asset_search(rowid, doc) "
-                    "VALUES (:rowid, :doc)",
-                    search_rows,
-                )
-            if delete_rows:
-                await active_session.execute_many(
-                    "DELETE FROM asset_search WHERE rowid = :rowid",
-                    delete_rows,
-                )
             if commit:
                 await active_session.commit()
-            return len(normal_rows), len(search_rows), len(delete_rows)
+            return len(normal_rows), 0, 0
 
         if session is not None:
             return await _persist_batch(session, commit=False)

@@ -16,6 +16,7 @@ from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError
 from katalog.api.query_utils import build_asset_query
+from katalog.api.search import ensure_fts_index_ready
 from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
 from katalog.db.asset_collections import get_asset_collection_repo
 from katalog.db.assets import get_asset_repo
@@ -101,6 +102,7 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
             ) from exc
     else:
         query = AssetQuery.model_validate({"view_id": "default"})
+    await ensure_fts_index_ready(query)
 
     unique_asset_ids = sorted(set(asset_ids))
     query_total_count = None
@@ -242,6 +244,7 @@ async def list_collection_assets(
         filters = list(query.filters or [])
         filters.append(collection_filter)
         query_db = query.model_copy(update={"filters": filters})
+        await ensure_fts_index_ready(query_db)
         # TODO: metadata_actor_ids support is intentionally skipped for now.
         asset_db = get_asset_repo()
         return await asset_db.list_assets_for_view_db(

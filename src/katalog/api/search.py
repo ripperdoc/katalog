@@ -6,6 +6,7 @@ from time import perf_counter
 from katalog.constants.metadata import get_metadata_def_by_id, get_metadata_id
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
+from katalog.db.fts import get_fts_repo
 from katalog.db.vectors import VectorSearchHit, get_vector_repo
 from katalog.models.query import AssetQuery
 from katalog.models import ActorType
@@ -38,14 +39,22 @@ async def ensure_fts_index_ready(query: AssetQuery) -> None:
     search_text = (query.search or "").strip()
     if not search_text:
         return
-    asset_db = get_asset_repo()
-    if await asset_db.has_fts_records():
+    fts_db = get_fts_repo()
+    ready, reason = await fts_db.is_ready()
+    if not ready:
+        raise ApiError(
+            status_code=409,
+            detail=f"FTS search is not ready: {reason or 'unknown reason'}",
+        )
+    search_actor_id = await _resolve_fts_actor_id(query.search_index)
+    if await fts_db.has_index_records(actor_id=search_actor_id):
+        query.search_index = search_actor_id
         return
     raise ApiError(
         status_code=409,
         detail=(
-            "FTS search index has no records. "
-            "Run the search index processor to generate 'asset/search_doc' entries."
+            f"FTS index has no records for actor_id={search_actor_id}. "
+            "Run the search index processor to build metadata-level search docs."
         ),
     )
 
@@ -126,6 +135,29 @@ async def _resolve_vector_actor_id(search_index: int | None) -> int:
     raise ApiError(
         status_code=400,
         detail="Multiple vector index actors found; specify search_index as actor id.",
+    )
+
+
+async def _resolve_fts_actor_id(search_index: int | None) -> int:
+    if search_index is not None:
+        return int(search_index)
+    actor_db = get_actor_repo()
+    actors = await actor_db.list_rows(
+        type=ActorType.PROCESSOR,
+        plugin_id="katalog.processors.search_index.FullTextSearchIndexProcessor",
+        disabled=0,
+        order_by="id ASC",
+    )
+    if len(actors) == 1 and actors[0].id is not None:
+        return int(actors[0].id)
+    if not actors:
+        raise ApiError(
+            status_code=400,
+            detail="No search index actor found. Configure and run a search index processor first.",
+        )
+    raise ApiError(
+        status_code=400,
+        detail="Multiple search index actors found; specify search_index as actor id.",
     )
 
 

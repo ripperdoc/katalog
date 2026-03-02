@@ -33,6 +33,7 @@ from katalog.db.metadata import get_metadata_repo
 from katalog.db.sqlspec.query_fields import asset_filter_fields, asset_sort_fields
 from katalog.db.sqlspec.query_filters import filter_conditions
 from katalog.db.sqlspec.query_search import fts5_query_from_user_text
+from katalog.db.sqlspec.fts import fts_table_name
 from katalog.db.sqlspec.query_sort import sort_conditions
 from katalog.db.sqlspec.query_values import decode_metadata_value
 
@@ -42,6 +43,8 @@ def _build_assets_where(
     actor_id: int | None,
     filters: list[Any] | None,
     search: str | None,
+    search_mode: str | None,
+    search_index: int | None,
     include_lost_assets: bool,
 ) -> tuple[str, list[Any]]:
     conditions, filter_params = filter_conditions(filters)
@@ -53,11 +56,22 @@ def _build_assets_where(
         filter_params.extend([actor_id])
 
     if search is not None and search.strip():
+        if search_mode != "fts":
+            raise ValueError("search requires search_mode='fts' on asset query path")
+        if search_index is None:
+            raise ValueError("search_index is required for fts search")
         fts_query = fts5_query_from_user_text(search)
         if not fts_query:
             raise ValueError("Invalid search query")
+        table = fts_table_name(int(search_index))
         conditions.append(
-            "a.id IN (SELECT rowid FROM asset_search WHERE asset_search MATCH ?)"
+            f"""a.id IN (
+                SELECT DISTINCT m.asset_id
+                FROM "{table}" f
+                JOIN {METADATA_TABLE} m ON m.id = f.rowid
+                WHERE "{table}" MATCH ?
+                  AND m.removed = 0
+            )"""
         )
         filter_params.append(fts_query)
 
@@ -97,21 +111,6 @@ async def _has_canonical_merges(session, asset_table: str) -> bool:
 
 
 class SqlspecAssetRepo:
-    async def has_fts_records(self) -> bool:
-        async with session_scope() as session:
-            table_rows = await select(
-                session,
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
-                ["asset_search"],
-            )
-            if not table_rows:
-                return False
-            data_rows = await select(
-                session,
-                "SELECT 1 FROM asset_search LIMIT 1",
-            )
-        return bool(data_rows)
-
     async def get_or_none(self, **filters: Any) -> Asset | None:
         rows = await self.list_rows(limit=1, **filters)
         return rows[0] if rows else None
@@ -316,6 +315,8 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
+            search_mode=query.search_mode,
+            search_index=query.search_index,
             include_lost_assets=query.include_lost_assets,
         )
 
@@ -343,6 +344,8 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
+            search_mode=query.search_mode,
+            search_index=query.search_index,
             include_lost_assets=query.include_lost_assets,
         )
 
@@ -419,6 +422,8 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=filters,
             search=search,
+            search_mode=query.search_mode,
+            search_index=query.search_index,
             include_lost_assets=query.include_lost_assets,
         )
         metadata_keys = [
@@ -789,6 +794,8 @@ class SqlspecAssetRepo:
             actor_id=None,
             filters=filters,
             search=search,
+            search_mode=query.search_mode,
+            search_index=query.search_index,
             include_lost_assets=query.include_lost_assets,
         )
 

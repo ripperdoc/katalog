@@ -3,22 +3,19 @@ from __future__ import annotations
 from typing import FrozenSet
 
 from katalog.constants.metadata import (
-    ASSET_CANONICAL_URI,
-    ASSET_EXTERNAL_ID,
-    ASSET_NAMESPACE,
     ASSET_SEARCH_DOC,
     METADATA_REGISTRY,
     MetadataKey,
     MetadataType,
-    get_metadata_def_by_key,
     get_metadata_id,
 )
-from katalog.models import Metadata, MetadataChanges, OpStatus
+from katalog.db.fts import FtsPoint, get_fts_repo
+from katalog.models import MetadataChanges, OpStatus
 from katalog.processors.base import Processor, ProcessorResult
 
 
-class SearchIndexProcessor(Processor):
-    plugin_id = "katalog.processors.search_index.SearchIndexProcessor"
+class FullTextSearchIndexProcessor(Processor):
+    plugin_id = "katalog.processors.search_index.FullTextSearchIndexProcessor"
     execution_mode = "cpu"
 
     def __init__(self, actor, **config):
@@ -31,7 +28,11 @@ class SearchIndexProcessor(Processor):
 
     @property
     def outputs(self) -> FrozenSet[MetadataKey]:
-        return frozenset({ASSET_SEARCH_DOC})
+        return frozenset()
+
+    async def is_ready(self) -> tuple[bool, str | None]:
+        repo = get_fts_repo()
+        return await repo.is_ready()
 
     def should_run(self, changes: MetadataChanges) -> bool:
         changed = changes.changed_keys()
@@ -46,49 +47,49 @@ class SearchIndexProcessor(Processor):
             return ProcessorResult(
                 status=OpStatus.ERROR, message="MetadataChanges.asset is missing"
             )
-        parts: list[str] = []
-        if str(ASSET_NAMESPACE) in self._searchable_keys and asset.namespace:
-            parts.append(str(asset.namespace))
-        if str(ASSET_EXTERNAL_ID) in self._searchable_keys and asset.external_id:
-            parts.append(str(asset.external_id))
-        if str(ASSET_CANONICAL_URI) in self._searchable_keys and asset.canonical_uri:
-            parts.append(str(asset.canonical_uri))
+        if asset.id is None:
+            return ProcessorResult(status=OpStatus.ERROR, message="Asset id is missing")
+        if self.actor.id is None:
+            return ProcessorResult(status=OpStatus.ERROR, message="Actor id is missing")
 
         current = changes.current()
+        points: list[FtsPoint] = []
+        indexed_key_ids: list[int] = []
         for key in self._searchable_keys:
-            if key in {str(ASSET_NAMESPACE), str(ASSET_EXTERNAL_ID), str(ASSET_CANONICAL_URI)}:
-                continue
+            metadata_key_id = int(get_metadata_id(MetadataKey(key)))
+            indexed_key_ids.append(metadata_key_id)
             entries = current.get(key) or []
             for entry in entries:
+                if entry.id is None:
+                    continue
                 value = entry.value
                 if value is None:
                     continue
-                if hasattr(value, "isoformat"):
-                    parts.append(value.isoformat())
-                else:
-                    parts.append(str(value))
+                text = value.isoformat() if hasattr(value, "isoformat") else str(value)
+                cleaned = text.strip()
+                if not cleaned:
+                    continue
+                points.append(FtsPoint(metadata_id=int(entry.id), text=cleaned))
 
-        doc = " ".join(parts)
-        metadata_key_id = get_metadata_id(ASSET_SEARCH_DOC)
-        definition = get_metadata_def_by_key(ASSET_SEARCH_DOC)
-        metadata = Metadata(
-            metadata_key_id=metadata_key_id,
-            value_type=definition.value_type,
-            actor_id=self.actor.id,
-            removed=False,
+        repo = get_fts_repo()
+        indexed = await repo.upsert_asset_points(
+            asset_id=int(asset.id),
+            actor_id=int(self.actor.id),
+            metadata_key_ids=indexed_key_ids,
+            points=points,
         )
-        metadata.set_value(doc)
-        return ProcessorResult(metadata=[metadata])
+        return ProcessorResult(message=f"Indexed {indexed} metadata values")
 
     def _resolve_searchable_keys(self) -> set[str]:
         keys: set[str] = set()
         for key, definition in METADATA_REGISTRY.items():
-            if key == ASSET_SEARCH_DOC:
+            key_str = str(key)
+            if key == ASSET_SEARCH_DOC or key_str.startswith("asset/"):
                 continue
             if definition.searchable is not None:
                 if definition.searchable:
-                    keys.add(str(key))
+                    keys.add(key_str)
                 continue
             if definition.value_type in {MetadataType.STRING, MetadataType.JSON}:
-                keys.add(str(key))
+                keys.add(key_str)
         return keys

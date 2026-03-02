@@ -1,3 +1,5 @@
+from time import perf_counter
+
 from fastapi import APIRouter, Request
 
 from katalog.api.helpers import ApiError
@@ -5,9 +7,12 @@ from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import (
     MetadataDef,
     editable_metadata_schema,
+    get_metadata_def_by_id,
+    get_metadata_id,
     metadata_registry_by_id_for_current_db,
 )
 from katalog.db.assets import get_asset_repo
+from katalog.db.fts import get_fts_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.models import MetadataChanges
 from katalog.models.query import EditableMetadataSchemaResponse, AssetQuery, Pagination, QueryStats
@@ -33,9 +38,104 @@ async def list_metadata(query: AssetQuery) -> dict:
             status_code=400,
             detail="search_granularity must be 'metadata' for metadata search",
         )
+    if query.search_mode == "fts" and (query.search or "").strip():
+        return await _list_metadata_fts(query)
     if query.search_mode in {"semantic", "hybrid"}:
         return await _list_metadata_semantic(query)
     return await _list_metadata_direct(query)
+
+
+async def _list_metadata_fts(query: AssetQuery) -> dict:
+    started = perf_counter()
+    search_text = (query.search or "").strip()
+    if not search_text:
+        stats = QueryStats(returned=0, total=0, duration_ms=0)
+        pagination = Pagination(offset=query.offset, limit=query.limit)
+        return {
+            "items": [],
+            "stats": stats.model_dump(),
+            "pagination": pagination.model_dump(),
+        }
+
+    if query.search_index is None:
+        raise ApiError(status_code=400, detail="search_index is required for fts metadata search")
+
+    asset_db = get_asset_repo()
+    scope_asset_ids: list[int] | None = None
+    if query.filters:
+        scoped_query = query.model_copy(
+            update={
+                "search": None,
+                "search_granularity": "asset",
+                "offset": 0,
+                "limit": 1_000_000,
+                "sort": None,
+                "group_by": None,
+            }
+        )
+        scope_asset_ids = await asset_db.list_asset_ids_for_query(query=scoped_query)
+        if not scope_asset_ids:
+            stats = QueryStats(returned=0, total=0, duration_ms=int((perf_counter() - started) * 1000))
+            pagination = Pagination(offset=query.offset, limit=query.limit)
+            return {
+                "items": [],
+                "stats": stats.model_dump(),
+                "pagination": pagination.model_dump(),
+            }
+
+    metadata_key_ids = (
+        [int(get_metadata_id(key)) for key in (query.search_metadata_keys or [])]
+        or None
+    )
+    fts_db = get_fts_repo()
+    hits, total = await fts_db.search(
+        actor_id=int(query.search_index),
+        query_text=search_text,
+        limit=int(query.limit),
+        offset=int(query.offset),
+        asset_ids=scope_asset_ids,
+        metadata_key_ids=metadata_key_ids,
+    )
+    asset_ids = sorted({hit.asset_id for hit in hits})
+    assets = await asset_db.list_rows(order_by="id", id__in=asset_ids) if asset_ids else []
+    assets_by_id = {int(asset.id): asset for asset in assets if asset.id is not None}
+
+    items = []
+    for hit in hits:
+        asset = assets_by_id.get(hit.asset_id)
+        try:
+            metadata_key = str(get_metadata_def_by_id(hit.metadata_key_id).key)
+        except Exception:  # noqa: BLE001
+            metadata_key = str(hit.metadata_key_id)
+        items.append(
+            {
+                "asset_id": hit.asset_id,
+                "metadata_id": hit.metadata_id,
+                "metadata_key_id": hit.metadata_key_id,
+                "metadata_key": metadata_key,
+                "value": hit.source_text,
+                "text": hit.source_text,
+                "fts_rank": hit.rank,
+                "distance": None,
+                "score": None,
+                "cosine_similarity": None,
+                "asset_namespace": asset.namespace if asset else None,
+                "asset_external_id": asset.external_id if asset else None,
+                "asset_canonical_uri": asset.canonical_uri if asset else None,
+            }
+        )
+
+    stats = QueryStats(
+        returned=len(items),
+        total=total,
+        duration_ms=int((perf_counter() - started) * 1000),
+    )
+    pagination = Pagination(offset=query.offset, limit=query.limit)
+    return {
+        "items": items,
+        "stats": stats.model_dump(),
+        "pagination": pagination.model_dump(),
+    }
 
 
 async def _list_metadata_semantic(query: AssetQuery) -> dict:

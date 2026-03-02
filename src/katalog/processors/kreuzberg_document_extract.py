@@ -56,8 +56,6 @@ from katalog.processors.base import Processor, ProcessorResult
 from katalog.utils.utils import parse_datetime_utc
 from kreuzberg import (
     ChunkingConfig,
-    EmbeddingConfig,
-    EmbeddingModelType,
     ExtractionConfig,
     LanguageDetectionConfig,
     ValidationError,
@@ -89,9 +87,7 @@ class ExtractionResult(Protocol):
 class KreuzbergDocumentExtractProcessor(Processor):
     plugin_id = "katalog.processors.kreuzberg_document_extract.KreuzbergDocumentExtractProcessor"
     title = "Kreuzberg document extract"
-    description = (
-        "Extract text, metadata, chunks and optional embeddings using kreuzberg."
-    )
+    description = "Extract text, metadata and chunks using kreuzberg."
     execution_mode = "io"
     _dependencies = frozenset({DATA_KEY, FILE_SIZE, FILE_TYPE, TIME_MODIFIED})
     _outputs = frozenset(
@@ -143,16 +139,6 @@ class KreuzbergDocumentExtractProcessor(Processor):
         enable_chunking: bool = Field(
             default=True, description="Generate chunked text output."
         )
-        enable_embeddings: bool = Field(
-            default=False,
-            description="Generate chunk embeddings (requires embedding model download).",
-        )
-        embedding_model: str = Field(
-            default="sentence-transformers/all-MiniLM-L6-v2",
-            description="Embedding model preset name for kreuzberg.",
-        )
-        embedding_batch_size: int = Field(default=32, gt=0)
-        embedding_normalize: bool = Field(default=True)
 
     config_model = ConfigModel
 
@@ -250,18 +236,11 @@ class KreuzbergDocumentExtractProcessor(Processor):
     def _build_extraction_config(
         self,
         config: ConfigModel,
-    ):
+    ) -> ExtractionConfig:
         chunking_config = None
         if config.enable_chunking:
-            embedding_config = None
-            if config.enable_embeddings:
-                embedding_config = EmbeddingConfig(
-                    model=EmbeddingModelType.preset(config.embedding_model),
-                    batch_size=config.embedding_batch_size,
-                    normalize=config.embedding_normalize,
-                )
             # Use Kreuzberg's default chunking strategy/limits.
-            chunking_config = ChunkingConfig(embedding=embedding_config)
+            chunking_config = ChunkingConfig()
         extraction = ExtractionConfig(
             chunking=chunking_config,
             language_detection=LanguageDetectionConfig(enabled=True),

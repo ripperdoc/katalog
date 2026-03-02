@@ -8,7 +8,6 @@ from katalog.models.query import AssetQuery
 
 
 class AssetRepo(Protocol):
-    async def has_fts_records(self) -> bool: ...
     async def get_or_none(self, **filters: Any) -> Asset | None: ...
     async def list_rows(
         self,
