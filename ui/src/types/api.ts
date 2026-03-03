@@ -306,8 +306,10 @@ export interface ChangesetChangeRecord {
   removed: boolean;
 }
 
-export interface ChangesetChangesResponse {
+export interface ChangesetChangesRawResponse {
+  mode?: "raw";
   items: ChangesetChangeRecord[];
+  warnings?: string[];
   stats: {
     returned: number;
     total: number | null;
@@ -322,3 +324,27 @@ export interface ChangesetChangesResponse {
 }
 
 export type WorkspaceStatsResponse = Record<string, unknown>;
+export interface ChangesetDiffRange {
+  from_changeset_id: number;
+  to_changeset_id: number;
+}
+
+export interface ChangesetChangesDiffResponse {
+  mode: "diff";
+  items: Record<string, unknown>[];
+  warnings: string[];
+  range: ChangesetDiffRange;
+  stats: {
+    returned: number;
+    total: number | null;
+    duration_ms?: number | null;
+    duration_assets_ms?: number | null;
+    duration_metadata_ms?: number | null;
+  };
+  pagination: {
+    offset: number;
+    limit: number;
+  };
+}
+
+export type ChangesetChangesResponse = ChangesetChangesRawResponse | ChangesetChangesDiffResponse;

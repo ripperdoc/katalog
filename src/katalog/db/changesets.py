@@ -54,6 +54,24 @@ class ChangesetRepo(Protocol):
         limit: int = 200,
         include_total: bool = True,
     ) -> ChangesetChangesResponse: ...
+    async def list_metadata_changes_in_range(
+        self,
+        *,
+        from_changeset_id: int,
+        to_changeset_id: int,
+        offset: int = 0,
+        limit: int = 200,
+        include_total: bool = True,
+    ) -> ChangesetChangesResponse: ...
+    async def list_changed_asset_ids_in_range(
+        self,
+        *,
+        from_changeset_id: int,
+        to_changeset_id: int,
+        offset: int = 0,
+        limit: int = 200,
+        include_total: bool = True,
+    ) -> tuple[list[int], int | None]: ...
 
 
 def get_changeset_repo() -> ChangesetRepo:

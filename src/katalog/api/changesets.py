@@ -1,18 +1,21 @@
 import asyncio
+import time
 from datetime import datetime, timezone
+from typing import Any, Literal
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from katalog.models import Changeset, OpStatus
+from katalog.models import Changeset, Metadata, MetadataChanges, OpStatus
 from katalog.db.changesets import get_changeset_repo
+from katalog.db.metadata import get_metadata_repo
 from katalog.utils.changeset_events import sse_event
 
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.state import get_event_manager, get_running_changesets
 from katalog.api.helpers import ApiError
-from katalog.api.schemas import ChangesetChangesResponse
+from katalog.api.schemas import ChangesetChangesResponse, ChangesetDiffResponse
 
 router = APIRouter()
 
@@ -86,20 +89,300 @@ async def delete_changeset(changeset_id: int) -> dict[str, int | str]:
 
 async def list_changeset_changes(
     changeset_id: int,
+    *,
     offset: int = 0,
     limit: int = 200,
+    from_changeset_id: int | None = None,
+    to_changeset_id: int | None = None,
 ) -> ChangesetChangesResponse:
+    db = get_changeset_repo()
+    first_changeset_id, last_changeset_id = await _resolve_changeset_range(
+        db=db,
+        changeset_id=changeset_id,
+        from_changeset_id=from_changeset_id,
+        to_changeset_id=to_changeset_id,
+    )
+
+    try:
+        if first_changeset_id == last_changeset_id:
+            return await db.list_changeset_metadata_changes(
+                first_changeset_id, offset=offset, limit=limit, include_total=True
+            )
+        return await db.list_metadata_changes_in_range(
+            from_changeset_id=first_changeset_id,
+            to_changeset_id=last_changeset_id,
+            offset=offset,
+            limit=limit,
+            include_total=True,
+        )
+    except ValueError as exc:
+        raise ApiError(status_code=400, detail=str(exc))
+
+
+async def _resolve_changeset_range(
+    *,
+    db,
+    changeset_id: int,
+    from_changeset_id: int | None,
+    to_changeset_id: int | None,
+) -> tuple[int, int]:
+    first_changeset_id = (
+        int(from_changeset_id)
+        if from_changeset_id is not None
+        else int(changeset_id)
+    )
+    last_changeset_id = (
+        int(to_changeset_id)
+        if to_changeset_id is not None
+        else int(changeset_id)
+    )
+    if first_changeset_id > last_changeset_id:
+        raise ApiError(
+            status_code=400, detail="from_changeset_id must be <= to_changeset_id"
+        )
+    first_changeset = await db.get_or_none(id=first_changeset_id)
+    if first_changeset is None:
+        raise ApiError(status_code=404, detail="from_changeset_id not found")
+    last_changeset = await db.get_or_none(id=last_changeset_id)
+    if last_changeset is None:
+        raise ApiError(status_code=404, detail="to_changeset_id not found")
+    return first_changeset_id, last_changeset_id
+
+
+def _sort_key_for_value(value: Any) -> str:
+    if isinstance(value, dict):
+        items = sorted((str(k), _sort_key_for_value(v)) for k, v in value.items())
+        return str(items)
+    if isinstance(value, list):
+        return str([_sort_key_for_value(item) for item in value])
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _metadata_value_to_json(value: Any) -> Any:
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    return value
+
+
+def _pair_before_after_rows(
+    *,
+    asset_id: int,
+    metadata_key: str,
+    metadata_key_id: int,
+    actor_id: int,
+    before_entries: list[Metadata],
+    after_entries: list[Metadata],
+) -> list[dict[str, Any]]:
+    before_by_fp = {
+        entry.fingerprint(): entry
+        for entry in before_entries
+        if entry.fingerprint() is not None
+    }
+    after_by_fp = {
+        entry.fingerprint(): entry
+        for entry in after_entries
+        if entry.fingerprint() is not None
+    }
+    unchanged = set(before_by_fp.keys()) & set(after_by_fp.keys())
+    before_only = [entry for fp, entry in before_by_fp.items() if fp not in unchanged]
+    after_only = [entry for fp, entry in after_by_fp.items() if fp not in unchanged]
+
+    before_only.sort(key=lambda entry: _sort_key_for_value(entry.fingerprint()))
+    after_only.sort(key=lambda entry: _sort_key_for_value(entry.fingerprint()))
+
+    rows: list[dict[str, Any]] = []
+    pair_count = min(len(before_only), len(after_only))
+    for idx in range(pair_count):
+        before_entry = before_only[idx]
+        after_entry = after_only[idx]
+        rows.append(
+            {
+                "id": f"{asset_id}:{metadata_key_id}:{actor_id}:changed:{idx}",
+                "asset_id": asset_id,
+                "metadata_key": metadata_key,
+                "metadata_key_id": metadata_key_id,
+                "actor_id": actor_id,
+                "change_type": "changed",
+                "before": _metadata_value_to_json(before_entry.value),
+                "after": _metadata_value_to_json(after_entry.value),
+            }
+        )
+
+    for idx, entry in enumerate(before_only[pair_count:], start=pair_count):
+        rows.append(
+            {
+                "id": f"{asset_id}:{metadata_key_id}:{actor_id}:removed:{idx}",
+                "asset_id": asset_id,
+                "metadata_key": metadata_key,
+                "metadata_key_id": metadata_key_id,
+                "actor_id": actor_id,
+                "change_type": "removed",
+                "before": _metadata_value_to_json(entry.value),
+                "after": None,
+            }
+        )
+
+    for idx, entry in enumerate(after_only[pair_count:], start=pair_count):
+        rows.append(
+            {
+                "id": f"{asset_id}:{metadata_key_id}:{actor_id}:added:{idx}",
+                "asset_id": asset_id,
+                "metadata_key": metadata_key,
+                "metadata_key_id": metadata_key_id,
+                "actor_id": actor_id,
+                "change_type": "added",
+                "before": None,
+                "after": _metadata_value_to_json(entry.value),
+            }
+        )
+
+    return rows
+
+
+def _unsupported_diff_query_warnings(
+    *,
+    search: str | None,
+    sort: list[str] | None,
+    filters: list[str] | None,
+) -> list[str]:
+    has_unsupported = bool((search and search.strip()) or sort or filters)
+    if not has_unsupported:
+        return []
+    return ["Ignoring search/sort/filters in changeset diff view."]
+
+
+def _build_asset_diff_rows(
+    *,
+    asset_id: int,
+    metadata_rows: list[Metadata],
+    from_changeset_id: int,
+    to_changeset_id: int,
+) -> list[dict[str, Any]]:
+    changes = MetadataChanges(loaded=metadata_rows)
+    before_by_actor = changes.state_before_by_actor(from_changeset_id)
+    after_by_actor = changes.state_after_by_actor(to_changeset_id)
+    actor_ids = sorted(set(before_by_actor.keys()) | set(after_by_actor.keys()))
+
+    rows: list[dict[str, Any]] = []
+    for actor_id in actor_ids:
+        before_by_key = before_by_actor.get(actor_id, {})
+        after_by_key = after_by_actor.get(actor_id, {})
+        keys = sorted(
+            set(before_by_key.keys()) | set(after_by_key.keys()),
+            key=str,
+        )
+        for key in keys:
+            before_entries = before_by_key.get(key, [])
+            after_entries = after_by_key.get(key, [])
+            if not before_entries and not after_entries:
+                continue
+            reference_entry = (
+                before_entries[0] if before_entries else after_entries[0]
+            )
+            metadata_key_id = reference_entry.metadata_key_id
+            if metadata_key_id is None:
+                continue
+            key_rows = _pair_before_after_rows(
+                asset_id=int(asset_id),
+                metadata_key=str(key),
+                metadata_key_id=int(metadata_key_id),
+                actor_id=int(actor_id),
+                before_entries=before_entries,
+                after_entries=after_entries,
+            )
+            rows.extend(key_rows)
+    return rows
+
+
+async def list_changeset_diff(
+    changeset_id: int,
+    *,
+    offset: int = 0,
+    limit: int = 200,
+    from_changeset_id: int | None = None,
+    to_changeset_id: int | None = None,
+    search: str | None = None,
+    sort: list[str] | None = None,
+    filters: list[str] | None = None,
+) -> ChangesetDiffResponse:
+    started_at = time.perf_counter()
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
         raise ApiError(status_code=404, detail="Changeset not found")
 
+    first_changeset_id, last_changeset_id = await _resolve_changeset_range(
+        db=db,
+        changeset_id=changeset_id,
+        from_changeset_id=from_changeset_id,
+        to_changeset_id=to_changeset_id,
+    )
+    warnings = _unsupported_diff_query_warnings(
+        search=search,
+        sort=sort,
+        filters=filters,
+    )
+
+    assets_started = time.perf_counter()
     try:
-        return await db.list_changeset_metadata_changes(
-            changeset_id, offset=offset, limit=limit, include_total=True
+        asset_ids, total_assets = await db.list_changed_asset_ids_in_range(
+            from_changeset_id=first_changeset_id,
+            to_changeset_id=last_changeset_id,
+            offset=offset,
+            limit=limit,
+            include_total=True,
         )
     except ValueError as exc:
         raise ApiError(status_code=400, detail=str(exc))
+    duration_assets_ms = int((time.perf_counter() - assets_started) * 1000)
+
+    metadata_started = time.perf_counter()
+    metadata_by_asset: dict[int, list[Metadata]] = {}
+    if asset_ids:
+        md_db = get_metadata_repo()
+        metadata_by_asset = await md_db.for_assets(asset_ids, include_removed=True)
+    duration_metadata_ms = int((time.perf_counter() - metadata_started) * 1000)
+
+    leaf_rows: list[dict[str, Any]] = []
+    for asset_id in asset_ids:
+        metadata_rows = metadata_by_asset.get(int(asset_id), [])
+        leaf_rows.extend(
+            _build_asset_diff_rows(
+                asset_id=int(asset_id),
+                metadata_rows=metadata_rows,
+                from_changeset_id=first_changeset_id,
+                to_changeset_id=last_changeset_id,
+            )
+        )
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+
+    return ChangesetDiffResponse.model_validate(
+        {
+            "mode": "diff",
+            "items": leaf_rows,
+            "warnings": warnings,
+            "range": {
+                "from_changeset_id": first_changeset_id,
+                "to_changeset_id": last_changeset_id,
+            },
+            "stats": {
+                "returned": len(leaf_rows),
+                "total": total_assets,
+                "duration_ms": duration_ms,
+                "duration_assets_ms": duration_assets_ms,
+                "duration_metadata_ms": duration_metadata_ms,
+            },
+            "pagination": {"offset": offset, "limit": limit},
+        }
+    )
 
 
 async def update_changeset(changeset_id: int, payload: ChangesetUpdate) -> Changeset:
@@ -269,13 +552,32 @@ async def delete_changeset_rest(changeset_id: int):
 @router.get("/changesets/{changeset_id}/changes")
 async def list_changeset_changes_rest(
     changeset_id: int,
+    view: Literal["raw", "diff"] = Query("raw"),
     offset: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
+    from_changeset_id: int | None = Query(None, ge=1),
+    to_changeset_id: int | None = Query(None, ge=1),
+    sort: list[str] | None = Query(None),
+    filters: list[str] | None = Query(None),
+    search: str | None = Query(None),
 ):
+    if view == "diff":
+        return await list_changeset_diff(
+            changeset_id,
+            offset=offset,
+            limit=limit,
+            from_changeset_id=from_changeset_id,
+            to_changeset_id=to_changeset_id,
+            sort=sort,
+            filters=filters,
+            search=search,
+        )
     return await list_changeset_changes(
         changeset_id,
         offset=offset,
         limit=limit,
+        from_changeset_id=from_changeset_id,
+        to_changeset_id=to_changeset_id,
     )
 
 

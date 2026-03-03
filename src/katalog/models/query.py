@@ -81,7 +81,23 @@ class ChangesetChange(BaseModel):
 
 
 class ChangesetChangesResponse(BaseModel):
+    mode: Literal["raw"] = "raw"
     items: list[ChangesetChange]
+    warnings: list[str] = Field(default_factory=list)
+    stats: QueryStats
+    pagination: Pagination
+
+
+class ChangesetDiffRange(BaseModel):
+    from_changeset_id: int
+    to_changeset_id: int
+
+
+class ChangesetDiffResponse(BaseModel):
+    mode: Literal["diff"] = "diff"
+    items: list[dict[str, Any]]
+    warnings: list[str] = Field(default_factory=list)
+    range: ChangesetDiffRange
     stats: QueryStats
     pagination: Pagination
 

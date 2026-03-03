@@ -306,6 +306,8 @@ class MetadataChanges(BaseModel):
     def _current_metadata(
         metadata: Sequence[Metadata] | None = None,
         actor_id: int | None = None,
+        max_changeset_id: int | None = None,
+        include_boundary: bool = True,
     ) -> dict[MetadataKey, list[Metadata]]:
         """Get current metadata entries by key from a list of Metadata."""
         if not metadata:
@@ -320,11 +322,29 @@ class MetadataChanges(BaseModel):
         result: dict[MetadataKey, list[Metadata]] = {}
         seen_values: dict[MetadataKey, set[Any]] = {}
         for entry in ordered:
+            entry_changeset_id = (
+                int(entry.changeset_id) if entry.changeset_id is not None else None
+            )
+            if max_changeset_id is not None:
+                if entry_changeset_id is None:
+                    continue
+                if include_boundary:
+                    if entry_changeset_id > int(max_changeset_id):
+                        continue
+                elif entry_changeset_id >= int(max_changeset_id):
+                    continue
             if actor_id is not None:
                 entry_actor_id = entry.actor_id
                 if entry_actor_id is None or int(entry_actor_id) != int(actor_id):
                     continue
-            key = entry.key
+            try:
+                key = entry.key
+            except (KeyError, RuntimeError):
+                # Keep unknown registry ids queryable (e.g. old workspace/plugin data).
+                metadata_key_id = entry.metadata_key_id
+                if metadata_key_id is None:
+                    continue
+                key = MetadataKey(f"id:{int(metadata_key_id)}")
             seen_for_key = seen_values.setdefault(key, set())
             value_key = entry.fingerprint()
             if value_key is None:
@@ -336,6 +356,33 @@ class MetadataChanges(BaseModel):
                 continue
             result.setdefault(key, []).append(entry)
         return result
+
+    @staticmethod
+    def _current_metadata_by_actor(
+        metadata: Sequence[Metadata] | None = None,
+        *,
+        max_changeset_id: int | None = None,
+        include_boundary: bool = True,
+    ) -> dict[int, dict[MetadataKey, list[Metadata]]]:
+        if not metadata:
+            return {}
+
+        actor_ids = sorted(
+            {
+                int(entry.actor_id)
+                for entry in metadata
+                if entry.actor_id is not None
+            }
+        )
+        return {
+            actor_id: MetadataChanges._current_metadata(
+                metadata,
+                actor_id=actor_id,
+                max_changeset_id=max_changeset_id,
+                include_boundary=include_boundary,
+            )
+            for actor_id in actor_ids
+        }
 
     def add(self, metadata: Sequence[Metadata]) -> None:
         """Stage new metadata (including removals)."""
@@ -354,6 +401,72 @@ class MetadataChanges(BaseModel):
         current = self._current_metadata(combined, actor_id)
         self._cache_current[actor_id] = current
         return current
+
+    def state_at(
+        self,
+        changeset_id: int,
+        *,
+        actor_id: int | None = None,
+        include_boundary: bool = True,
+    ) -> dict[MetadataKey, list[Metadata]]:
+        """Return current metadata state at the given changeset boundary."""
+        combined = list(self._loaded) + list(self._staged)
+        return self._current_metadata(
+            combined,
+            actor_id=actor_id,
+            max_changeset_id=int(changeset_id),
+            include_boundary=include_boundary,
+        )
+
+    def state_before(
+        self,
+        changeset_id: int,
+        *,
+        actor_id: int | None = None,
+    ) -> dict[MetadataKey, list[Metadata]]:
+        """Return state strictly before the given changeset id."""
+        return self.state_at(
+            int(changeset_id),
+            actor_id=actor_id,
+            include_boundary=False,
+        )
+
+    def state_after(
+        self,
+        changeset_id: int,
+        *,
+        actor_id: int | None = None,
+    ) -> dict[MetadataKey, list[Metadata]]:
+        """Return state at/after applying the given changeset id."""
+        return self.state_at(
+            int(changeset_id),
+            actor_id=actor_id,
+            include_boundary=True,
+        )
+
+    def state_before_by_actor(
+        self,
+        changeset_id: int,
+    ) -> dict[int, dict[MetadataKey, list[Metadata]]]:
+        """Return state strictly before changeset id grouped by actor id."""
+        combined = list(self._loaded) + list(self._staged)
+        return self._current_metadata_by_actor(
+            combined,
+            max_changeset_id=int(changeset_id),
+            include_boundary=False,
+        )
+
+    def state_after_by_actor(
+        self,
+        changeset_id: int,
+    ) -> dict[int, dict[MetadataKey, list[Metadata]]]:
+        """Return state at/after changeset id grouped by actor id."""
+        combined = list(self._loaded) + list(self._staged)
+        return self._current_metadata_by_actor(
+            combined,
+            max_changeset_id=int(changeset_id),
+            include_boundary=True,
+        )
 
     def changed_keys(self, actor_id: int | None = None) -> set[MetadataKey]:
         """Return keys whose current values differ from the loaded baseline."""

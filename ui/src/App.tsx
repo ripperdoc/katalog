@@ -19,7 +19,7 @@ function App() {
         <Route path="/actors/new" element={<ActorCreateRoute />} />
         <Route path="/actors/:actorId" element={<ActorDetailRoute />} />
         <Route path="/changesets" element={<ChangesetsRoute />} />
-        <Route path="/changesets/:changesetId" element={<ChangesetDetailRoute />} />
+        <Route path="/changesets/:changesetRef" element={<ChangesetDetailRoute />} />
         <Route path="/assets" element={<AssetsRoute />} />
         <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
         <Route path="/collections" element={<CollectionsRoute />} />

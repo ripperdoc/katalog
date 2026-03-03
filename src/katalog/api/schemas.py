@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from katalog.models.query import (
     AssetsListResponse,
     ChangesetChangesResponse,
+    ChangesetDiffResponse,
     GroupedAssetsResponse,
 )
 

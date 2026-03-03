@@ -261,16 +261,44 @@ export async function fetchChangeset(id: number): Promise<ChangesetResponse> {
 export async function fetchChangesetChanges(
   changesetId: number,
   {
+    view = "raw",
     offset = 0,
     limit = 200,
+    fromChangesetId,
+    toChangesetId,
+    sort,
+    filters,
+    search,
   }: {
+    view?: "raw" | "diff";
     offset?: number;
     limit?: number;
+    fromChangesetId?: number;
+    toChangesetId?: number;
+    sort?: string[] | undefined;
+    filters?: string[] | undefined;
+    search?: string | undefined;
   } = {},
 ): Promise<ChangesetChangesResponse> {
   const params = new URLSearchParams();
+  params.set("view", view);
   params.set("offset", String(offset));
   params.set("limit", String(limit));
+  if (fromChangesetId !== undefined) {
+    params.set("from_changeset_id", String(fromChangesetId));
+  }
+  if (toChangesetId !== undefined) {
+    params.set("to_changeset_id", String(toChangesetId));
+  }
+  if (sort && sort.length > 0) {
+    sort.forEach((value) => params.append("sort", value));
+  }
+  if (filters && filters.length > 0) {
+    filters.forEach((value) => params.append("filters", value));
+  }
+  if (search && search.length > 0) {
+    params.set("search", search);
+  }
   const response = await fetch(
     `${API_BASE}/changesets/${encodeURIComponent(changesetId)}/changes?${params.toString()}`,
     {

@@ -19,6 +19,25 @@ from katalog.models.query import ChangesetChangesResponse
 
 
 class SqlspecChangesetRepo:
+    @staticmethod
+    def _to_changeset_change_item(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            registry = get_metadata_def_by_id(int(row["metadata_key_id"]))
+            key_str = str(registry.key)
+        except KeyError:
+            key_str = f"id:{row['metadata_key_id']}"
+        return {
+            "id": int(row["id"]),
+            "asset_id": int(row["asset_id"]),
+            "actor_id": int(row["actor_id"]),
+            "changeset_id": int(row["changeset_id"]),
+            "metadata_key": key_str,
+            "metadata_key_id": int(row["metadata_key_id"]),
+            "value_type": int(row["value_type"]),
+            "value": decode_metadata_value(row),
+            "removed": bool(row["removed"]),
+        }
+
     async def get_or_none(self, **filters: Any) -> Changeset | None:
         rows = await self.list_rows(limit=1, **filters)
         return rows[0] if rows else None
@@ -267,26 +286,9 @@ class SqlspecChangesetRepo:
             rows = await select(session, sql, params)
             duration_rows_ms = int((time.perf_counter() - rows_started) * 1000)
 
-            items: list[dict[str, Any]] = []
-            for row in rows:
-                try:
-                    registry = get_metadata_def_by_id(int(row["metadata_key_id"]))
-                    key_str = str(registry.key)
-                except KeyError:
-                    key_str = f"id:{row['metadata_key_id']}"
-                items.append(
-                    {
-                        "id": int(row["id"]),
-                        "asset_id": int(row["asset_id"]),
-                        "actor_id": int(row["actor_id"]),
-                        "changeset_id": int(row["changeset_id"]),
-                        "metadata_key": key_str,
-                        "metadata_key_id": int(row["metadata_key_id"]),
-                        "value_type": int(row["value_type"]),
-                        "value": decode_metadata_value(row),
-                        "removed": bool(row["removed"]),
-                    }
-                )
+            items: list[dict[str, Any]] = [
+                self._to_changeset_change_item(row) for row in rows
+            ]
 
             total_count = None
             if include_total:
@@ -316,6 +318,127 @@ class SqlspecChangesetRepo:
                 "pagination": {"offset": offset, "limit": limit},
             }
         )
+
+    async def list_metadata_changes_in_range(
+        self,
+        *,
+        from_changeset_id: int,
+        to_changeset_id: int,
+        offset: int = 0,
+        limit: int = 200,
+        include_total: bool = True,
+    ) -> "ChangesetChangesResponse":
+        started_at = time.perf_counter()
+        if limit < 0 or offset < 0:
+            raise ValueError("offset and limit must be non-negative")
+        if from_changeset_id > to_changeset_id:
+            raise ValueError("from_changeset_id must be <= to_changeset_id")
+
+        sql = f"""
+        SELECT
+            id,
+            asset_id,
+            actor_id,
+            changeset_id,
+            metadata_key_id,
+            value_type,
+            value_text,
+            value_int,
+            value_real,
+            value_datetime,
+            value_json,
+            value_relation_id,
+            value_collection_id,
+            removed
+        FROM {METADATA_TABLE}
+        WHERE changeset_id >= ? AND changeset_id <= ?
+        ORDER BY changeset_id, id
+        LIMIT ? OFFSET ?
+        """
+        params = [int(from_changeset_id), int(to_changeset_id), int(limit), int(offset)]
+
+        async with session_scope(analysis=True) as session:
+            rows_started = time.perf_counter()
+            rows = await select(session, sql, params)
+            duration_rows_ms = int((time.perf_counter() - rows_started) * 1000)
+            items: list[dict[str, Any]] = [
+                self._to_changeset_change_item(row) for row in rows
+            ]
+
+            total_count = None
+            if include_total:
+                count_sql = (
+                    f"SELECT COUNT(*) AS cnt FROM {METADATA_TABLE} "
+                    f"WHERE changeset_id >= ? AND changeset_id <= ?"
+                )
+                count_started = time.perf_counter()
+                count_rows = await select(
+                    session,
+                    count_sql,
+                    [int(from_changeset_id), int(to_changeset_id)],
+                )
+                count_duration_ms = int((time.perf_counter() - count_started) * 1000)
+                total_count = int(count_rows[0]["cnt"]) if count_rows else 0
+            else:
+                count_duration_ms = None
+
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+
+        return ChangesetChangesResponse.model_validate(
+            {
+                "items": items,
+                "stats": {
+                    "returned": len(items),
+                    "total": total_count,
+                    "duration_ms": duration_ms,
+                    "duration_rows_ms": duration_rows_ms,
+                    "duration_count_ms": count_duration_ms,
+                },
+                "pagination": {"offset": offset, "limit": limit},
+            }
+        )
+
+    async def list_changed_asset_ids_in_range(
+        self,
+        *,
+        from_changeset_id: int,
+        to_changeset_id: int,
+        offset: int = 0,
+        limit: int = 200,
+        include_total: bool = True,
+    ) -> tuple[list[int], int | None]:
+        if limit < 0 or offset < 0:
+            raise ValueError("offset and limit must be non-negative")
+        if from_changeset_id > to_changeset_id:
+            raise ValueError("from_changeset_id must be <= to_changeset_id")
+
+        sql = f"""
+        SELECT DISTINCT asset_id
+        FROM {METADATA_TABLE}
+        WHERE changeset_id >= ? AND changeset_id <= ?
+        ORDER BY asset_id
+        LIMIT ? OFFSET ?
+        """
+        params = [int(from_changeset_id), int(to_changeset_id), int(limit), int(offset)]
+
+        async with session_scope(analysis=True) as session:
+            rows = await select(session, sql, params)
+            asset_ids = [int(row["asset_id"]) for row in rows]
+
+            total_count = None
+            if include_total:
+                count_sql = (
+                    f"SELECT COUNT(DISTINCT asset_id) AS cnt FROM {METADATA_TABLE} "
+                    f"WHERE changeset_id >= ? AND changeset_id <= ?"
+                )
+                count_rows = await select(
+                    session,
+                    count_sql,
+                    [int(from_changeset_id), int(to_changeset_id)],
+                )
+                total_count = int(count_rows[0]["cnt"]) if count_rows else 0
+
+        return asset_ids, total_count
 
 
 def _normalize_changeset_row(row: dict[str, Any]) -> dict[str, Any]:
