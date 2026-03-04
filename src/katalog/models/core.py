@@ -153,7 +153,7 @@ class Changeset(BaseModel):
             finished=self._tasks_finished,
         )
         try:
-            from katalog.api.state import get_event_manager
+            from katalog.runtime.state import get_event_manager
 
             get_event_manager().emit(
                 int(self.id),
@@ -198,7 +198,7 @@ class Changeset(BaseModel):
             try:
                 with context_cm:
                     try:
-                        from katalog.api.state import get_event_manager
+                        from katalog.runtime.state import get_event_manager
 
                         get_event_manager().emit(
                             int(self.id),
@@ -335,7 +335,7 @@ class Changeset(BaseModel):
         db = get_changeset_repo()
         await db.save(self, update_data=data_payload)
         try:
-            from katalog.api.state import get_event_manager
+            from katalog.runtime.state import get_event_manager
 
             get_event_manager().emit(
                 int(self.id),

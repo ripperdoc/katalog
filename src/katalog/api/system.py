@@ -2,9 +2,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
-
 from katalog.api.helpers import ApiError
 from katalog.config import current_db_path, current_db_url, current_workspace
 from katalog.db.system import get_system_repo
@@ -12,10 +9,9 @@ from katalog.db.metadata import sync_config_db
 from katalog.plugins.registry import get_actor_instance
 from katalog.sources.base import SourcePlugin
 
-router = APIRouter()
-
 
 async def auth_callback_api(actor: int, authorization_response: str) -> dict[str, str]:
+    """Handle OAuth callback completion for a source actor."""
     plugin = await get_actor_instance(actor)
     if not isinstance(plugin, SourcePlugin):
         raise ApiError(status_code=400, detail="Actor is not a source")
@@ -31,6 +27,7 @@ async def sync_config() -> dict[str, str]:
 
 
 def _file_size(path: Path | None) -> int:
+    """Return file size in bytes, or zero when unavailable."""
     if path is None:
         return 0
     try:
@@ -42,6 +39,7 @@ def _file_size(path: Path | None) -> int:
 
 
 def _scan_path(path: Path) -> dict[str, Any]:
+    """Recursively collect size and entry counters for a path."""
     stats: dict[str, Any] = {
         "path": str(path),
         "exists": False,
@@ -89,6 +87,7 @@ def _scan_path(path: Path) -> dict[str, Any]:
 
 
 def _workspace_entries(workspace: Path) -> tuple[list[dict[str, Any]], int]:
+    """Summarize top-level workspace entries and their sizes."""
     entries: list[dict[str, Any]] = []
     try:
         children = sorted(workspace.iterdir(), key=lambda item: item.name.lower())
@@ -121,6 +120,7 @@ def _workspace_entries(workspace: Path) -> tuple[list[dict[str, Any]], int]:
 
 
 def _database_file_sizes(db_path: Path | None) -> dict[str, Any]:
+    """Collect SQLite main, WAL, and SHM file sizes."""
     if db_path is None:
         return {
             "db_path": None,
@@ -148,6 +148,7 @@ def _database_file_sizes(db_path: Path | None) -> dict[str, Any]:
 
 
 async def workspace_size_stats() -> dict[str, Any]:
+    """Return workspace and database size statistics."""
     workspace = current_workspace()
     db_path = current_db_path()
 
@@ -198,19 +199,3 @@ async def workspace_size_stats() -> dict[str, Any]:
             "largest_tables_by_size": largest_tables,
         },
     }
-
-
-@router.post("/auth/{actor}")
-async def auth_callback(actor: int, request: Request):
-    await auth_callback_api(actor, str(request.url))
-    return RedirectResponse(url="/", status_code=303)
-
-
-@router.post("/sync")
-async def sync_config_rest():
-    return await sync_config()
-
-
-@router.get("/stats")
-async def workspace_size_stats_rest():
-    return await workspace_size_stats()

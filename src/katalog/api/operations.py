@@ -1,11 +1,10 @@
 import traceback
 
-from fastapi import APIRouter, Query
 from loguru import logger
 
 from katalog.analyzers.base import AnalyzerScope
 from katalog.analyzers.runtime import do_run_analyzer
-from katalog.models import Actor, ActorType, Changeset, OpStatus
+from katalog.models import ActorType, Changeset, OpStatus
 from katalog.db.asset_collections import get_asset_collection_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.actors import get_actor_repo
@@ -13,18 +12,18 @@ from katalog.db.changesets import get_changeset_repo
 from katalog.processors.runtime import do_run_processors, sort_processors
 from katalog.sources.runtime import run_sources
 
-from katalog.api.state import get_running_changesets
 from katalog.api.helpers import ApiError
-
-router = APIRouter()
+from katalog.runtime.state import get_running_changesets
 
 def _track_changeset(changeset: Changeset) -> None:
+    """Track a running changeset in shared API state."""
     get_running_changesets()[changeset.id] = changeset
 
 
 def _start_tracked_operation(
     changeset: Changeset, coro_factory
 ) -> None:
+    """Start a background operation and clean up tracking on completion."""
     running_changesets = get_running_changesets()
     task = changeset.start_operation(coro_factory)
 
@@ -92,6 +91,7 @@ async def run_processors(
     *,
     finalize: bool = False,
 ) -> Changeset:
+    """Run processor actors over selected assets or all assets."""
     processor_pipeline, processor_actors = await sort_processors(processor_ids)
     if not processor_pipeline:
         raise ApiError(status_code=400, detail="No processor actors configured")
@@ -203,31 +203,3 @@ async def run_analyzer(
         changeset, lambda: do_run_analyzer(actor, changeset=changeset, scope=scope)
     )
     return changeset
-
-
-@router.post("/sources/{source_id}/run")
-async def run_source_rest(
-    source_id: int, run_processors: bool = Query(True)
-):
-    return await run_source(source_id, run_processors=run_processors)
-
-
-@router.post("/processors/run")
-async def run_processors_rest(
-    processor_ids: list[int] | None = Query(None),
-    asset_ids: list[int] | None = Query(None),
-):
-    return await run_processors(processor_ids=processor_ids, asset_ids=asset_ids)
-
-
-@router.post("/analyzers/{analyzer_id}/run")
-async def run_analyzer_rest(
-    analyzer_id: str,
-    asset_id: int | None = Query(None),
-    collection_id: int | None = Query(None),
-):
-    return await run_analyzer(
-        analyzer_id,
-        asset_id=asset_id,
-        collection_id=collection_id,
-    )

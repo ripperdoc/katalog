@@ -16,6 +16,7 @@ from katalog.vectors.embedding import embed_text_kreuzberg
 
 @dataclass(frozen=True)
 class SemanticHit:
+    """Normalized semantic-search hit payload."""
     asset_id: int
     metadata_id: int | None
     metadata_key_id: int
@@ -34,6 +35,7 @@ def l2_distance_to_cosine_similarity(distance: float) -> float:
 
 
 async def ensure_fts_index_ready(query: AssetQuery) -> None:
+    """Validate that full-text search is ready for the query."""
     if query.search_mode != "fts":
         return
     search_text = (query.search or "").strip()
@@ -60,6 +62,7 @@ async def ensure_fts_index_ready(query: AssetQuery) -> None:
 
 
 async def semantic_hits_for_query(query: AssetQuery) -> tuple[list[SemanticHit], int, int]:
+    """Run semantic search and return filtered hits with timing stats."""
     started = perf_counter()
     if query.search_mode not in {"semantic", "hybrid"}:
         return [], 0, 0
@@ -116,6 +119,7 @@ async def semantic_hits_for_query(query: AssetQuery) -> tuple[list[SemanticHit],
 
 
 async def _resolve_vector_actor_id(search_index: int | None) -> int:
+    """Resolve the vector index actor id used for semantic search."""
     if search_index is not None:
         return int(search_index)
     actor_db = get_actor_repo()
@@ -139,6 +143,7 @@ async def _resolve_vector_actor_id(search_index: int | None) -> int:
 
 
 async def _resolve_fts_actor_id(search_index: int | None) -> int:
+    """Resolve the full-text index actor id used for FTS search."""
     if search_index is not None:
         return int(search_index)
     actor_db = get_actor_repo()
@@ -162,6 +167,7 @@ async def _resolve_fts_actor_id(search_index: int | None) -> int:
 
 
 async def _scope_asset_ids(query: AssetQuery) -> list[int] | None:
+    """Resolve scoped asset ids from query filters for semantic search."""
     has_scope = bool(query.filters)
     if not has_scope:
         return None
@@ -186,6 +192,7 @@ def _filter_hits(
     metadata_keys: list[str] | None,
     min_score: float | None,
 ) -> list[SemanticHit]:
+    """Filter vector hits and map them to semantic hit rows."""
     key_ids: set[int] | None = None
     if metadata_keys:
         key_ids = {int(get_metadata_id(key)) for key in metadata_keys}

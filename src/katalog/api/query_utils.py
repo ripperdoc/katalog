@@ -6,6 +6,7 @@ from katalog.models.query import AssetQuery
 
 
 def parse_sort_params(sort: list[str] | None) -> list[tuple[str, str]] | None:
+    """Parse sort expressions into key/direction tuples."""
     if not sort:
         return None
     result: list[tuple[str, str]] = []
@@ -47,6 +48,7 @@ def build_asset_query(
     search_embedding_model: str | None = None,
     search_embedding_backend: Literal["preset", "fastembed"] | None = None,
 ) -> AssetQuery:
+    """Build and validate an AssetQuery payload from request arguments."""
     payload: dict[str, object] = {
         "view_id": view_id,
         "offset": offset,

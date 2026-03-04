@@ -1,1 +1,1 @@
-"""API routers and shared state for the FastAPI server."""
+"""Typed Python API layer for application business operations."""

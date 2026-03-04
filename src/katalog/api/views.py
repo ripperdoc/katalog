@@ -1,12 +1,9 @@
-from fastapi import APIRouter
-
 from katalog.models.views import ViewSpec, get_view, list_views
 from katalog.api.helpers import ApiError
 
-router = APIRouter()
-
 
 async def get_view_api(view_id: str) -> ViewSpec:
+    """Return a view spec by id or raise API not found."""
     try:
         view = get_view(view_id)
     except KeyError:
@@ -14,13 +11,6 @@ async def get_view_api(view_id: str) -> ViewSpec:
     return view
 
 
-@router.get("/views")
-async def list_views_rest():
-    views = list_views()
-    return {"views": views}
-
-
-@router.get("/views/{view_id}")
-async def get_view_rest(view_id: str):
-    view = await get_view_api(view_id)
-    return {"view": view}
+async def list_views_api() -> list[ViewSpec]:
+    """List available view specs."""
+    return list_views()

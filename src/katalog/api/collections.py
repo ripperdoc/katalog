@@ -1,6 +1,4 @@
-from typing import Any, Optional
-
-from fastapi import APIRouter, Query, Request
+from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 from loguru import logger
 
@@ -15,7 +13,6 @@ from katalog.models.query import AssetFilter, AssetQuery
 from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError
-from katalog.api.query_utils import build_asset_query
 from katalog.api.search import ensure_fts_index_ready
 from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
 from katalog.db.asset_collections import get_asset_collection_repo
@@ -23,10 +20,9 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.db.metadata import get_metadata_repo
 
-router = APIRouter()
-
 
 class CollectionCreate(BaseModel):
+    """Payload for creating an asset collection."""
     name: str = Field(min_length=1)
     description: str | None = None
     asset_ids: list[int] = Field(default_factory=list)
@@ -35,23 +31,27 @@ class CollectionCreate(BaseModel):
 
 
 class CollectionUpdate(BaseModel):
+    """Payload for updating an asset collection."""
     name: str | None = None
     description: str | None = None
     refresh_mode: str | CollectionRefreshMode | None = None
 
 
 class CollectionRemoveAssets(BaseModel):
+    """Payload for removing assets from a collection."""
     asset_ids: list[int] = Field(default_factory=list)
     changeset_id: int
 
 
 async def list_collections() -> list[AssetCollection]:
+    """List collections ordered by creation time."""
     db = get_asset_collection_repo()
     collections = await db.list_rows(order_by="created_at DESC")
     return collections
 
 
 async def create_collection(payload: CollectionCreate) -> AssetCollection:
+    """Create a collection from explicit asset ids or a source query."""
     db = get_asset_collection_repo()
     try:
         asset_ids = [int(a) for a in payload.asset_ids]
@@ -174,6 +174,7 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
 
 
 async def get_collection(collection_id: int) -> AssetCollection:
+    """Return one collection by id."""
     db = get_asset_collection_repo()
     collection = await db.get_or_none(id=collection_id)
     if collection is None:
@@ -187,6 +188,7 @@ async def get_collection(collection_id: int) -> AssetCollection:
 async def update_collection(
     collection_id: int, payload: CollectionUpdate
 ) -> AssetCollection:
+    """Update collection metadata such as name and refresh mode."""
     db = get_asset_collection_repo()
     collection = await db.get_or_none(id=collection_id)
     if collection is None:
@@ -221,6 +223,7 @@ async def list_collection_assets(
     collection_id: int,
     query: AssetQuery,
 ) -> AssetsListResponse:
+    """List assets that currently belong to a collection."""
     db = get_asset_collection_repo()
     collection = await db.get_or_none(id=collection_id)
     if collection is None:
@@ -256,6 +259,7 @@ async def list_collection_assets(
 
 
 async def delete_collection(collection_id: int) -> dict[str, int | str]:
+    """Delete a collection record."""
     db = get_asset_collection_repo()
     collection = await db.get_or_none(id=collection_id)
     if collection is None:
@@ -270,6 +274,7 @@ async def delete_collection(collection_id: int) -> dict[str, int | str]:
 async def remove_collection_assets(
     collection_id: int, payload: CollectionRemoveAssets
 ) -> RemoveAssetsResponse:
+    """Stage collection membership removals in a manual changeset."""
     db = get_asset_collection_repo()
     collection = await db.get_or_none(id=collection_id)
     if collection is None:
@@ -364,75 +369,3 @@ async def remove_collection_assets(
         removed=len(active_asset_ids),
         skipped=len(asset_ids) - len(active_asset_ids),
     )
-
-
-@router.get("/collections")
-async def list_collections_rest():
-    collections = await list_collections()
-    return {"collections": collections}
-
-
-@router.post("/collections")
-async def create_collection_rest(request: Request):
-    payload = CollectionCreate.model_validate(await request.json())
-    collection = await create_collection(payload)
-    return {"collection": collection}
-
-
-@router.get("/collections/{collection_id}")
-async def get_collection_rest(collection_id: int):
-    collection = await get_collection(collection_id)
-    return {"collection": collection}
-
-
-@router.patch("/collections/{collection_id}")
-async def update_collection_rest(collection_id: int, request: Request):
-    payload = CollectionUpdate.model_validate(await request.json())
-    collection = await update_collection(collection_id, payload)
-    return {"collection": collection}
-
-
-@router.get("/collections/{collection_id}/assets")
-async def list_collection_assets_rest(
-    collection_id: int,
-    offset: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    view_id: str = Query("default"),
-    sort: list[str] | None = Query(None),
-    search: Optional[str] = Query(None),
-    filters: list[str] | None = Query(None),
-    metadata_actor_ids: list[int] | None = Query(None),
-    metadata_include_removed: bool = Query(False),
-    metadata_aggregation: Optional[str] = Query(None),
-    metadata_include_counts: bool = Query(True),
-):
-    try:
-        query = build_asset_query(
-            view_id=view_id,
-            offset=offset,
-            limit=limit,
-            sort=sort,
-            filters=filters,
-            search=search,
-            metadata_actor_ids=metadata_actor_ids,
-            metadata_include_removed=metadata_include_removed,
-            metadata_aggregation=metadata_aggregation,
-            metadata_include_counts=metadata_include_counts,
-        )
-    except Exception as exc:
-        raise ApiError(status_code=400, detail=str(exc)) from exc
-    return await list_collection_assets(
-        collection_id=collection_id,
-        query=query,
-    )
-
-
-@router.delete("/collections/{collection_id}")
-async def delete_collection_rest(collection_id: int):
-    return await delete_collection(collection_id)
-
-
-@router.post("/collections/{collection_id}/remove")
-async def remove_collection_assets_rest(collection_id: int, request: Request):
-    payload = CollectionRemoveAssets.model_validate(await request.json())
-    return await remove_collection_assets(collection_id, payload)

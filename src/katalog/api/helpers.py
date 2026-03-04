@@ -22,6 +22,7 @@ class ApiError(Exception):
         detail: Any,
         headers: dict[str, str] | None = None,
     ) -> None:
+        """Initialize an API error with HTTP-compatible details."""
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
@@ -48,6 +49,7 @@ def validate_and_normalize_config(
 
 
 def config_schema_for_plugin(plugin_id: str) -> dict[str, Any]:
+    """Return JSON schema for a plugin config model."""
     spec: PluginSpec | None = get_plugin_spec(plugin_id) or refresh_plugins().get(
         plugin_id
     )

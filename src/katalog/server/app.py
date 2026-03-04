@@ -8,7 +8,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 
-from katalog.api import (
+from katalog.api.helpers import ApiError
+from katalog.lifespan import app_lifespan
+from katalog.server.routes import (
     actors,
     assets,
     changesets,
@@ -20,8 +22,7 @@ from katalog.api import (
     views,
     workflows,
 )
-from katalog.api.helpers import ApiError
-from katalog.lifespan import app_lifespan
+
 
 logging.getLogger("uvicorn.access").disabled = True
 logger.remove()
@@ -29,6 +30,7 @@ logger.add(
     sys.stderr,
     format="<green>{time:HH:mm:ss.SSS}</green> | <level>{level:<8}</level> | {message}",
 )
+
 
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name, "")

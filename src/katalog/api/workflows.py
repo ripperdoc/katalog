@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
-
 from katalog.api.helpers import ApiError
 from katalog.config import current_workspace
 from katalog.workflows import (
     discover_workflow_files,
     load_workflow_spec,
-    run_workflow_file,
     start_workflow_file,
     sync_workflow_file,
     workflow_status,
 )
 
-router = APIRouter()
-
 
 def _resolve_workflow_file(workflow_name: str):
+    """Resolve a workflow file path by file name in the workspace."""
     workspace = current_workspace()
     if workspace is None:
         raise ApiError(status_code=500, detail="Workspace is not configured")
@@ -28,8 +24,8 @@ def _resolve_workflow_file(workflow_name: str):
     return file_path
 
 
-@router.get("/workflows")
-async def list_workflows_rest():
+async def list_workflows() -> list[dict]:
+    """List discovered workflows with status details."""
     workspace = current_workspace()
     if workspace is None:
         raise ApiError(status_code=500, detail="Workspace is not configured")
@@ -56,11 +52,11 @@ async def list_workflows_rest():
                     "error": str(exc),
                 }
             )
-    return {"workflows": results}
+    return results
 
 
-@router.get("/workflows/{workflow_name}")
-async def get_workflow_rest(workflow_name: str):
+async def get_workflow(workflow_name: str) -> dict:
+    """Return workflow spec details together with runtime status."""
     file_path = _resolve_workflow_file(workflow_name)
     try:
         spec = load_workflow_spec(file_path)
@@ -69,30 +65,28 @@ async def get_workflow_rest(workflow_name: str):
 
     status = await workflow_status(file_path)
     return {
-        "workflow": {
-            "file_name": spec.file_name,
-            "file_path": spec.file_path,
-            "workflow_id": spec.workflow_id,
-            "name": spec.name,
-            "description": spec.description,
-            "version": spec.version,
-            "actors": [
-                {
-                    "name": actor.name,
-                    "plugin_id": actor.plugin_id,
-                    "actor_type": actor.actor_type.name,
-                    "disabled": actor.disabled,
-                }
-                for actor in spec.actors
-            ],
-            "status": status["status"],
-            "resolved_actor_count": status["resolved_actor_count"],
-        }
+        "file_name": spec.file_name,
+        "file_path": spec.file_path,
+        "workflow_id": spec.workflow_id,
+        "name": spec.name,
+        "description": spec.description,
+        "version": spec.version,
+        "actors": [
+            {
+                "name": actor.name,
+                "plugin_id": actor.plugin_id,
+                "actor_type": actor.actor_type.name,
+                "disabled": actor.disabled,
+            }
+            for actor in spec.actors
+        ],
+        "status": status["status"],
+        "resolved_actor_count": status["resolved_actor_count"],
     }
 
 
-@router.post("/workflows/{workflow_name}/sync")
-async def sync_workflow_rest(workflow_name: str):
+async def sync_workflow(workflow_name: str) -> dict:
+    """Synchronize workflow actors into the workspace."""
     file_path = _resolve_workflow_file(workflow_name)
     actors = await sync_workflow_file(file_path)
     status = await workflow_status(file_path)
@@ -103,8 +97,8 @@ async def sync_workflow_rest(workflow_name: str):
     }
 
 
-@router.post("/workflows/{workflow_name}/run")
-async def run_workflow_rest(workflow_name: str):
+async def run_workflow(workflow_name: str) -> dict:
+    """Start workflow execution without actor sync."""
     file_path = _resolve_workflow_file(workflow_name)
     result = await start_workflow_file(file_path, sync_first=False)
     status = await workflow_status(file_path)
@@ -116,8 +110,8 @@ async def run_workflow_rest(workflow_name: str):
     }
 
 
-@router.post("/workflows/{workflow_name}/apply")
-async def apply_workflow_rest(workflow_name: str):
+async def apply_workflow(workflow_name: str) -> dict:
+    """Start workflow execution and sync actors before running."""
     file_path = _resolve_workflow_file(workflow_name)
     result = await start_workflow_file(file_path, sync_first=True)
     status = await workflow_status(file_path)

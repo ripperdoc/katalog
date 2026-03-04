@@ -11,11 +11,13 @@ from katalog.models.query import (
 
 
 class RemoveAssetsResponse(BaseModel):
+    """Response payload for collection asset removal."""
     removed: int
     skipped: int
 
 
 class ManualEditResult(BaseModel):
+    """Result payload for manual asset metadata edits."""
     asset_id: int
     changeset_id: int
     changed_keys: list[str]

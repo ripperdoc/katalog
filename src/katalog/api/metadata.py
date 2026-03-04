@@ -1,7 +1,5 @@
 from time import perf_counter
 
-from fastapi import APIRouter, Request
-
 from katalog.api.helpers import ApiError
 from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import (
@@ -17,8 +15,6 @@ from katalog.db.metadata import get_metadata_repo
 from katalog.models import MetadataChanges
 from katalog.models.query import EditableMetadataSchemaResponse, AssetQuery, Pagination, QueryStats
 
-router = APIRouter()
-
 
 async def metadata_schema_editable() -> EditableMetadataSchemaResponse:
     """Return JSON schema for editable metadata (non-asset/ keys)."""
@@ -32,6 +28,7 @@ async def metadata_registry() -> dict[str, dict[int, MetadataDef]]:
 
 
 async def list_metadata(query: AssetQuery) -> dict:
+    """List metadata rows for metadata-granularity queries."""
     await ensure_fts_index_ready(query)
     if query.search_granularity != "metadata":
         raise ApiError(
@@ -46,6 +43,7 @@ async def list_metadata(query: AssetQuery) -> dict:
 
 
 async def _list_metadata_fts(query: AssetQuery) -> dict:
+    """List metadata rows using full-text search hits."""
     started = perf_counter()
     search_text = (query.search or "").strip()
     if not search_text:
@@ -139,6 +137,7 @@ async def _list_metadata_fts(query: AssetQuery) -> dict:
 
 
 async def _list_metadata_semantic(query: AssetQuery) -> dict:
+    """List metadata rows using semantic vector hits."""
     hits, total, duration_ms = await semantic_hits_for_query(query)
     start = int(query.offset)
     end = start + int(query.limit)
@@ -178,6 +177,7 @@ async def _list_metadata_semantic(query: AssetQuery) -> dict:
 
 
 async def _list_metadata_direct(query: AssetQuery) -> dict:
+    """List metadata rows directly from scoped assets without search."""
     asset_db = get_asset_repo()
     metadata_db = get_metadata_repo()
     scoped_query = query.model_copy(
@@ -290,20 +290,3 @@ async def _list_metadata_direct(query: AssetQuery) -> dict:
         "stats": stats.model_dump(),
         "pagination": pagination.model_dump(),
     }
-
-
-@router.get("/metadata/schema/editable")
-async def metadata_schema_editable_rest():
-    return await metadata_schema_editable()
-
-
-@router.get("/metadata/registry")
-async def metadata_registry_rest():
-    return await metadata_registry()
-
-
-@router.post("/metadata/search")
-async def list_metadata_rest(request: Request):
-    payload = await request.json()
-    query = AssetQuery.model_validate(payload)
-    return await list_metadata(query)

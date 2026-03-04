@@ -1,7 +1,6 @@
 from typing import Any
 import tomllib
 
-from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from katalog.models import Actor, Changeset
@@ -21,10 +20,9 @@ from katalog.api.helpers import (
     validate_and_normalize_config,
 )
 
-router = APIRouter()
-
 
 class ActorCreate(BaseModel):
+    """Payload for creating an actor."""
     name: str = Field(min_length=1)
     plugin_id: str
     config: dict[str, Any] | None = None
@@ -33,6 +31,7 @@ class ActorCreate(BaseModel):
 
 
 class ActorUpdate(BaseModel):
+    """Payload for updating an actor."""
     name: str | None = None
     config: dict[str, Any] | None = None
     config_toml: str | None = None
@@ -40,6 +39,7 @@ class ActorUpdate(BaseModel):
 
 
 async def create_actor(payload: ActorCreate) -> Actor:
+    """Create an actor from validated plugin configuration."""
     db = get_actor_repo()
     spec: PluginSpec | None = get_plugin_spec(payload.plugin_id)
     if spec is None:
@@ -99,12 +99,14 @@ async def create_actor(payload: ActorCreate) -> Actor:
 
 
 async def list_actors() -> list[Actor]:
+    """List all configured actors ordered by id."""
     db = get_actor_repo()
     actors = await db.list_rows(order_by="id")
     return actors
 
 
 async def get_actor(actor_id: int) -> tuple[Actor, list[Changeset]]:
+    """Return an actor together with its related changesets."""
     db = get_actor_repo()
     actor = await db.get_or_none(id=actor_id)
     if actor is None or actor.id is None:
@@ -117,6 +119,7 @@ async def get_actor(actor_id: int) -> tuple[Actor, list[Changeset]]:
 
 
 async def get_actor_config_schema(actor_id: int) -> dict[str, Any]:
+    """Return config schema and current values for an actor plugin."""
     db = get_actor_repo()
     actor = await db.get_or_none(id=actor_id)
     if actor is None or actor.id is None:
@@ -128,6 +131,7 @@ async def get_actor_config_schema(actor_id: int) -> dict[str, Any]:
 
 
 async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
+    """Update actor metadata and configuration."""
     db = get_actor_repo()
     actor = await db.get_or_none(id=actor_id)
     if actor is None:
@@ -203,34 +207,3 @@ async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
 
     await db.save(actor)
     return actor
-
-
-@router.post("/actors")
-async def create_actor_rest(request: Request):
-    payload = ActorCreate.model_validate(await request.json())
-    actor = await create_actor(payload)
-    return {"actor": actor}
-
-
-@router.get("/actors")
-async def list_actors_rest():
-    actors = await list_actors()
-    return {"actors": actors}
-
-
-@router.get("/actors/{actor_id}")
-async def get_actor_rest(actor_id: int):
-    actor, changesets = await get_actor(actor_id)
-    return {"actor": actor, "changesets": changesets}
-
-
-@router.get("/actors/{actor_id}/config/schema")
-async def get_actor_config_schema_rest(actor_id: int):
-    return await get_actor_config_schema(actor_id)
-
-
-@router.patch("/actors/{actor_id}")
-async def update_actor_rest(actor_id: int, request: Request):
-    payload = ActorUpdate.model_validate(await request.json())
-    actor = await update_actor(actor_id, payload)
-    return {"actor": actor}

@@ -1,10 +1,7 @@
 import asyncio
 import time
 from datetime import datetime, timezone
-from typing import Any, Literal
-
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import StreamingResponse
+from typing import Any
 from pydantic import BaseModel, Field
 
 from katalog.models import Changeset, Metadata, MetadataChanges, OpStatus
@@ -13,18 +10,18 @@ from katalog.db.metadata import get_metadata_repo
 from katalog.utils.changeset_events import sse_event
 
 from katalog.editors.user_editor import ensure_user_editor
-from katalog.api.state import get_event_manager, get_running_changesets
 from katalog.api.helpers import ApiError
 from katalog.api.schemas import ChangesetChangesResponse, ChangesetDiffResponse
-
-router = APIRouter()
+from katalog.runtime.state import get_event_manager, get_running_changesets
 
 
 class ChangesetUpdate(BaseModel):
+    """Payload for updating mutable changeset fields."""
     message: str | None = Field(default=None)
 
 
 async def create_changeset() -> Changeset:
+    """Start a manual-edit changeset for the user editor actor."""
     actor = await ensure_user_editor()
     db = get_changeset_repo()
     try:
@@ -40,6 +37,7 @@ async def create_changeset() -> Changeset:
 
 
 async def finish_changeset(changeset_id: int) -> Changeset:
+    """Finalize an in-progress changeset as completed."""
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
@@ -53,6 +51,7 @@ async def finish_changeset(changeset_id: int) -> Changeset:
 
 
 async def list_changesets() -> list[Changeset]:
+    """List all changesets with actor ids loaded."""
     db = get_changeset_repo()
     changesets = await db.list_rows(order_by="id DESC")
     for changeset in changesets:
@@ -63,6 +62,7 @@ async def list_changesets() -> list[Changeset]:
 async def get_changeset(
     changeset_id: int,
 ) -> tuple[Changeset, list[dict[str, object]], bool]:
+    """Return a changeset, buffered events, and running state."""
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
@@ -95,6 +95,7 @@ async def list_changeset_changes(
     from_changeset_id: int | None = None,
     to_changeset_id: int | None = None,
 ) -> ChangesetChangesResponse:
+    """List raw metadata changes for one changeset or a changeset range."""
     db = get_changeset_repo()
     first_changeset_id, last_changeset_id = await _resolve_changeset_range(
         db=db,
@@ -126,6 +127,7 @@ async def _resolve_changeset_range(
     from_changeset_id: int | None,
     to_changeset_id: int | None,
 ) -> tuple[int, int]:
+    """Resolve and validate an inclusive changeset id range."""
     first_changeset_id = (
         int(from_changeset_id)
         if from_changeset_id is not None
@@ -150,6 +152,7 @@ async def _resolve_changeset_range(
 
 
 def _sort_key_for_value(value: Any) -> str:
+    """Build a stable sort key for metadata fingerprints."""
     if isinstance(value, dict):
         items = sorted((str(k), _sort_key_for_value(v)) for k, v in value.items())
         return str(items)
@@ -164,6 +167,7 @@ def _sort_key_for_value(value: Any) -> str:
 
 
 def _metadata_value_to_json(value: Any) -> Any:
+    """Convert metadata values to JSON-serializable output."""
     if hasattr(value, "isoformat"):
         try:
             return value.isoformat()
@@ -181,6 +185,7 @@ def _pair_before_after_rows(
     before_entries: list[Metadata],
     after_entries: list[Metadata],
 ) -> list[dict[str, Any]]:
+    """Pair metadata entries into changed, removed, and added diff rows."""
     before_by_fp = {
         entry.fingerprint(): entry
         for entry in before_entries
@@ -253,6 +258,7 @@ def _unsupported_diff_query_warnings(
     sort: list[str] | None,
     filters: list[str] | None,
 ) -> list[str]:
+    """Return warnings for unsupported diff query options."""
     has_unsupported = bool((search and search.strip()) or sort or filters)
     if not has_unsupported:
         return []
@@ -266,6 +272,7 @@ def _build_asset_diff_rows(
     from_changeset_id: int,
     to_changeset_id: int,
 ) -> list[dict[str, Any]]:
+    """Build per-asset metadata diff rows across a changeset range."""
     changes = MetadataChanges(loaded=metadata_rows)
     before_by_actor = changes.state_before_by_actor(from_changeset_id)
     after_by_actor = changes.state_after_by_actor(to_changeset_id)
@@ -313,6 +320,7 @@ async def list_changeset_diff(
     sort: list[str] | None = None,
     filters: list[str] | None = None,
 ) -> ChangesetDiffResponse:
+    """List metadata diff rows for changed assets in a changeset range."""
     started_at = time.perf_counter()
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
@@ -386,6 +394,7 @@ async def list_changeset_diff(
 
 
 async def update_changeset(changeset_id: int, payload: ChangesetUpdate) -> Changeset:
+    """Update mutable properties of a changeset."""
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
@@ -399,6 +408,7 @@ async def update_changeset(changeset_id: int, payload: ChangesetUpdate) -> Chang
 
 
 def _status_event_for(changeset: Changeset) -> dict[str, object]:
+    """Build an SSE payload with current changeset status."""
     payload = changeset.model_dump(mode="json")
     ts = datetime.now(timezone.utc).isoformat()
     return {
@@ -410,6 +420,7 @@ def _status_event_for(changeset: Changeset) -> dict[str, object]:
 
 
 def _heartbeat_event(changeset_id: int) -> dict[str, object]:
+    """Build a keepalive heartbeat SSE payload."""
     ts = datetime.now(timezone.utc).isoformat()
     return {
         "event": "heartbeat",
@@ -420,6 +431,7 @@ def _heartbeat_event(changeset_id: int) -> dict[str, object]:
 
 
 async def stream_changeset_events(changeset_id: int):
+    """Stream buffered and live events for a changeset as SSE payloads."""
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
@@ -485,6 +497,7 @@ async def stream_changeset_events(changeset_id: int):
 async def cancel_changeset(
     changeset_id: int,
 ) -> tuple[str, Changeset | None]:
+    """Request cancellation for a running changeset operation."""
     db = get_changeset_repo()
     changeset = await db.get_or_none(id=changeset_id)
     if changeset is None:
@@ -511,84 +524,3 @@ async def cancel_changeset(
     latest = await db.get(id=changeset_id)
     await db.load_actor_ids(latest)
     return "cancelled", latest
-
-
-@router.post("/changesets/{changeset_id}/cancel")
-async def cancel_changeset_rest(changeset_id: int):
-    status, changeset = await cancel_changeset(changeset_id)
-    return {"status": status, "changeset": changeset}
-
-
-@router.post("/changesets")
-async def create_changeset_rest():
-    changeset = await create_changeset()
-    return {"changeset": changeset}
-
-
-@router.post("/changesets/{changeset_id}/finish")
-async def finish_changeset_rest(changeset_id: int):
-    changeset = await finish_changeset(changeset_id)
-    return {"changeset": changeset}
-
-
-@router.get("/changesets")
-async def list_changesets_rest():
-    changesets = await list_changesets()
-    return {"changesets": changesets}
-
-
-@router.get("/changesets/{changeset_id}")
-async def get_changeset_rest(changeset_id: int, stream: bool = Query(False)):
-    _ = stream
-    changeset, logs, running = await get_changeset(changeset_id)
-    return {"changeset": changeset, "logs": logs, "running": running}
-
-
-@router.delete("/changesets/{changeset_id}")
-async def delete_changeset_rest(changeset_id: int):
-    return await delete_changeset(changeset_id)
-
-
-@router.get("/changesets/{changeset_id}/changes")
-async def list_changeset_changes_rest(
-    changeset_id: int,
-    view: Literal["raw", "diff"] = Query("raw"),
-    offset: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=1000),
-    from_changeset_id: int | None = Query(None, ge=1),
-    to_changeset_id: int | None = Query(None, ge=1),
-    sort: list[str] | None = Query(None),
-    filters: list[str] | None = Query(None),
-    search: str | None = Query(None),
-):
-    if view == "diff":
-        return await list_changeset_diff(
-            changeset_id,
-            offset=offset,
-            limit=limit,
-            from_changeset_id=from_changeset_id,
-            to_changeset_id=to_changeset_id,
-            sort=sort,
-            filters=filters,
-            search=search,
-        )
-    return await list_changeset_changes(
-        changeset_id,
-        offset=offset,
-        limit=limit,
-        from_changeset_id=from_changeset_id,
-        to_changeset_id=to_changeset_id,
-    )
-
-
-@router.patch("/changesets/{changeset_id}")
-async def update_changeset_rest(changeset_id: int, request: Request):
-    payload = ChangesetUpdate.model_validate(await request.json())
-    changeset = await update_changeset(changeset_id, payload)
-    return {"changeset": changeset}
-
-
-@router.get("/changesets/{changeset_id}/events")
-async def stream_changeset_events_rest(changeset_id: int):
-    event_generator = await stream_changeset_events(changeset_id)
-    return StreamingResponse(event_generator, media_type="text/event-stream")
