@@ -41,15 +41,22 @@ def use_app_context(context: AppContext) -> Iterator[AppContext]:
     try:
         yield context
     finally:
-        _ACTIVE_APP_CONTEXT.reset(token)
-        _GLOBAL_APP_CONTEXT = previous_global
+        try:
+            _ACTIVE_APP_CONTEXT.reset(token)
+        except ValueError as exc:
+            # Async-generator shutdown may close lifespan contexts from a different
+            # context (e.g. Ctrl+C), where token reset is not allowed.
+            if "different Context" not in str(exc):
+                raise
+        finally:
+            _GLOBAL_APP_CONTEXT = previous_global
 
 
 def current_app_context() -> AppContext:
-    context = _ACTIVE_APP_CONTEXT.get()
-    if context is not None:
-        return context
     if _GLOBAL_APP_CONTEXT is not None:
+        context = _ACTIVE_APP_CONTEXT.get()
+        if context is not None:
+            return context
         return _GLOBAL_APP_CONTEXT
     raise RuntimeError(
         "No active AppContext. Run this operation inside app_lifespan()."

@@ -2,6 +2,10 @@
 
 # Next up
 
+- [ ] Read-only mode to guarantee that we are not editing the db. Set in the global context.
+- [ ] Support running a workflow with custom/runtime defined documents, e.g. apply it to a
+      filesystem folder
+- [ ] Make a lighter katalog install that isn't doing ingestion or processing
 - [ ] Katalog server that can server multiple workspaces and switch between them?
 - [ ] Endpoint that can show some space stats about the database (to understand why the size is like
       it is)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -149,3 +150,29 @@ async def test_runtime_workspace_context_overrides_env_for_db_access(
             AssetQuery.model_validate({"view_id": "default", "offset": 0, "limit": 10})
         )
         assert len(restored_response.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_app_lifespan_close_in_different_context_does_not_crash(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("KATALOG_WORKSPACE", raising=False)
+    monkeypatch.delenv("KATALOG_DATABASE_URL", raising=False)
+
+    workspace = tmp_path / "workspace_generator_close"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    context_manager = app_lifespan(init_mode="fast", workspace=workspace)
+    await context_manager.__aenter__()
+
+    # This simulates event-loop shutdown closing the async generator in
+    # another context, which currently crashes while resetting ContextVar token.
+    async def close_lifespan_generator() -> None:
+        await context_manager.gen.aclose()
+
+    await asyncio.create_task(close_lifespan_generator())
+
+    with pytest.raises(RuntimeError):
+        current_workspace()
+    with pytest.raises(RuntimeError):
+        current_db_url()
