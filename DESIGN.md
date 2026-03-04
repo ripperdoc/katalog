@@ -492,11 +492,11 @@ human-in-the-loop step performed later.
 
 `assets` keeps `last_seen_at` and `lost_at` timestamps, so every scan simply updates `last_seen_at`
 for the rows it touched. After a crawl, any file whose `last_seen_at` predates the scan window is
-implicitly missing from the source. We keep that row (and all related metadata) while marking it as
-a soft delete by setting `lost_at = CURRENT_TIMESTAMP`. Queries that only care about live files
-filter on `lost_at IS NULL`, while history/audit views can still surface the full record. Because
-the row stays around, users can later “forget” it entirely (hard delete) or reconcile it if the file
-reappears in a future scan.
+implicitly missing from the source. By default we keep that row (and related metadata) while marking
+it as a soft delete by setting `lost_at = CURRENT_TIMESTAMP`. Queries that only care about live
+files filter on `lost_at IS NULL`, while history/audit views can still surface the full record.
+Workflows can also opt into hard deletion and remove missing assets entirely during scan
+finalization.
 
 ### Can we leverage sources that provide incremental change feeds?
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 import traceback
 from typing import Any
+from typing import Literal
 
 from loguru import logger
 
@@ -224,7 +225,10 @@ async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[WorkflowChange
 
 
 async def run_workflow_file(
-    workflow_file: pathlib.Path | WorkflowSpec, *, sync_first: bool = False
+    workflow_file: pathlib.Path | WorkflowSpec,
+    *,
+    sync_first: bool = False,
+    missing_assets_policy: Literal["lost", "delete"] = "lost",
 ) -> WorkflowRunResult:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -253,6 +257,7 @@ async def run_workflow_file(
             int(source.id),
             finalize=True,
             run_processors=False,
+            missing_assets_policy=missing_assets_policy,
         )
         source_results.append(WorkflowChangesetResult.from_changeset(changeset))
 
@@ -282,7 +287,10 @@ async def run_workflow_file(
 
 
 async def start_workflow_file(
-    workflow_file: pathlib.Path | WorkflowSpec, *, sync_first: bool = False
+    workflow_file: pathlib.Path | WorkflowSpec,
+    *,
+    sync_first: bool = False,
+    missing_assets_policy: Literal["lost", "delete"] = "lost",
 ) -> dict[str, Any]:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -309,6 +317,7 @@ async def start_workflow_file(
             int(source.id),
             finalize=True,
             run_processors=False,
+            missing_assets_policy=missing_assets_policy,
         )
         source_changesets.append(int(changeset.id))
 

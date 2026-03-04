@@ -1,4 +1,5 @@
 import traceback
+from typing import Literal
 
 from loguru import logger
 
@@ -38,6 +39,7 @@ async def run_source(
     *,
     finalize: bool = False,
     run_processors: bool = True,
+    missing_assets_policy: Literal["lost", "delete"] = "lost",
 ) -> Changeset:
     """Scan a single source and optionally wait for the changeset to complete."""
 
@@ -61,7 +63,10 @@ async def run_source(
     if finalize:
         try:
             status = await run_sources(
-                changeset=changeset, sources=sources, run_processors=run_processors
+                changeset=changeset,
+                sources=sources,
+                run_processors=run_processors,
+                missing_assets_policy=missing_assets_policy,
             )
             await changeset.finalize(status=status)
         except Exception as exc:  # noqa: BLE001
@@ -79,6 +84,7 @@ async def run_source(
                 changeset=changeset,
                 sources=sources,
                 run_processors=run_processors,
+                missing_assets_policy=missing_assets_policy,
             ),
         )
 

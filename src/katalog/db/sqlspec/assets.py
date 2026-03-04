@@ -245,6 +245,37 @@ class SqlspecAssetRepo:
             asset, include_removed=include_removed, session=session
         )
 
+    @staticmethod
+    def _seen_clause_and_params(seen_set: set[int]) -> tuple[str, dict[str, Any]]:
+        if not seen_set:
+            return "", {}
+        placeholders = ", ".join(f":seen_{idx}" for idx, _ in enumerate(seen_set))
+        return (
+            f"AND asset_id NOT IN ({placeholders})",
+            {f"seen_{idx}": int(val) for idx, val in enumerate(seen_set)},
+        )
+
+    async def _list_unseen_asset_ids_for_actor(
+        self,
+        *,
+        session: Any,
+        actor_id: int,
+        seen_set: set[int],
+    ) -> list[int]:
+        seen_clause, seen_params = self._seen_clause_and_params(seen_set)
+        params: dict[str, Any] = {"actor_id": int(actor_id), **seen_params}
+        rows = await select(
+            session,
+            f"""
+            SELECT DISTINCT asset_id
+            FROM {METADATA_TABLE}
+            WHERE actor_id = :actor_id
+              {seen_clause}
+            """,
+            params,
+        )
+        return [int(r["asset_id"]) for r in rows]
+
     async def mark_unseen_as_lost(
         self,
         *,
@@ -261,28 +292,11 @@ class SqlspecAssetRepo:
 
         async with session_scope() as session:
             for pid in actor_ids:
-                seen_clause = ""
-                params: dict[str, Any] = {"actor_id": int(pid)}
-                if seen_set:
-                    placeholders = ", ".join(
-                        f":seen_{idx}" for idx, _ in enumerate(seen_set)
-                    )
-                    seen_clause = f"AND asset_id NOT IN ({placeholders})"
-                    params.update(
-                        {f"seen_{idx}": int(val) for idx, val in enumerate(seen_set)}
-                    )
-
-                rows = await select(
-                    session,
-                    f"""
-                    SELECT DISTINCT asset_id
-                    FROM {METADATA_TABLE}
-                    WHERE actor_id = :actor_id
-                      {seen_clause}
-                    """,
-                    params,
+                asset_ids = await self._list_unseen_asset_ids_for_actor(
+                    session=session,
+                    actor_id=int(pid),
+                    seen_set=seen_set,
                 )
-                asset_ids = [int(r["asset_id"]) for r in rows]
                 if not asset_ids:
                     continue
 
@@ -302,6 +316,63 @@ class SqlspecAssetRepo:
 
                 await md_db.bulk_create(now_rows, session=session)
                 affected += len(now_rows)
+
+        return affected
+
+    async def delete_unseen_assets(
+        self,
+        *,
+        actor_ids: Sequence[int],
+        seen_asset_ids: Sequence[int] | None = None,
+    ) -> int:
+        if not actor_ids:
+            return 0
+
+        affected = 0
+        seen_set = {int(a) for a in (seen_asset_ids or [])}
+
+        async with session_scope() as session:
+            for pid in actor_ids:
+                asset_ids = await self._list_unseen_asset_ids_for_actor(
+                    session=session,
+                    actor_id=int(pid),
+                    seen_set=seen_set,
+                )
+                if not asset_ids:
+                    continue
+
+                params = {f"asset_{idx}": int(asset_id) for idx, asset_id in enumerate(asset_ids)}
+                placeholders = ", ".join(f":asset_{idx}" for idx, _ in enumerate(asset_ids))
+
+                # Break canonical references from remaining assets before deleting.
+                await execute(
+                    session,
+                    f"""
+                    UPDATE {ASSET_TABLE}
+                    SET canonical_asset_id = NULL
+                    WHERE canonical_asset_id IN ({placeholders})
+                      AND id NOT IN ({placeholders})
+                    """,
+                    params,
+                )
+
+                await execute(
+                    session,
+                    f"""
+                    DELETE FROM {METADATA_TABLE}
+                    WHERE asset_id IN ({placeholders})
+                    """,
+                    params,
+                )
+                await execute(
+                    session,
+                    f"""
+                    DELETE FROM {ASSET_TABLE}
+                    WHERE id IN ({placeholders})
+                    """,
+                    params,
+                )
+                affected += len(asset_ids)
 
         return affected
 

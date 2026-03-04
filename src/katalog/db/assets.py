@@ -39,6 +39,12 @@ class AssetRepo(Protocol):
         actor_ids: Sequence[int],
         seen_asset_ids: Sequence[int] | None = None,
     ) -> int: ...
+    async def delete_unseen_assets(
+        self,
+        *,
+        actor_ids: Sequence[int],
+        seen_asset_ids: Sequence[int] | None = None,
+    ) -> int: ...
     async def count_assets_for_query(
         self,
         *,

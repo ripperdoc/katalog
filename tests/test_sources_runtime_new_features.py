@@ -96,3 +96,55 @@ async def test_run_sources_marks_assets_lost_when_followup_scan_is_empty(db_sess
     current_keys = {str(key) for key in changes.current().keys()}
     # Lost flag should be part of current metadata view after empty scan.
     assert "asset/lost" in current_keys
+
+
+@pytest.mark.asyncio
+async def test_run_sources_deletes_assets_when_policy_is_delete(db_session) -> None:
+    _ = db_session
+    actor_db = get_actor_repo()
+    changeset_db = get_changeset_repo()
+    asset_db = get_asset_repo()
+
+    actor = await actor_db.create(
+        name="fake-assets-delete",
+        plugin_id="katalog.sources.fake_assets.FakeAssetSource",
+        type=ActorType.SOURCE,
+        config={
+            "total_assets": 3,
+            "seed": 1,
+            "batch_delay_ms": 0,
+            "batch_jitter_ms": 0,
+        },
+    )
+    first = await changeset_db.begin(
+        actors=[actor], message="seed", status=OpStatus.IN_PROGRESS
+    )
+    first_status = await run_sources(
+        sources=[actor], changeset=first, run_processors=False
+    )
+    await first.finalize(status=first_status)
+    assert len(await asset_db.list_rows(order_by="id")) == 3
+
+    actor.config = {
+        "total_assets": 0,
+        "seed": 1,
+        "batch_delay_ms": 0,
+        "batch_jitter_ms": 0,
+    }
+    await actor_db.save(actor)
+    plugin_registry.clear_instance_cache()
+
+    second = await changeset_db.begin(
+        actors=[actor], message="empty-delete", status=OpStatus.IN_PROGRESS
+    )
+    second_status = await run_sources(
+        sources=[actor],
+        changeset=second,
+        run_processors=False,
+        missing_assets_policy="delete",
+    )
+    await second.finalize(status=second_status)
+
+    assert second.stats is not None
+    assert second.stats.assets_lost > 0
+    assert len(await asset_db.list_rows(order_by="id")) == 0

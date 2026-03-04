@@ -232,7 +232,11 @@ spec = WorkflowSpec(
 )
 
 # Run source scan and sync actors first.
-result = await run_workflow_file(spec, sync_first=True)
+result = await run_workflow_file(
+    spec,
+    sync_first=True,
+    missing_assets_policy="delete",  # or "lost" for soft-delete behavior
+)
 ```
 
 When `HttpUrlSource` is present in the same workspace/workflow, URL assets emitted by `UrlListSource`

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Literal
 from typing import cast
 
 from loguru import logger
@@ -33,6 +34,7 @@ async def run_sources(
     changeset: Changeset,
     run_processors: bool = True,
     max_recursion_depth: int = 2,
+    missing_assets_policy: Literal["lost", "delete"] = "lost",
 ) -> OpStatus:
     """Run source scans, optionally recurse into discovered assets, and persist results."""
 
@@ -233,14 +235,23 @@ async def run_sources(
     for actor_id, seen_asset_ids in seen_assets_by_actor.items():
         if not actor_has_metadata.get(actor_id):
             continue
-        lost_count = await asset_repo.mark_unseen_as_lost(
-            changeset=changeset,
-            actor_ids=[actor_id],
-            seen_asset_ids=list(seen_asset_ids),
-        )
-        if lost_count:
-            stats.assets_lost += lost_count
-            stats.assets_changed += lost_count
+        if missing_assets_policy == "delete":
+            deleted_count = await asset_repo.delete_unseen_assets(
+                actor_ids=[actor_id],
+                seen_asset_ids=list(seen_asset_ids),
+            )
+            if deleted_count:
+                stats.assets_lost += deleted_count
+                stats.assets_changed += deleted_count
+        else:
+            lost_count = await asset_repo.mark_unseen_as_lost(
+                changeset=changeset,
+                actor_ids=[actor_id],
+                seen_asset_ids=list(seen_asset_ids),
+            )
+            if lost_count:
+                stats.assets_lost += lost_count
+                stats.assets_changed += lost_count
 
     scan_finished = time.perf_counter()
     data_payload = dict(changeset.data or {})
