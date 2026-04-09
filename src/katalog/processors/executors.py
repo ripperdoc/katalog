@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -32,8 +33,11 @@ class ProcessorExecutorBundle:
 
     def get_process_executor(self) -> ProcessPoolExecutor:
         if self.process_executor is None:
+            # Always use spawn: forking inherits native threads started by kreuzberg,
+            # which can break ProcessPoolExecutor workers on Linux (deadlocks/hangs).
             self.process_executor = ProcessPoolExecutor(
-                max_workers=DEFAULT_PROCESS_CONCURRENCY
+                max_workers=DEFAULT_PROCESS_CONCURRENCY,
+                mp_context=mp.get_context("spawn"),
             )
         return self.process_executor
 

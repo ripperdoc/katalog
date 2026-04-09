@@ -25,7 +25,7 @@ dependencies = [
     "httpx>=0.28.1",
     "tenacity>=9.1.2",
     "crawlee>=1.2.1",
-    "kreuzberg>=4.3.8",
+    "kreuzberg>=4.7.4",
     "pyyaml>=6.0.2",
     "sqlite-vec>=0.1.6",
     "onnxruntime==1.23.2",         # Pinned to match convai usage
@@ -41,14 +41,7 @@ cache-dir = ".uv_cache"
 
 [dependency-groups]
 #dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler", "pyright"]
-dev = [
-    "pip",
-    "pytest",
-    "pytest-asyncio",
-    "py-spy",
-    "pyright",
-    "pdoc>=16.0.0",
-]
+dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "pyright", "pdoc>=16.0.0"]
 
 [project.scripts]
 # Installable console script: runs katalog.cli:main as `katalog`
