@@ -24,6 +24,28 @@ open-source tools and SDKs.
 
 The `katalog` command now includes both server and client modes.
 
+### Installation profiles
+
+Default install is lightweight and read-only oriented:
+
+```bash
+pip install katalog
+```
+
+Write-capable install (sources/processors that require heavier dependencies):
+
+```bash
+pip install "katalog[write]"
+```
+
+You can explicitly force profile/mode at runtime:
+
+```bash
+KATALOG_INSTALL_PROFILE=readonly katalog -w /path/to/workspace server
+KATALOG_INSTALL_PROFILE=write katalog -w /path/to/workspace server
+katalog -w /path/to/workspace --read-only server
+```
+
 Start the server:
 
 ```bash
@@ -47,7 +69,8 @@ katalog -w /path/to/workspace actors show 1
 
 ### ONNX runtime for local embeddings (macOS)
 
-Kreuzberg local embeddings depend on ONNX Runtime. Install it with `uv`:
+Kreuzberg local embeddings depend on ONNX Runtime (included in `katalog[write]`).
+If needed separately, install with `uv`:
 
 ```bash
 uv add onnxruntime
@@ -163,21 +186,26 @@ See `TODO.md` for more details.
 
 ## Local UI
 
-The `ui/` folder contains a lightweight React single-page app (Vite + TypeScript) that runs next to
-the FastAPI backend for local exploration.
+`katalog server` now serves the built frontend directly from the same process.
 
-1. Start the backend via the CLI so FastAPI exposes `http://localhost:8000`:
+1. Start the server:
 
 ```bash
 python -m katalog.cli --workspace workspace/path server
 ```
+
+Then open:
+
+- App UI: <http://localhost:8000/>
+- API docs: <http://localhost:8000/docs>
+- API base: <http://localhost:8000/api>
 
 To expose MCP on the same process and port, add `--with-mcp`. The MCP endpoint will be available at
 `http://localhost:8000/mcp`.
 
 Replace `workspace/path` with any workspace directory that includes `katalog.db`.
 
-2. Install UI dependencies and launch the dev server (served on <http://localhost:5173>):
+2. (Optional, frontend development) run the Vite dev server from `ui/`:
 
 ```bash
 cd ui
@@ -185,13 +213,14 @@ npm install
 npm run dev
 ```
 
-The Vite dev proxy forwards `/api/*` calls to the FastAPI server, so no extra CORS setup is needed.
+The Vite dev proxy forwards `/api/*` calls to FastAPI (`http://localhost:8000`) so no extra CORS
+setup is needed.
 
-3. (Optional) When serving the built UI elsewhere, set `VITE_API_BASE_URL` before `npm run dev` or
-   `npm run build` so API calls target the correct backend, e.g.:
+3. (Optional) If serving the UI from another origin, set `VITE_API_BASE_URL` so API calls target the
+   correct backend, e.g.:
 
 ```bash
-VITE_API_BASE_URL="http://localhost:8000" npm run build
+VITE_API_BASE_URL="http://localhost:8000/api" npm run build
 ```
 
 The UI currently lets you enter a source id, query `/files/{actor_id}` with the `flat` or `complete`

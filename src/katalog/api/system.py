@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from katalog.api.helpers import ApiError
+from katalog.api.helpers import ApiError, requires_write_access
 from katalog.config import current_db_path, current_db_url, current_workspace
 from katalog.db.system import get_system_repo
 from katalog.db.metadata import sync_config_db
@@ -10,15 +10,20 @@ from katalog.plugins.registry import get_actor_instance
 from katalog.sources.base import SourcePlugin
 
 
+@requires_write_access()
 async def auth_callback_api(actor: int, authorization_response: str) -> dict[str, str]:
     """Handle OAuth callback completion for a source actor."""
-    plugin = await get_actor_instance(actor)
+    try:
+        plugin = await get_actor_instance(actor)
+    except ValueError as exc:
+        raise ApiError(status_code=404, detail="Actor not found") from exc
     if not isinstance(plugin, SourcePlugin):
         raise ApiError(status_code=400, detail="Actor is not a source")
     plugin.authorize(authorization_response=authorization_response)
     return {"status": "ok"}
 
 
+@requires_write_access()
 async def sync_config() -> dict[str, str]:
     """Requests to sync config"""
     await sync_config_db()

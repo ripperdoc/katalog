@@ -5,7 +5,7 @@ POST http://127.0.0.1:8000/sources/run HTTP/1.1
 POST http://127.0.0.1:8000/analyzers/3/run HTTP/1.1
 
 ### First page of asset
-GET http://127.0.0.1:8000/assets?view_id=default&offset=0&limit=200 HTTP/1.1
+GET http://127.0.0.1:8000/api/assets?view_id=default&offset=0&limit=200 HTTP/1.1
 
 ### List actors
 GET http://127.0.0.1:8000/actors HTTP/1.1
@@ -16,7 +16,7 @@ GET http://127.0.0.1:8000/actors/1/config/schema HTTP/1.1
 
 
 ### Get grouped assets
-GET http://127.0.0.1:8000/assets/grouped?group_by=hash/md5 HTTP/1.1
+GET http://127.0.0.1:8000/api/assets/grouped?group_by=hash/md5 HTTP/1.1
 
 
 ### Get Metadata registry

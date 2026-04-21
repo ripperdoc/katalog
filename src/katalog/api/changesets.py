@@ -10,7 +10,7 @@ from katalog.db.metadata import get_metadata_repo
 from katalog.utils.changeset_events import sse_event
 
 from katalog.editors.user_editor import ensure_user_editor
-from katalog.api.helpers import ApiError
+from katalog.api.helpers import ApiError, requires_write_access
 from katalog.api.schemas import ChangesetChangesResponse, ChangesetDiffResponse
 from katalog.runtime.state import get_event_manager, get_running_changesets
 
@@ -20,6 +20,7 @@ class ChangesetUpdate(BaseModel):
     message: str | None = Field(default=None)
 
 
+@requires_write_access()
 async def create_changeset() -> Changeset:
     """Start a manual-edit changeset for the user editor actor."""
     actor = await ensure_user_editor()
@@ -36,6 +37,7 @@ async def create_changeset() -> Changeset:
     return changeset
 
 
+@requires_write_access()
 async def finish_changeset(changeset_id: int) -> Changeset:
     """Finalize an in-progress changeset as completed."""
     db = get_changeset_repo()
@@ -76,6 +78,7 @@ async def get_changeset(
     )
 
 
+@requires_write_access()
 async def delete_changeset(changeset_id: int) -> dict[str, int | str]:
     """Undo a changeset by deleting it (cascade removes related rows)."""
     db = get_changeset_repo()
@@ -393,6 +396,7 @@ async def list_changeset_diff(
     )
 
 
+@requires_write_access()
 async def update_changeset(changeset_id: int, payload: ChangesetUpdate) -> Changeset:
     """Update mutable properties of a changeset."""
     db = get_changeset_repo()
@@ -494,6 +498,7 @@ async def stream_changeset_events(changeset_id: int):
     return event_generator()
 
 
+@requires_write_access()
 async def cancel_changeset(
     changeset_id: int,
 ) -> tuple[str, Changeset | None]:

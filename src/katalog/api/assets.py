@@ -7,7 +7,7 @@ from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
 from katalog.models.query import AssetQuery
 from katalog.models.views import get_view
-from katalog.api.helpers import ApiError
+from katalog.api.helpers import ApiError, requires_write_access
 from katalog.api.schemas import (
     AssetsListResponse,
     GroupedAssetsResponse,
@@ -47,6 +47,7 @@ async def list_grouped_assets(
     )
 
 
+@requires_write_access()
 async def create_asset() -> None:
     """Raise because direct asset creation is not supported."""
     raise NotImplementedError("Direct asset creation is not supported")
@@ -63,6 +64,7 @@ async def get_asset(asset_id: int) -> tuple[Asset, Sequence[Metadata]]:
     return asset, metadata
 
 
+@requires_write_access()
 async def manual_edit_asset(asset_id: int, payload: dict[str, Any]) -> ManualEditResult:
     """Apply manual metadata edits for an asset in an in-progress changeset."""
     changeset_id = payload.get("changeset_id")
@@ -117,6 +119,7 @@ async def manual_edit_asset(asset_id: int, payload: dict[str, Any]) -> ManualEdi
     )
 
 
+@requires_write_access()
 async def update_asset() -> None:
     """Raise because generic asset patching is not implemented."""
     raise NotImplementedError()

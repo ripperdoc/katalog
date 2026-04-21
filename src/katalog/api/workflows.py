@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from katalog.api.helpers import ApiError
+from katalog.api.helpers import ApiError, requires_write_access
 from katalog.config import current_workspace
 from katalog.workflows import (
     discover_workflow_files,
@@ -85,6 +85,7 @@ async def get_workflow(workflow_name: str) -> dict:
     }
 
 
+@requires_write_access()
 async def sync_workflow(workflow_name: str) -> dict:
     """Synchronize workflow actors into the workspace."""
     file_path = _resolve_workflow_file(workflow_name)
@@ -97,6 +98,7 @@ async def sync_workflow(workflow_name: str) -> dict:
     }
 
 
+@requires_write_access()
 async def run_workflow(workflow_name: str) -> dict:
     """Start workflow execution without actor sync."""
     file_path = _resolve_workflow_file(workflow_name)
@@ -110,6 +112,7 @@ async def run_workflow(workflow_name: str) -> dict:
     }
 
 
+@requires_write_access()
 async def apply_workflow(workflow_name: str) -> dict:
     """Start workflow execution and sync actors before running."""
     file_path = _resolve_workflow_file(workflow_name)

@@ -99,6 +99,7 @@ def _run_server(
     ws: pathlib.Path,
     *,
     port: int | None,
+    read_only: bool,
     with_mcp: bool,
     test_workspace: bool,
     seed_assets: int,
@@ -109,6 +110,10 @@ def _run_server(
     repo_root = _repo_root()
 
     _set_workspace_env(ws)
+    if read_only:
+        os.environ["KATALOG_READ_ONLY"] = "1"
+    else:
+        os.environ.pop("KATALOG_READ_ONLY", None)
     if with_mcp:
         os.environ["KATALOG_ENABLE_MCP"] = "1"
     else:
@@ -155,6 +160,13 @@ def _run_server(
         import uvicorn
         from katalog.config import PORT
 
+        bind_port = port or PORT
+        base_url = f"http://127.0.0.1:{bind_port}"
+        logger.info("Server URL: {}", base_url)
+        logger.info("UI URL: {}", f"{base_url}/")
+        logger.info("API URL: {}", f"{base_url}/api")
+        logger.info("Docs URL: {}", f"{base_url}/docs")
+
         reload_dirs = None
         if reload_dir:
             resolved = []
@@ -168,7 +180,7 @@ def _run_server(
         uvicorn.run(
             "katalog.server:app",
             host="127.0.0.1",
-            port=port or PORT,
+            port=bind_port,
             reload=bool(reload),
             reload_dirs=reload_dirs,
             access_log=False,
@@ -197,6 +209,11 @@ def cli(
         "--json",
         help="Output JSON instead of formatted text",
     ),
+    read_only_opt: bool = typer.Option(
+        False,
+        "--read-only",
+        help="Run in read-only mode (runtime capabilities are read-only)",
+    ),
 ) -> None:
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
@@ -207,7 +224,11 @@ def cli(
 
     ws = _resolve_workspace(workspace_opt)
     _set_workspace_env(ws)
-    ctx.obj = {"workspace": ws, "json": json_output}
+    if read_only_opt:
+        os.environ["KATALOG_READ_ONLY"] = "1"
+    else:
+        os.environ.pop("KATALOG_READ_ONLY", None)
+    ctx.obj = {"workspace": ws, "json": json_output, "read_only": read_only_opt}
 
 
 @app.command("server")
@@ -217,6 +238,11 @@ def server(
         None,
         "--port",
         help="Port to bind the server to (default: config PORT)",
+    ),
+    read_only: bool = typer.Option(
+        False,
+        "--read-only",
+        help="Run server startup/runtime context in read-only mode",
     ),
     with_mcp: bool = typer.Option(
         False,
@@ -251,9 +277,11 @@ def server(
 ) -> None:
     ws = ctx.obj["workspace"]
     _ensure_src_on_path()
+    requested_read_only = bool(ctx.obj.get("read_only")) or bool(read_only)
     _run_server(
         ws,
         port=port,
+        read_only=requested_read_only,
         with_mcp=with_mcp,
         test_workspace=test_workspace,
         seed_assets=seed_assets,

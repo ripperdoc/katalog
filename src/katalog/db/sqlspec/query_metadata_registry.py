@@ -71,7 +71,11 @@ async def sync_metadata_registry() -> None:
             """,
         )
 
-    # Reload to capture generated IDs and rebuild mappings.
+    _apply_registry_rows(rows)
+
+
+def _apply_registry_rows(rows: list[dict]) -> None:
+    """Populate in-memory metadata registry caches from DB rows."""
     key_to_id: dict[MetadataKey, int] = {}
     defs_by_id: dict[int, MetadataDef] = {}
     for row in rows:
@@ -102,6 +106,25 @@ async def sync_metadata_registry() -> None:
     # Legacy global map retained for old call sites and tests.
     METADATA_REGISTRY_BY_ID.clear()
     METADATA_REGISTRY_BY_ID.update(defs_by_id)
+
+
+async def load_metadata_registry_cache() -> None:
+    """Load registry IDs and definitions from DB without mutating state."""
+    async with session_scope() as session:
+        rows = await select(
+            session,
+            f"""
+            SELECT id, plugin_id, key, value_type, title, description, width
+            FROM {METADATA_REGISTRY_TABLE}
+            ORDER BY id
+            """,
+        )
+
+    if not rows:
+        raise RuntimeError(
+            "Metadata registry is empty; initialize workspace in read-write mode first."
+        )
+    _apply_registry_rows(rows)
 
 
 async def sync_config_db():

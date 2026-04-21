@@ -5,11 +5,15 @@ import os
 
 import pytest
 
+from katalog.api.actors import ActorCreate, create_actor
 from katalog.api.assets import list_assets
+from katalog.api.helpers import ApiError
 from katalog.config import current_db_url, current_workspace
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
+from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.sql_helpers import execute
 from katalog.lifespan import app_lifespan
 from katalog.models import ActorType, Asset, OpStatus
 from katalog.models.query import AssetQuery
@@ -176,3 +180,100 @@ async def test_app_lifespan_close_in_different_context_does_not_crash(
         current_workspace()
     with pytest.raises(RuntimeError):
         current_db_url()
+
+
+@pytest.mark.asyncio
+async def test_read_only_mode_blocks_write_operations(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("KATALOG_WORKSPACE", raising=False)
+    monkeypatch.delenv("KATALOG_DATABASE_URL", raising=False)
+    monkeypatch.delenv("KATALOG_READ_ONLY", raising=False)
+
+    workspace = tmp_path / "workspace_read_only"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # Initialize workspace once in read-write mode.
+    async with app_lifespan(runtime_mode="read_write", workspace=workspace):
+        response = await list_assets(
+            AssetQuery.model_validate({"view_id": "default", "offset": 0, "limit": 1})
+        )
+        assert response.items == []
+
+    async with app_lifespan(runtime_mode="read_only", workspace=workspace):
+        with pytest.raises(ApiError) as exc_info:
+            await create_actor(
+                ActorCreate(
+                    name="Should fail in read-only",
+                    plugin_id="katalog.sources.fake_assets.FakeAssetSource",
+                )
+            )
+
+        err = exc_info.value
+        assert err.status_code == 403
+        assert isinstance(err.detail, dict)
+        assert err.detail.get("action") == "create_actor"
+        assert err.detail.get("runtime_mode") == "read_only"
+        assert err.detail.get("read_only_effective") is True
+
+
+@pytest.mark.asyncio
+async def test_read_only_mode_opens_db_as_read_only(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("KATALOG_WORKSPACE", raising=False)
+    monkeypatch.delenv("KATALOG_DATABASE_URL", raising=False)
+    monkeypatch.delenv("KATALOG_READ_ONLY", raising=False)
+
+    workspace = tmp_path / "workspace_db_ro"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # Initialize schema/db in read-write mode first.
+    async with app_lifespan(runtime_mode="read_write", workspace=workspace):
+        response = await list_assets(
+            AssetQuery.model_validate({"view_id": "default", "offset": 0, "limit": 1})
+        )
+        assert response.items == []
+
+    async with app_lifespan(runtime_mode="read_only", workspace=workspace):
+        with pytest.raises(Exception) as exc_info:
+            async with session_scope() as session:
+                await execute(
+                    session,
+                    """
+                    INSERT INTO actors (name, type, disabled)
+                    VALUES (?, ?, ?)
+                    """,
+                    ["should-fail", int(ActorType.SOURCE), 0],
+                )
+                await session.commit()
+
+        # We expect sqlite/sqlspec to reject writes on a read-only connection.
+        assert "readonly" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_fast_read_mode_respects_effective_read_only_profile(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("KATALOG_WORKSPACE", raising=False)
+    monkeypatch.delenv("KATALOG_DATABASE_URL", raising=False)
+    monkeypatch.delenv("KATALOG_READ_ONLY", raising=False)
+    monkeypatch.setenv("KATALOG_INSTALL_PROFILE", "write")
+
+    workspace = tmp_path / "workspace_fast_read_ro"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # Initialize workspace once in write mode, then open with fast_read under readonly profile.
+    async with app_lifespan(runtime_mode="read_write", workspace=workspace):
+        response = await list_assets(
+            AssetQuery.model_validate({"view_id": "default", "offset": 0, "limit": 1})
+        )
+        assert response.items == []
+
+    monkeypatch.setenv("KATALOG_INSTALL_PROFILE", "readonly")
+    async with app_lifespan(runtime_mode="fast_read", workspace=workspace):
+        response = await list_assets(
+            AssetQuery.model_validate({"view_id": "default", "offset": 0, "limit": 1})
+        )
+        assert response.items == []

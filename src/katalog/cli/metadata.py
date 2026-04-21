@@ -100,7 +100,7 @@ def list_metadata(
         )
         return await list_metadata_api(asset_query)
 
-    result = run_cli(_run, init_mode="fast")
+    result = run_cli(_run, runtime_mode="fast_read")
     if wants_json(ctx):
         typer.echo(json.dumps(result, default=str))
         return

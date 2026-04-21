@@ -5,8 +5,8 @@ from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import (
     MetadataDef,
     editable_metadata_schema,
-    get_metadata_def_by_id,
     get_metadata_id,
+    metadata_key_for_id_or_fallback,
     metadata_registry_by_id_for_current_db,
 )
 from katalog.db.assets import get_asset_repo
@@ -101,10 +101,7 @@ async def _list_metadata_fts(query: AssetQuery) -> dict:
     items = []
     for hit in hits:
         asset = assets_by_id.get(hit.asset_id)
-        try:
-            metadata_key = str(get_metadata_def_by_id(hit.metadata_key_id).key)
-        except Exception:  # noqa: BLE001
-            metadata_key = str(hit.metadata_key_id)
+        metadata_key = str(metadata_key_for_id_or_fallback(int(hit.metadata_key_id)))
         items.append(
             {
                 "asset_id": hit.asset_id,

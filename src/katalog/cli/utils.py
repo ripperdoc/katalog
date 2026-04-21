@@ -3,14 +3,25 @@ from typing import Any, Awaitable, Callable, Mapping, Sequence, TypeVar
 
 import typer
 
+from katalog.config import RuntimeMode
 from katalog.lifespan import InitMode, app_lifespan
 
 T = TypeVar("T")
 
 
-def run_cli(task: Callable[[], Awaitable[T]], *, init_mode: InitMode = "full") -> T:
+def run_cli(
+    task: Callable[[], Awaitable[T]],
+    *,
+    runtime_mode: RuntimeMode = "read_write",
+    init_mode: InitMode | None = None,
+    read_only_requested: bool | None = None,
+) -> T:
     async def _run() -> T:
-        async with app_lifespan(init_mode=init_mode):
+        async with app_lifespan(
+            runtime_mode=runtime_mode,
+            init_mode=init_mode,
+            read_only_requested=read_only_requested,
+        ):
             return await task()
 
     return asyncio.run(_run())

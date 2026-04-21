@@ -591,7 +591,7 @@ class GoogleDriveClient(SourcePlugin):
                 self.client_secret_path, SCOPES, state=self._oauth_state
             )
             authorization_response = str(kwargs["authorization_response"])
-            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.actor.id}"
+            flow.redirect_uri = f"http://localhost:{PORT}/api/auth/{self.actor.id}"
             flow.fetch_token(authorization_response=authorization_response)
             creds = flow.credentials
             self.token_path.write_text(creds.to_json())
@@ -606,7 +606,7 @@ class GoogleDriveClient(SourcePlugin):
         else:
             # Start a new OAuth2 flow to redirect user to authorization URL
             flow = Flow.from_client_secrets_file(self.client_secret_path, SCOPES)
-            flow.redirect_uri = f"http://localhost:{PORT}/auth/{self.actor.id}"
+            flow.redirect_uri = f"http://localhost:{PORT}/api/auth/{self.actor.id}"
             # Read details here https://developers.google.com/identity/protocols/oauth2/web-server#obtainingaccesstokens
             authorization_url, state = flow.authorization_url(
                 access_type="offline",

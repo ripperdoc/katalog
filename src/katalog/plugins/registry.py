@@ -55,6 +55,15 @@ def _spec_from_entrypoint(
 ) -> PluginSpec | None:
     try:
         cls = ep.load()
+    except ModuleNotFoundError as exc:
+        missing_module = getattr(exc, "name", "unknown")
+        logger.trace(
+            "Skipping plugin entry point {name} ({value}): missing optional dependency {missing}",
+            name=ep.name,
+            value=ep.value,
+            missing=missing_module,
+        )
+        return None
     except Exception:
         logger.exception("Failed to load plugin entry point {name}", name=ep.name)
         return None

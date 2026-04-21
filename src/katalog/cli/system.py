@@ -22,7 +22,7 @@ def workspace_stats(ctx: typer.Context) -> None:
 
         return await workspace_size_stats_api()
 
-    stats = run_cli(_run, init_mode="fast")
+    stats = run_cli(_run, runtime_mode="fast_read")
     if wants_json(ctx):
         typer.echo(json.dumps(stats, default=str))
         return

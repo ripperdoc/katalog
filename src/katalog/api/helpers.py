@@ -1,9 +1,11 @@
-from typing import Any
+import functools
+from typing import Any, Awaitable, Callable, ParamSpec, TypeVar
 import hashlib
 import json
 
 from pydantic import ValidationError
 
+from katalog.config import current_app_context
 from katalog.models.core import ActorType
 from katalog.plugins.registry import (
     PluginSpec,
@@ -27,6 +29,46 @@ class ApiError(Exception):
         self.status_code = status_code
         self.detail = detail
         self.headers = headers
+
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+
+def enforce_write_access(action: str) -> None:
+    """Ensure mutating operations are blocked when runtime is effectively read-only."""
+    context = current_app_context()
+    if not context.read_only_effective:
+        return
+    raise ApiError(
+        status_code=403,
+        detail={
+            "message": f"Operation '{action}' is not allowed in read-only mode.",
+            "action": action,
+            "runtime_mode": context.runtime_mode,
+            "read_only_effective": context.read_only_effective,
+        },
+    )
+
+
+def requires_write_access(
+    action: str | None = None,
+) -> Callable[[Callable[_P, Awaitable[_T]]], Callable[_P, Awaitable[_T]]]:
+    """Decorator that enforces write capability for mutating async API functions."""
+
+    def _decorator(
+        func: Callable[_P, Awaitable[_T]],
+    ) -> Callable[_P, Awaitable[_T]]:
+        resolved_action = action or func.__name__
+
+        @functools.wraps(func)
+        async def _wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+            enforce_write_access(resolved_action)
+            return await func(*args, **kwargs)
+
+        return _wrapped
+
+    return _decorator
 
 
 def validate_and_normalize_config(

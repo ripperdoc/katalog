@@ -12,7 +12,7 @@ from katalog.models import (
 from katalog.models.query import AssetFilter, AssetQuery
 from katalog.models.views import get_view
 from katalog.editors.user_editor import ensure_user_editor
-from katalog.api.helpers import ApiError
+from katalog.api.helpers import ApiError, requires_write_access
 from katalog.api.search import ensure_fts_index_ready
 from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
 from katalog.db.asset_collections import get_asset_collection_repo
@@ -50,6 +50,7 @@ async def list_collections() -> list[AssetCollection]:
     return collections
 
 
+@requires_write_access()
 async def create_collection(payload: CollectionCreate) -> AssetCollection:
     """Create a collection from explicit asset ids or a source query."""
     db = get_asset_collection_repo()
@@ -185,6 +186,7 @@ async def get_collection(collection_id: int) -> AssetCollection:
     return collection
 
 
+@requires_write_access()
 async def update_collection(
     collection_id: int, payload: CollectionUpdate
 ) -> AssetCollection:
@@ -258,6 +260,7 @@ async def list_collection_assets(
         raise ApiError(status_code=400, detail=str(exc))
 
 
+@requires_write_access()
 async def delete_collection(collection_id: int) -> dict[str, int | str]:
     """Delete a collection record."""
     db = get_asset_collection_repo()
@@ -271,6 +274,7 @@ async def delete_collection(collection_id: int) -> dict[str, int | str]:
     return {"status": "deleted", "collection_id": collection_id}
 
 
+@requires_write_access()
 async def remove_collection_assets(
     collection_id: int, payload: CollectionRemoveAssets
 ) -> RemoveAssetsResponse:

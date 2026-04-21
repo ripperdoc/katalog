@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from pathlib import Path
+from urllib.parse import parse_qsl, quote, urlencode
 from typing import Any, AsyncIterator
 
 from loguru import logger
@@ -29,13 +30,36 @@ def _sqlspec_state() -> tuple[AiosqliteConfig | None, set[int]]:
     return config, loaded_extensions
 
 
-def _build_config(db_url: str) -> AiosqliteConfig:
+def _sqlite_database_from_url(db_url: str) -> str:
     if db_url.startswith("sqlite:///"):
-        database = db_url[len("sqlite:///") :]
-    elif db_url.startswith("sqlite://"):
-        database = db_url[len("sqlite://") :]
-    else:
-        database = db_url
+        return db_url[len("sqlite:///") :]
+    if db_url.startswith("sqlite://"):
+        return db_url[len("sqlite://") :]
+    return db_url
+
+
+def _enforce_read_only_sqlite_target(database: str) -> str:
+    if database == ":memory:":
+        raise RuntimeError("Read-only mode does not support in-memory sqlite databases")
+
+    if database.startswith("file:"):
+        if "?" in database:
+            base, query = database.split("?", 1)
+            params = dict(parse_qsl(query, keep_blank_values=True))
+        else:
+            base = database
+            params = {}
+        params["mode"] = "ro"
+        return f"{base}?{urlencode(params)}"
+
+    encoded = quote(database, safe="/")
+    return f"file:{encoded}?mode=ro"
+
+
+def _build_config(db_url: str, *, read_only: bool = False) -> AiosqliteConfig:
+    database = _sqlite_database_from_url(db_url)
+    if read_only:
+        database = _enforce_read_only_sqlite_target(database)
 
     use_uri = database.startswith("file:")
     connection_config: dict[str, Any] = {"database": database}
@@ -52,7 +76,8 @@ def _default_db_url() -> str:
 def configure_sqlspec(db_url: str | None = None) -> None:
     resolved_db_url = db_url or _default_db_url()
     app_config.current_app_context().state["sqlspec_config"] = _build_config(
-        resolved_db_url
+        resolved_db_url,
+        read_only=app_config.current_app_context().read_only_effective,
     )
 
 
@@ -68,7 +93,10 @@ def _get_config(*, analysis: bool = False) -> AiosqliteConfig:
     _ = analysis
     config, _ = _sqlspec_state()
     if config is None:
-        config = _build_config(_default_db_url())
+        config = _build_config(
+            _default_db_url(),
+            read_only=app_config.current_app_context().read_only_effective,
+        )
         app_config.current_app_context().state["sqlspec_config"] = config
     return config
 

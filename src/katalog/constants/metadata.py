@@ -226,6 +226,14 @@ def get_metadata_def_by_id(registry_id: int) -> MetadataDef:
         )
 
 
+def metadata_key_for_id_or_fallback(registry_id: int) -> MetadataKey:
+    """Resolve metadata key for registry id, falling back to a stable synthetic key."""
+    try:
+        return get_metadata_def_by_id(int(registry_id)).key
+    except Exception:
+        return MetadataKey(f"id:{int(registry_id)}")
+
+
 def get_metadata_schema(key: MetadataKey) -> dict:
     definition = get_metadata_def_by_key(key)
     if definition is None:

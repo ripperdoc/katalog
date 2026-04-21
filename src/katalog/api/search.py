@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import perf_counter
 
-from katalog.constants.metadata import get_metadata_def_by_id, get_metadata_id
+from katalog.constants.metadata import (
+    get_metadata_id,
+    metadata_key_for_id_or_fallback,
+)
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.fts import get_fts_repo
@@ -204,10 +207,7 @@ def _filter_hits(
         cosine_similarity = l2_distance_to_cosine_similarity(float(hit.distance))
         if min_score is not None and cosine_similarity < float(min_score):
             continue
-        try:
-            key = str(get_metadata_def_by_id(hit.metadata_key_id).key)
-        except Exception:  # noqa: BLE001
-            key = str(hit.metadata_key_id)
+        key = str(metadata_key_for_id_or_fallback(int(hit.metadata_key_id)))
         filtered.append(
             SemanticHit(
                 asset_id=int(hit.asset_id),

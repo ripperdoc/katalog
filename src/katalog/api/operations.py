@@ -13,7 +13,7 @@ from katalog.db.changesets import get_changeset_repo
 from katalog.processors.runtime import do_run_processors, sort_processors
 from katalog.sources.runtime import run_sources
 
-from katalog.api.helpers import ApiError
+from katalog.api.helpers import ApiError, requires_write_access
 from katalog.runtime.state import get_running_changesets
 
 def _track_changeset(changeset: Changeset) -> None:
@@ -34,6 +34,7 @@ def _start_tracked_operation(
     task.add_done_callback(_cleanup)
 
 
+@requires_write_access()
 async def run_source(
     source_id: int,
     *,
@@ -91,6 +92,7 @@ async def run_source(
     return changeset
 
 
+@requires_write_access()
 async def run_processors(
     processor_ids: list[int] | None,
     asset_ids: list[int] | None,
@@ -150,6 +152,7 @@ async def run_processors(
     return changeset
 
 
+@requires_write_access()
 async def run_analyzer(
     analyzer_id: str,
     *,

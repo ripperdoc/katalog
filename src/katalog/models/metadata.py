@@ -14,6 +14,7 @@ from katalog.constants.metadata import (
     get_metadata_def_by_id,
     get_metadata_def_by_key,
     get_metadata_id,
+    metadata_key_for_id_or_fallback,
 )
 from katalog.models.core import Changeset
 from katalog.models.assets import Asset
@@ -66,7 +67,7 @@ class Metadata(BaseModel):
         registry_id = getattr(self, "metadata_key_id", None)
         if registry_id is None:
             raise RuntimeError("metadata_key_id is missing on this Metadata instance")
-        return get_metadata_def_by_id(int(registry_id)).key
+        return metadata_key_for_id_or_fallback(int(registry_id))
 
     @field_serializer("key")
     def _serialize_key(self, value: MetadataKey) -> str:

@@ -17,6 +17,7 @@ from katalog.api.helpers import (
     ApiError,
     actor_identity_key,
     config_schema_for_plugin,
+    requires_write_access,
     validate_and_normalize_config,
 )
 
@@ -38,6 +39,7 @@ class ActorUpdate(BaseModel):
     disabled: bool | None = None
 
 
+@requires_write_access()
 async def create_actor(payload: ActorCreate) -> Actor:
     """Create an actor from validated plugin configuration."""
     db = get_actor_repo()
@@ -126,10 +128,26 @@ async def get_actor_config_schema(actor_id: int) -> dict[str, Any]:
         raise ApiError(status_code=404, detail="Actor not found")
     if actor.plugin_id is None:
         raise ApiError(status_code=409, detail="Actor is missing plugin_id")
-    schema_payload = config_schema_for_plugin(actor.plugin_id)
-    return {"schema": schema_payload["schema"], "value": actor.config or {}}
+    try:
+        schema_payload = config_schema_for_plugin(actor.plugin_id)
+        return {"schema": schema_payload["schema"], "value": actor.config or {}}
+    except ApiError as exc:
+        # In read-only/light installs, legacy actors may reference plugins whose
+        # optional dependencies are not installed. Keep actor inspection usable.
+        if exc.status_code == 404:
+            return {
+                "schema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": True,
+                },
+                "value": actor.config or {},
+                "plugin_unavailable": True,
+            }
+        raise
 
 
+@requires_write_access()
 async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
     """Update actor metadata and configuration."""
     db = get_actor_repo()

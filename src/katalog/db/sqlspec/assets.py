@@ -15,9 +15,9 @@ from katalog.constants.metadata import (
     SIDECAR_TYPE,
     MetadataKey,
     MetadataType,
-    get_metadata_def_by_id,
     get_metadata_def_by_key,
     get_metadata_id,
+    metadata_key_for_id_or_fallback,
 )
 from katalog.db.sqlspec.sql_helpers import execute, scalar, select, select_one_or_none
 from katalog.db.sqlspec import session_scope
@@ -692,14 +692,11 @@ class SqlspecAssetRepo:
                         continue
                     asset_entry = assets[asset_id]
 
-                    try:
-                        key_def = get_metadata_def_by_id(int(row["metadata_key_id"]))
-                    except KeyError:
-                        continue
-
                     value = decode_metadata_value(row)
 
-                    key_str = str(key_def.key)
+                    key_str = str(
+                        metadata_key_for_id_or_fallback(int(row["metadata_key_id"]))
+                    )
                     if key_str not in requested_columns:
                         continue
                     asset_entry[key_str] = value
@@ -723,11 +720,9 @@ class SqlspecAssetRepo:
                     asset_id = int(row["asset_id"])
                     if asset_id not in assets:
                         continue
-                    try:
-                        key_def = get_metadata_def_by_id(int(row["metadata_key_id"]))
-                    except KeyError:
-                        continue
-                    key_str = str(key_def.key)
+                    key_str = str(
+                        metadata_key_for_id_or_fallback(int(row["metadata_key_id"]))
+                    )
                     if key_str not in requested_columns:
                         continue
                     asset_entry = assets[asset_id]

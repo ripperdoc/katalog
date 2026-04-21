@@ -16,7 +16,7 @@ def list_actors(ctx: typer.Context) -> None:
 
         return await list_actors_api()
 
-    actors = run_cli(_run, init_mode="fast")
+    actors = run_cli(_run, runtime_mode="fast_read")
     if wants_json(ctx):
         typer.echo(
             json.dumps(
@@ -54,7 +54,7 @@ def show_actor(actor_id: int, ctx: typer.Context) -> None:
 
         return await get_actor_api(actor_id)
 
-    actor, changesets = run_cli(_run, init_mode="fast")
+    actor, changesets = run_cli(_run, runtime_mode="fast_read")
     if wants_json(ctx):
         typer.echo(
             json.dumps(

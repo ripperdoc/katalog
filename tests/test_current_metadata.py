@@ -1,7 +1,7 @@
 """Tests for MetadataChangeSet current/changed logic."""
 
 from katalog.constants.metadata import FILE_PATH
-from katalog.models import Asset, MetadataChanges
+from katalog.models import Asset, Metadata, MetadataChanges, MetadataType
 from tests.utils.metadata_helpers import mem_md, registry_stub
 
 TEST_ASSET = Asset(id=1, namespace="test", external_id="a", canonical_uri="file:///a")
@@ -166,3 +166,25 @@ def test_changed_since_actor_counts_tombstones_as_changes(registry_stub):
         )
         is True
     )
+
+
+def test_metadata_key_falls_back_to_stable_id_for_unknown_registry_id():
+    entry = Metadata(
+        metadata_key_id=999999,
+        value_type=MetadataType.STRING,
+        value_text="mystery",
+    )
+    assert str(entry.key) == "id:999999"
+
+
+def test_current_metadata_keeps_unknown_registry_id_queryable():
+    unknown = Metadata(
+        metadata_key_id=999999,
+        actor_id=1,
+        changeset_id=1,
+        value_type=MetadataType.STRING,
+        value_text="mystery",
+    )
+    cs = MetadataChanges(asset=TEST_ASSET, loaded=[unknown])
+    result = cs.current()
+    assert "id:999999" in {str(key) for key in result.keys()}
