@@ -39,6 +39,8 @@
 - Follow the application layers from DESIGN.md for separation of concerns: all external actions goes
   through the `katalog.api` layer: all clients talk to the API layer, and the API layer can't use
   the DB directly, it must go through an implementation in the `katalog.db` layer.
+- Keep CLI, HTTP, and MCP wrappers in sync when they represent the same read/write API surface; if
+  expected cross-client parity is unclear, ask the user before proceeding.
 - In UI tables (`simple-table-core`), never call React hooks inside `cellRenderer` callbacks. Load
   hook data at route/table level and pass it into pure cell components (e.g. `ActorCellPure`).
   Calling hooks in `cellRenderer` can cause "Rendered more hooks than during the previous render"

@@ -7,14 +7,29 @@ import sys
 import typer
 from loguru import logger
 
-app = typer.Typer(help="Katalog CLI")
-actors_app = typer.Typer(help="Manage actors")
-assets_app = typer.Typer(help="Manage assets")
-collections_app = typer.Typer(help="Manage collections")
-changesets_app = typer.Typer(help="Manage changesets")
-processors_app = typer.Typer(help="Manage processors")
-workflows_app = typer.Typer(help="Manage workflows")
-metadata_app = typer.Typer(help="Manage metadata")
+from katalog.help_texts import (
+    ACTORS_GROUP_HELP,
+    ASSETS_GROUP_HELP,
+    CHANGESETS_GROUP_HELP,
+    CLI_APP_HELP,
+    COLLECTIONS_GROUP_HELP,
+    JSON_OPTION_HELP,
+    METADATA_GROUP_HELP,
+    PROCESSORS_GROUP_HELP,
+    READ_ONLY_OPTION_HELP,
+    SERVER_COMMAND_HELP,
+    WORKFLOWS_GROUP_HELP,
+    WORKSPACE_OPTION_HELP,
+)
+
+app = typer.Typer(help=CLI_APP_HELP)
+actors_app = typer.Typer(help=ACTORS_GROUP_HELP)
+assets_app = typer.Typer(help=ASSETS_GROUP_HELP)
+collections_app = typer.Typer(help=COLLECTIONS_GROUP_HELP)
+changesets_app = typer.Typer(help=CHANGESETS_GROUP_HELP)
+processors_app = typer.Typer(help=PROCESSORS_GROUP_HELP)
+workflows_app = typer.Typer(help=WORKFLOWS_GROUP_HELP)
+metadata_app = typer.Typer(help=METADATA_GROUP_HELP)
 app.add_typer(actors_app, name="actors")
 app.add_typer(assets_app, name="assets")
 app.add_typer(collections_app, name="collections")
@@ -202,17 +217,17 @@ def cli(
         None,
         "--workspace",
         "-w",
-        help="Path to workspace folder to use",
+        help=WORKSPACE_OPTION_HELP,
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Output JSON instead of formatted text",
+        help=JSON_OPTION_HELP,
     ),
     read_only_opt: bool = typer.Option(
         False,
         "--read-only",
-        help="Run in read-only mode (runtime capabilities are read-only)",
+        help=READ_ONLY_OPTION_HELP,
     ),
 ) -> None:
     if ctx.invoked_subcommand is None:
@@ -231,7 +246,7 @@ def cli(
     ctx.obj = {"workspace": ws, "json": json_output, "read_only": read_only_opt}
 
 
-@app.command("server")
+@app.command("server", help=SERVER_COMMAND_HELP)
 def server(
     ctx: typer.Context,
     port: int | None = typer.Option(
