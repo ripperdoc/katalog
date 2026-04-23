@@ -45,7 +45,6 @@ async def sort_processors(
     db = get_actor_repo()
     actors = await db.list_rows(order_by="id", **filters)
     if not actors:
-        logger.warning("No processor actors found")
         return [], []
 
     processors_by_name: dict[str, Processor] = {}

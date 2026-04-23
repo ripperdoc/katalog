@@ -6,6 +6,7 @@ import json
 from pydantic import ValidationError
 
 from katalog.config import current_app_context
+from katalog.db.errors import ChangesetInProgressError
 from katalog.models.core import ActorType
 from katalog.plugins.registry import (
     PluginSpec,
@@ -33,6 +34,22 @@ class ApiError(Exception):
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
+
+
+def _changeset_in_progress_detail(changeset_id: int) -> dict[str, Any]:
+    changeset_id = int(changeset_id)
+    return {
+        "error": "changeset_in_progress",
+        "detail": (
+            f"Another changeset is already running (id={changeset_id}). "
+            "Finish or cancel it before starting a new run."
+        ),
+        "changeset_id": changeset_id,
+        "status": "in_progress",
+        "action": {
+            "cancel_endpoint": f"/api/changesets/{changeset_id}/cancel",
+        },
+    }
 
 
 def enforce_write_access(action: str) -> None:
@@ -64,7 +81,13 @@ def requires_write_access(
         @functools.wraps(func)
         async def _wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _T:
             enforce_write_access(resolved_action)
-            return await func(*args, **kwargs)
+            try:
+                return await func(*args, **kwargs)
+            except ChangesetInProgressError as exc:
+                raise ApiError(
+                    status_code=409,
+                    detail=_changeset_in_progress_detail(exc.changeset_id),
+                ) from exc
 
         return _wrapped
 

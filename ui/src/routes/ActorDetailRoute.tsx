@@ -172,6 +172,22 @@ function ActorDetailRoute() {
               {scanning ? "Starting..." : "Run"}
             </button>
           )}
+          {actor?.type === "SOURCE" && (
+            <a
+              className="app-btn"
+              href={`/api/auth/${encodeURIComponent(actorIdNum)}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-disabled={loading || scanning || Boolean(actor?.disabled)}
+              onClick={(event) => {
+                if (loading || scanning || Boolean(actor?.disabled)) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              Authorize
+            </a>
+          )}
           <button
             className="app-btn btn-save"
             type="button"

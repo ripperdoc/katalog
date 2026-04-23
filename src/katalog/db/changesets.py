@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping, Protocol, TYPE_CHECKING
 
 from katalog.db.sqlspec.changesets import SqlspecChangesetRepo
+from katalog.db.errors import ChangesetInProgressError
 from katalog.models.core import Actor, Changeset, OpStatus
 
 

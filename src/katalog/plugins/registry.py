@@ -137,6 +137,26 @@ def _instance_cache() -> dict[int, PluginBase]:
     return cache
 
 
+async def _close_plugin_instance(instance: PluginBase) -> None:
+    close_method = getattr(instance, "close", None)
+    if close_method is None:
+        return
+    result = close_method()
+    if inspect.isawaitable(result):
+        await result
+
+
+def _cached_instance_matches_actor(cached: PluginBase, actor_obj: Actor) -> bool:
+    cached_actor = getattr(cached, "actor", None)
+    if not isinstance(cached_actor, Actor):
+        return False
+    return (
+        cached_actor.plugin_id == actor_obj.plugin_id
+        and cached_actor.config == actor_obj.config
+        and cached_actor.disabled == actor_obj.disabled
+    )
+
+
 @overload
 async def get_actor_instance(actor: Actor) -> PluginBase: ...
 
@@ -167,7 +187,16 @@ async def get_actor_instance(actor) -> PluginBase:
     cache_key = int(actor_obj.id)
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        if _cached_instance_matches_actor(cached, actor_obj):
+            return cached
+        try:
+            await _close_plugin_instance(cached)
+        except Exception:
+            logger.exception(
+                "Failed to close stale plugin instance cache_key={cache_key}",
+                cache_key=cache_key,
+            )
+        cache.pop(cache_key, None)
     PluginClass = cast(type[PluginBase], get_plugin_class(actor_obj.plugin_id))
     instance = PluginClass(actor=actor_obj, **(actor_obj.config or {}))
     cache[cache_key] = instance
@@ -182,12 +211,8 @@ async def close_instance_cache() -> None:
         if instance is None:
             continue
         close_method = getattr(instance, "close", None)
-        if close_method is None:
-            continue
         try:
-            result = close_method()
-            if inspect.isawaitable(result):
-                await result
+            await _close_plugin_instance(instance)
         except Exception:
             logger.exception(
                 "Failed to close plugin instance cache_key={cache_key}",

@@ -143,9 +143,22 @@ async def run_sources(
                 )
             )
         else:
+            # Preview persistence to keep stats in sync with metadata rows
+            # that will be written for this changeset.
+            preview_rows, _preview_keys = changes.prepare_persist(
+                changeset=changeset,
+                existing_metadata=loaded_metadata,
+            )
             changed_keys = await metadata_repo.persist_changes(changes, changeset=changeset)
             if changed_keys:
                 stats.assets_changed += 1
+            if preview_rows:
+                added_count = sum(1 for row in preview_rows if not row.removed)
+                removed_count = sum(1 for row in preview_rows if row.removed)
+                changed_count = added_count + removed_count
+                stats.metadata_values_added += added_count
+                stats.metadata_values_removed += removed_count
+                stats.metadata_values_changed += changed_count
 
         return loaded_metadata, changes
 

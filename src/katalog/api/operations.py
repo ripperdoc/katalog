@@ -1,5 +1,8 @@
+import asyncio
 import traceback
 from typing import Literal
+from typing import cast
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -12,6 +15,8 @@ from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.processors.runtime import do_run_processors, sort_processors
 from katalog.sources.runtime import run_sources
+from katalog.sources.base import SourcePlugin
+from katalog.plugins.registry import get_actor_instance
 
 from katalog.api.helpers import ApiError, requires_write_access
 from katalog.runtime.state import get_running_changesets
@@ -29,9 +34,56 @@ def _start_tracked_operation(
     task = changeset.start_operation(coro_factory)
 
     def _cleanup(_task) -> None:
-        running_changesets.pop(changeset.id, None)
+        try:
+            # Drain task exceptions so fire-and-forget operations do not leak
+            # unhandled task warnings in the event loop.
+            _task.exception()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+        finally:
+            running_changesets.pop(changeset.id, None)
 
     task.add_done_callback(_cleanup)
+
+
+def _is_http_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+@requires_write_access()
+async def authorize_source(source_id: int) -> dict[str, str | None]:
+    """Start or complete source authorization flow."""
+    db = get_actor_repo()
+    source = await db.get_or_none(id=source_id, type=ActorType.SOURCE)
+    if source is None:
+        raise ApiError(status_code=404, detail="Source not found")
+    if source.disabled:
+        raise ApiError(status_code=409, detail="Source is disabled")
+
+    try:
+        source_plugin = cast(SourcePlugin, await get_actor_instance(source))
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(
+            status_code=409,
+            detail=f"Source is not ready: failed to load plugin instance ({exc})",
+        ) from exc
+
+    try:
+        authorize_result = source_plugin.authorize()
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(
+            status_code=409,
+            detail=f"Source authorization failed: {exc}",
+        ) from exc
+
+    auth_url = authorize_result.strip() if isinstance(authorize_result, str) else ""
+    if auth_url and _is_http_url(auth_url):
+        return {"status": "authorization_required", "authorization_url": auth_url}
+
+    return {"status": "authorized", "authorization_url": None}
 
 
 @requires_write_access()
@@ -50,6 +102,18 @@ async def run_source(
         raise ApiError(status_code=404, detail="Source not found")
     if source.disabled:
         raise ApiError(status_code=409, detail="Source is disabled")
+
+    try:
+        source_plugin = cast(SourcePlugin, await get_actor_instance(source))
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(
+            status_code=409,
+            detail=f"Source is not ready: failed to load plugin instance ({exc})",
+        ) from exc
+    ready, reason = await source_plugin.is_ready()
+    if not ready:
+        detail = reason or "unknown reason"
+        raise ApiError(status_code=409, detail=f"Source is not ready: {detail}")
 
     # Single-source scans map 1:1 to a changeset. Processor actors may still participate downstream.
     sources = [source]

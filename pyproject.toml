@@ -59,6 +59,8 @@ url_list = "katalog.sources.url_list:UrlListSource"
 json_list = "katalog.sources.json_list:JsonListSource"
 http_url = "katalog.sources.http_url:HttpUrlSource"
 google_storage = "katalog.sources.google_storage:GoogleStorageSource"
+csv = "katalog.sources.csv:CsvSource"
+google_sheets = "katalog.sources.google_sheets:GoogleSheetsSource"
 
 [project.entry-points."katalog.processor"]
 md5 = "katalog.processors.md5_hash:MD5HashProcessor"

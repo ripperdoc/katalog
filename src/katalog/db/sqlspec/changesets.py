@@ -5,6 +5,7 @@ import time
 from typing import Any, Iterable, Mapping
 
 from katalog.constants.metadata import get_metadata_def_by_id
+from katalog.db.errors import ChangesetInProgressError
 from katalog.db.utils import build_where
 from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec import session_scope
@@ -90,9 +91,7 @@ class SqlspecChangesetRepo:
     ) -> Changeset:
         existing_in_progress = await self.get_or_none(status=OpStatus.IN_PROGRESS)
         if existing_in_progress is not None:
-            raise ValueError(
-                f"Changeset {existing_in_progress.id} is already in progress; finish or cancel it first"
-            )
+            raise ChangesetInProgressError(existing_in_progress.id)
         changeset_id = int(time.time() * 1000)
         if await self.get_or_none(id=changeset_id):
             raise ValueError(f"Changeset with id {changeset_id} already exists")

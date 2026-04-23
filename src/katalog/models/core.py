@@ -192,11 +192,9 @@ class Changeset(BaseModel):
         if self.done_event is None:
             self.done_event = asyncio.Event()
 
-        context_cm = logger.contextualize(changeset_id=self.id)
-
         async def runner():
             try:
-                with context_cm:
+                with logger.contextualize(changeset_id=self.id):
                     try:
                         from katalog.runtime.state import get_event_manager
 
@@ -216,7 +214,7 @@ class Changeset(BaseModel):
                 await self.finalize(status=OpStatus.CANCELED)
                 raise
             except Exception as exc:  # noqa: BLE001
-                with context_cm:
+                with logger.contextualize(changeset_id=self.id):
                     logger.exception("Changeset operation failed")
                 data = dict(self.data or {})
                 data["error_message"] = str(exc)

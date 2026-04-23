@@ -9,6 +9,7 @@ type ActorListProps = {
   showEdit?: boolean;
   showToggle?: boolean;
   showRun?: boolean;
+  showAuthorize?: boolean;
   runDisabled?: boolean;
   runContextLabel?: string;
   emptyLabel?: string;
@@ -24,6 +25,7 @@ const ActorList = ({
   showEdit = true,
   showToggle = true,
   showRun = true,
+  showAuthorize = false,
   runDisabled = false,
   runContextLabel,
   emptyLabel,
@@ -78,6 +80,22 @@ const ActorList = ({
               >
                 {runningId === actor.id ? "Starting..." : "Run"}
               </button>
+            )}
+            {showAuthorize && (
+              <a
+                className="app-btn"
+                href={`/api/auth/${encodeURIComponent(actor.id)}`}
+                target="_blank"
+                rel="noreferrer"
+                aria-disabled={actor.disabled}
+                onClick={(event) => {
+                  if (actor.disabled) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                Authorize
+              </a>
             )}
           </div>
         </div>

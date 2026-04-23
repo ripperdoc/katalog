@@ -1,6 +1,8 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 import json
+import os
+from pathlib import Path
 import secrets
 from typing import Any, AsyncIterator, Dict, Optional
 from crawlee import Request
@@ -108,6 +110,13 @@ FILE_QUOTA_BYTES_USED = define_metadata(
 )
 
 
+def _allow_insecure_local_oauth_transport() -> None:
+    # Local development callback is HTTP on localhost.
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+    # Google may return previously granted superset scopes.
+    os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
+
 def _canonical_uri_for_file(file_id: str, mime_type: str | None) -> str:
     if mime_type == GOOGLE_DRIVE_FOLDER_MIME:
         return f"https://drive.google.com/drive/folders/{file_id}"
@@ -157,7 +166,7 @@ class GoogleDriveDataReader(DataReader):
 class GoogleDriveClient(SourcePlugin):
     """Client that lists files from Google Drive. Features:
     - Authenticates via OAuth2, by requesting a refresh token that is stored in <actor_path>/token.json
-    and using the static application credentials in <actor_path>/client_scret.json
+    and using the static application credentials in <actor_path>/client_secret.json
     - Reads efficiently from Google Drive API using asyncio fetchers that work concurrently on time-sliced windows, files ordered by modifiedTime desc
     and then regular pagination of 100 within each window (using nextPageToken from the API)
     - Resolves full path metadata per file by recursing parent folder IDs into names. To optimize this, we build a lookup dict that is
@@ -212,6 +221,13 @@ class GoogleDriveClient(SourcePlugin):
         )
         account: str | None = Field(
             default=None, description="Login hint (email) for OAuth screen"
+        )
+        client_secret_path: str | None = Field(
+            default=None,
+            description=(
+                "Optional path to OAuth client secret JSON. "
+                "Defaults to actor_path/<actor_id>/client_secret.json."
+            ),
         )
 
         drive_id: str | None = Field(
@@ -277,7 +293,10 @@ class GoogleDriveClient(SourcePlugin):
         if actor_id is None:
             raise ValueError("GoogleDriveSource actor is missing id")
         self.token_path = actor_path(actor_id) / "token.json"
-        self.client_secret_path = actor_path(actor_id) / "client_secret.json"
+        if cfg.client_secret_path:
+            self.client_secret_path = Path(cfg.client_secret_path).expanduser()
+        else:
+            self.client_secret_path = actor_path(actor_id) / "client_secret.json"
         self.folder_cache_path = actor_path(actor_id) / "folder_cache.json"
         self.start_page_token_path = actor_path(actor_id) / "start_page_token.json"
 
@@ -584,9 +603,11 @@ class GoogleDriveClient(SourcePlugin):
 
     def authorize(self, **kwargs) -> str:
         creds = None
+        _allow_insecure_local_oauth_transport()
 
         # Run with authorization_response from an Oauth2 callback handler
         if "authorization_response" in kwargs:
+            self._ensure_client_secret_file()
             flow = Flow.from_client_secrets_file(
                 self.client_secret_path, SCOPES, state=self._oauth_state
             )
@@ -605,6 +626,7 @@ class GoogleDriveClient(SourcePlugin):
             return "authorized"
         else:
             # Start a new OAuth2 flow to redirect user to authorization URL
+            self._ensure_client_secret_file()
             flow = Flow.from_client_secrets_file(self.client_secret_path, SCOPES)
             flow.redirect_uri = f"http://localhost:{PORT}/api/auth/{self.actor.id}"
             # Read details here https://developers.google.com/identity/protocols/oauth2/web-server#obtainingaccesstokens
@@ -615,6 +637,16 @@ class GoogleDriveClient(SourcePlugin):
             )
             self._oauth_state = state
             return authorization_url
+
+    def _ensure_client_secret_file(self) -> None:
+        if self.client_secret_path.exists():
+            return
+        raise RuntimeError(
+            "Missing OAuth client secret file. "
+            f"Expected at '{self.client_secret_path}'. "
+            "Download the OAuth client JSON from Google Cloud Console and place it there, "
+            "or set config.client_secret_path to a valid file."
+        )
 
     async def _load_credentials(self) -> Credentials:
         if self._credentials is not None:

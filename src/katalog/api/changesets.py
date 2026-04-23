@@ -25,15 +25,12 @@ async def create_changeset() -> Changeset:
     """Start a manual-edit changeset for the user editor actor."""
     actor = await ensure_user_editor()
     db = get_changeset_repo()
-    try:
-        changeset = await db.begin(
-            actors=[actor],
-            message="Manual edit",
-            status=OpStatus.IN_PROGRESS,
-            data={"manual": True},
-        )
-    except ValueError as exc:
-        raise ApiError(status_code=409, detail=str(exc))
+    changeset = await db.begin(
+        actors=[actor],
+        message="Manual edit",
+        status=OpStatus.IN_PROGRESS,
+        data={"manual": True},
+    )
     return changeset
 
 

@@ -130,6 +130,11 @@ async def load_metadata_registry_cache() -> None:
 async def sync_config_db():
     """Initialize database and registry. Legacy name kept for compatibility."""
     await setup_db(current_db_path())
+    from katalog.plugins.config_metadata import (
+        apply_all_actor_config_metadata_definitions,
+    )
+
+    await apply_all_actor_config_metadata_definitions()
     await sync_metadata_registry()
     from katalog.editors.user_editor import ensure_user_editor
 

@@ -74,7 +74,7 @@ Thumbs.db
 credentials.json
 token.json
 
-workspace_*/
+w/
 
 .npm-cache/
 

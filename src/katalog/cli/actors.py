@@ -145,3 +145,25 @@ def run_actor(
         typer.echo(f"Max RSS: {result['max_rss_mb']:.2f} MB")
     if result.get("deleted"):
         typer.echo("Deleted: yes")
+
+
+@actors_app.command("authorize")
+def authorize_actor(actor_id: int, ctx: typer.Context) -> None:
+    """Start source authorization for the given actor id."""
+
+    async def _run() -> dict[str, str | None]:
+        from katalog.api.operations import authorize_source
+
+        return await authorize_source(actor_id)
+
+    result = run_cli(_run)
+    if wants_json(ctx):
+        typer.echo(json.dumps(result, default=str))
+        return
+
+    if result.get("authorization_url"):
+        typer.echo("Authorization required")
+        typer.echo(str(result["authorization_url"]))
+        return
+
+    typer.echo("Source is authorized")

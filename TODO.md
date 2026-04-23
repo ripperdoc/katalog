@@ -103,6 +103,10 @@ Use journalling system of file systems to only scan what has changed since last.
   saving, or saving but with a flag that they are filtered?). Filtering will depend on each source
   how to best implement and what's supported.
 - Settings to give default metadata to records from that source
+- Tabular sources (CSV/Sheets/Excel):
+  - Detect and report schema drift (renamed/added/removed columns) between scans
+  - Add explicit end-of-data controls (e.g. `end_row`) for tables with footer rows
+  - Add per-column coercion diagnostics to show dropped/invalid values
 
 ## Processor ideas
 

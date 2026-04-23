@@ -12,6 +12,11 @@ from katalog.plugins.registry import (
     get_plugin_spec,
     refresh_plugins,
 )
+from katalog.plugins.config_metadata import (
+    collect_config_metadata_definitions,
+    register_config_metadata_definitions,
+)
+from katalog.db.sqlspec.query_metadata_registry import sync_metadata_registry
 
 from katalog.api.helpers import (
     ApiError,
@@ -77,6 +82,15 @@ async def create_actor(payload: ActorCreate) -> Actor:
             ) from exc
 
     normalized_config = validate_and_normalize_config(plugin_cls, raw_config)
+    try:
+        definitions = collect_config_metadata_definitions(
+            plugin_cls=plugin_cls,
+            plugin_id=payload.plugin_id,
+            config=normalized_config,
+        )
+        metadata_defs_changed = register_config_metadata_definitions(definitions)
+    except ValueError as exc:
+        raise ApiError(status_code=400, detail=str(exc)) from exc
     identity_key = actor_identity_key(
         actor_type=spec.actor_type,
         plugin_id=payload.plugin_id,
@@ -86,6 +100,8 @@ async def create_actor(payload: ActorCreate) -> Actor:
     if identity_key is not None:
         existing = await db.get_or_none(type=spec.actor_type, identity_key=identity_key)
         if existing is not None:
+            if metadata_defs_changed:
+                await sync_metadata_registry()
             return existing
 
     actor = await db.create(
@@ -97,6 +113,8 @@ async def create_actor(payload: ActorCreate) -> Actor:
         config_toml=config_toml,
         disabled=bool(payload.disabled) if payload.disabled is not None else False,
     )
+    if metadata_defs_changed:
+        await sync_metadata_registry()
     return actor
 
 
@@ -176,6 +194,7 @@ async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
             detail="Actor is using TOML configuration. Clear config_toml first or provide config_toml to update.",
         )
 
+    plugin_cls_for_defs = None
     # Update config if provided
     if config_toml is not None or raw_config is not None:
         if actor.plugin_id is None:
@@ -184,6 +203,7 @@ async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
             plugin_cls = get_plugin_class(actor.plugin_id)
         except Exception as exc:  # noqa: BLE001
             raise ApiError(status_code=404, detail="Plugin not found") from exc
+        plugin_cls_for_defs = plugin_cls
 
         # Handle TOML update (including clearing with empty string)
         if config_toml is not None:
@@ -223,5 +243,19 @@ async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
             )
     actor.identity_key = identity_key
 
+    metadata_defs_changed = False
+    if plugin_cls_for_defs is not None and actor.plugin_id is not None:
+        try:
+            definitions = collect_config_metadata_definitions(
+                plugin_cls=plugin_cls_for_defs,
+                plugin_id=actor.plugin_id,
+                config=actor.config or {},
+            )
+            metadata_defs_changed = register_config_metadata_definitions(definitions)
+        except ValueError as exc:
+            raise ApiError(status_code=400, detail=str(exc)) from exc
+
     await db.save(actor)
+    if metadata_defs_changed:
+        await sync_metadata_registry()
     return actor

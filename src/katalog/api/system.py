@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from katalog.api.helpers import ApiError, requires_write_access
 from katalog.config import current_db_path, current_db_url, current_workspace
@@ -10,16 +11,44 @@ from katalog.plugins.registry import get_actor_instance
 from katalog.sources.base import SourcePlugin
 
 
-@requires_write_access()
-async def auth_callback_api(actor: int, authorization_response: str) -> dict[str, str]:
-    """Handle OAuth callback completion for a source actor."""
+def _is_http_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+async def _get_source_plugin(actor: int) -> SourcePlugin:
     try:
         plugin = await get_actor_instance(actor)
     except ValueError as exc:
         raise ApiError(status_code=404, detail="Actor not found") from exc
     if not isinstance(plugin, SourcePlugin):
         raise ApiError(status_code=400, detail="Actor is not a source")
-    plugin.authorize(authorization_response=authorization_response)
+    return plugin
+
+
+@requires_write_access()
+async def auth_api(
+    actor: int,
+    *,
+    authorization_response: str | None = None,
+) -> dict[str, str | None]:
+    """Start source auth flow or handle OAuth callback, depending on inputs."""
+    plugin = await _get_source_plugin(actor)
+    if authorization_response is not None:
+        plugin.authorize(authorization_response=authorization_response)
+        return {"status": "ok", "authorization_url": None}
+
+    authorize_result = plugin.authorize()
+    auth_url = authorize_result.strip() if isinstance(authorize_result, str) else ""
+    if auth_url and _is_http_url(auth_url):
+        return {"status": "authorization_required", "authorization_url": auth_url}
+    return {"status": "authorized", "authorization_url": None}
+
+
+@requires_write_access()
+async def auth_callback_api(actor: int, authorization_response: str) -> dict[str, str]:
+    """Handle OAuth callback completion for a source actor."""
+    await auth_api(actor, authorization_response=authorization_response)
     return {"status": "ok"}
 
 

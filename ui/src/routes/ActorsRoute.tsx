@@ -281,6 +281,7 @@ function ActorsRoute() {
             showEdit={true}
             showToggle={true}
             showRun={groupKey !== "editors"}
+            showAuthorize={groupKey === "sources"}
             runDisabled={scanningId !== null}
             onToggleDisabled={(actor) => void toggleDisabled(actor)}
             onRun={(actor) => triggerRun(actor, groupKey)}
