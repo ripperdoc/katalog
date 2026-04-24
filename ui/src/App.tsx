@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import AssetsRoute from "./routes/AssetsRoute";
 import AssetDetailRoute from "./routes/AssetDetailRoute";
 import ActorDetailRoute from "./routes/ActorDetailRoute";
@@ -9,9 +10,18 @@ import ChangesetsRoute from "./routes/ChangesetsRoute";
 import CollectionsRoute from "./routes/CollectionsRoute";
 import CollectionDetailRoute from "./routes/CollectionDetailRoute";
 import ChangesetProgressBar from "./components/ChangesetProgressBar";
+import SimpleTableLinkHarnessRoute from "./routes/SimpleTableLinkHarnessRoute";
 import StatsRoute from "./routes/StatsRoute";
+import { setAppNavigate } from "./utils/appNavigation";
 
 function App() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    setAppNavigate(navigate);
+    return () => setAppNavigate(null);
+  }, [navigate]);
+
   return (
     <>
       <Routes>
@@ -24,6 +34,7 @@ function App() {
         <Route path="/assets/:assetId" element={<AssetDetailRoute />} />
         <Route path="/collections" element={<CollectionsRoute />} />
         <Route path="/collections/:collectionId" element={<CollectionDetailRoute />} />
+        <Route path="/simple-table-link-harness/*" element={<SimpleTableLinkHarnessRoute />} />
         <Route path="/stats" element={<StatsRoute />} />
         <Route path="*" element={<Navigate to="/actors" replace />} />
       </Routes>

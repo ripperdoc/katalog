@@ -16,7 +16,6 @@ import {
 } from "../api/client";
 import MetadataTable from "../components/MetadataTable";
 import type { AssetDetailResponse, EditableMetadataSchemaResponse, Changeset } from "../types/api";
-import { SimpleTable } from "simple-table-core";
 import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
 
 function AssetDetailRoute() {

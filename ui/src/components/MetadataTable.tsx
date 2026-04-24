@@ -1,80 +1,20 @@
 import { useMemo, useState } from "react";
-import { SimpleTable, HeaderObject } from "simple-table-core";
+import { CellRendererProps, SimpleTable, ReactHeaderObject } from "@simple-table/react";
 import type { MetadataRecord } from "../types/api";
 import { groupByNested } from "../utils/metadataGrouping";
-import ActorCell from "./ActorCell";
+import { ActorCellPure } from "./ActorCell";
 import ChangesetCell from "./ChangesetCell";
+import { simpleTableLegacyAppearance } from "./simpleTableAppearance";
+import { useRegistry } from "../utils/registry";
 
 type MetadataTableProps = {
   metadata: MetadataRecord[];
   initialView?: "flat" | "actorGrouped";
 };
 
-const flatHeaders: HeaderObject[] = [
-  // { accessor: "id", label: "ID", width: 80, type: "number" },
-  // { accessor: "asset_id", label: "Asset", width: 80, type: "number" },
-  {
-    accessor: "actor_id",
-    label: "Actor",
-    width: "1fr",
-    type: "number",
-    cellRenderer: ActorCell,
-  },
-  {
-    accessor: "changeset_id",
-    label: "Changeset",
-    width: "1fr",
-    type: "number",
-    cellRenderer: ChangesetCell,
-  },
-  { accessor: "key", label: "Key", width: "1.4fr", type: "string" },
-  // { accessor: "value_type", label: "Type", width: 100, type: "string" },
-  { accessor: "value", label: "Value", width: "2fr", type: "string" },
-  { accessor: "removed", label: "Removed", width: 100, type: "string" },
-  // { accessor: "confidence", label: "Conf", width: 100, type: "number" },
-];
-
-const actorGroupedHeaders: HeaderObject[] = [
-  // { accessor: "id", label: "ID", width: 80, type: "number" },
-  // { accessor: "asset_id", label: "Asset", width: 80, type: "number" },
-  {
-    accessor: "actor_id",
-    label: "Actor",
-    width: "1fr",
-    type: "number",
-    expandable: true,
-    cellRenderer: ActorCell,
-  },
-  {
-    accessor: "changeset_id",
-    label: "Changeset",
-    width: "1fr",
-    type: "number",
-    cellRenderer: ChangesetCell,
-  },
-  { accessor: "key", label: "Key", width: "1.4fr", type: "string" },
-  // { accessor: "value_type", label: "Type", width: 100, type: "string" },
-  { accessor: "value", label: "Value", width: "2fr", type: "string" },
-  { accessor: "removed", label: "Removed", width: 100, type: "string" },
-  // { accessor: "confidence", label: "Conf", width: 100, type: "number" },
-];
-
-const viewConfigs = {
-  flat: {
-    headers: flatHeaders,
-    rowGrouping: undefined,
-  },
-  actorGrouped: {
-    headers: actorGroupedHeaders,
-    rowGrouping: ["actor_id_children"],
-  },
-} satisfies Record<
-  NonNullable<MetadataTableProps["initialView"]>,
-  { headers: HeaderObject[]; rowGrouping: string[] | undefined }
->;
-
 function MetadataTable({ metadata, initialView = "flat" }: MetadataTableProps) {
   const [view, setView] = useState<"flat" | "actorGrouped">(initialView);
+  const { data: registryData } = useRegistry();
   const rows = useMemo(() => {
     const normalized = metadata.map((m) => ({
       ...m,
@@ -92,6 +32,61 @@ function MetadataTable({ metadata, initialView = "flat" }: MetadataTableProps) {
 
     return [];
   }, [metadata, view]);
+
+  const viewConfigs = useMemo(
+    () => ({
+      flat: {
+        headers: [
+          {
+            accessor: "actor_id",
+            label: "Actor",
+            width: "1fr",
+            type: "number",
+            cellRenderer: (props: CellRendererProps) => (
+              <ActorCellPure {...props} actorsById={registryData?.actorsById} />
+            ),
+          },
+          {
+            accessor: "changeset_id",
+            label: "Changeset",
+            width: "1fr",
+            type: "number",
+            cellRenderer: ChangesetCell,
+          },
+          { accessor: "key", label: "Key", width: "1.4fr", type: "string" },
+          { accessor: "value", label: "Value", width: "2fr", type: "string" },
+          { accessor: "removed", label: "Removed", width: 100, type: "string" },
+        ] as ReactHeaderObject[],
+        rowGrouping: undefined,
+      },
+      actorGrouped: {
+        headers: [
+          {
+            accessor: "actor_id",
+            label: "Actor",
+            width: "1fr",
+            type: "number",
+            expandable: true,
+            cellRenderer: (props: CellRendererProps) => (
+              <ActorCellPure {...props} actorsById={registryData?.actorsById} />
+            ),
+          },
+          {
+            accessor: "changeset_id",
+            label: "Changeset",
+            width: "1fr",
+            type: "number",
+            cellRenderer: ChangesetCell,
+          },
+          { accessor: "key", label: "Key", width: "1.4fr", type: "string" },
+          { accessor: "value", label: "Value", width: "2fr", type: "string" },
+          { accessor: "removed", label: "Removed", width: 100, type: "string" },
+        ] as ReactHeaderObject[],
+        rowGrouping: ["actor_id_children"],
+      },
+    }),
+    [registryData],
+  );
 
   const { headers, rowGrouping } = viewConfigs[view];
 
@@ -116,6 +111,7 @@ function MetadataTable({ metadata, initialView = "flat" }: MetadataTableProps) {
         </button>
       </div>
       <SimpleTable
+        {...simpleTableLegacyAppearance}
         defaultHeaders={headers}
         rows={rows}
         columnResizing={true}

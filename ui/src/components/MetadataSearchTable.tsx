@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
-import { HeaderObject, SimpleTable, ValueFormatterProps } from "simple-table-core";
+import {
+  CellRendererProps,
+  ReactHeaderObject,
+  SimpleTable,
+  ValueFormatterProps,
+} from "@simple-table/react";
 import type { MetadataSearchHit } from "../types/api";
 import AssetCell from "./AssetCell";
 import { ActorCellPure } from "./ActorCell";
+import { simpleTableLegacyAppearance } from "./simpleTableAppearance";
 import TableFooter from "./TableFooter";
 import { useRegistry } from "../utils/registry";
 
@@ -68,7 +74,7 @@ function MetadataSearchTable({
   const { data: registryData } = useRegistry();
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
 
-  const headers = useMemo<HeaderObject[]>(
+  const headers = useMemo<ReactHeaderObject[]>(
     () => [
       {
         accessor: "asset_id",
@@ -115,7 +121,7 @@ function MetadataSearchTable({
         label: "Actor",
         width: 130,
         type: "number",
-        cellRenderer: (props) => (
+        cellRenderer: (props: CellRendererProps) => (
           <ActorCellPure {...props} actorsById={registryData?.actorsById} />
         ),
       },
@@ -149,6 +155,7 @@ function MetadataSearchTable({
 
   return (
     <SimpleTable
+      {...simpleTableLegacyAppearance}
       defaultHeaders={headers}
       rows={rows}
       height="100%"
@@ -160,9 +167,17 @@ function MetadataSearchTable({
       serverSidePagination={true}
       enableRowSelection={true}
       totalRowCount={total ?? rows.length}
-      footerRenderer={(props) => (
+      footerRenderer={() => (
         <TableFooter
-          {...props}
+          currentPage={page}
+          rowsPerPage={limit}
+          totalRows={total ?? rows.length}
+          onPageChange={(nextPage) => {
+            if (nextPage === page) {
+              return;
+            }
+            onPageChange(nextPage);
+          }}
           queryTimeMs={queryTimeMs}
           selectedCount={selectedAssetIds.size}
         />

@@ -218,13 +218,28 @@ database model:
 
 ### Identifiers
 
-`asset_id` is a string ID that is a workspace unique UUID that is assigned once the system, or a
-human wants to define a tracked asset. That asset id is referred to by one or more file records to
-link them together.
+`assets.id` is the workspace-local integer primary key for one source record. A source record is the
+asset-like thing emitted by one source scan: a local file, a Google Drive file, a CSV row, a Google
+Sheets row, a URL, and so on.
 
-`actor_id` is a workspace unique readable string ID for the instance of a source along with it's
-settings. It's not the same as the `plugin_id`, e.g. one workspace can have multiple Google Drive's
-setup.
+`assets.namespace` + `assets.external_id` is the stable source-record identity used for upserts.
+Every scan should emit the same pair for the same source record whenever the source allows it. For
+example, Google Drive uses the Drive file id, filesystems prefer inode-based identifiers where
+available, and tabular sources use a configured id column. This identity is not a global asset or
+product id; it says "this row/file from this source", not "this real-world thing".
+
+`assets.canonical_asset_id` links one or more source records into an effective asset. Query paths
+use `COALESCE(canonical_asset_id, id)` so merged records can be shown as one while keeping the
+original source rows and provenance. Today this is the first version of entity resolution in
+Katalog, not a full master-data-management model.
+
+Global or domain identifiers such as barcodes, SKUs, ISBNs, URLs, or checksums should be represented
+as metadata claims with actor provenance. They can be used by analyzers or users to merge records,
+but they should not replace source-record identity.
+
+`actor_id` is a workspace-local integer ID for the configured instance of a plugin and its settings.
+It is not the same as the `plugin_id`; one workspace can have multiple Google Drive, CSV, or
+filesystem actors.
 
 `plugin_id` is a Python package path that by definition has to be unique in the current imported
 code. It should be globally unique but can't be enforced without a plugin registry.
@@ -283,7 +298,11 @@ for metadata changesets apply here.
 #### Removing changesets
 
 Removing the last changeset, e.g. undo, is as straightforward as deleting the changeset and letting
-the cascade delete all related rows.
+the cascade delete all related metadata rows (and join rows such as `changeset_actors`).
+
+Important: this does not delete rows in `assets`, because `assets` are not keyed by `changeset_id`.
+An undo of changesets therefore reverts metadata history, but may leave asset rows without current
+metadata if those assets were introduced by removed changesets.
 
 To restore to a point in history, it just means deleting every changeset from now back to that point
 in time.
@@ -457,62 +476,66 @@ A CLI or a web app can connect to the FastAPI server to act as a UI.
 ### If two sources report files with the same MD5 hash, can we detect that via SQL?
 
 Yes. Every processor that emits checksums writes them as metadata rows (e.g.
-`metadata_key = "core/checksum/md5"`, `value_type = 'string'`, value stored in `value_text`).
-Because `metadata` keeps the `asset_id`, we can join back to `assets` and spot duplicates across
-sources with a single query:
+`metadata_registry.key = "hash/md5"`, value stored in `metadata.value_text`). Because `metadata`
+keeps the `asset_id`, we can join back to `assets` and spot duplicates across sources with a single
+query:
 
 ```sql
 SELECT me.value_text AS md5, GROUP_CONCAT(fr.id) AS asset_ids
 FROM metadata me
 JOIN assets fr ON fr.id = me.asset_id
-WHERE me.metadata_key = 'core/checksum/md5'
+JOIN metadata_registry mr ON mr.id = me.metadata_key_id
+WHERE mr.key = 'hash/md5'
+  AND me.removed = 0
 GROUP BY me.value_text
 HAVING COUNT(DISTINCT fr.actor_id) > 1;
 ```
 
 This produces every MD5 value seen in multiple sources together with the affected file records,
-allowing the deduper to merge them under a single `asset_id` or prompt a review workflow.
+allowing the deduper to link them with `assets.canonical_asset_id` or prompt a review workflow.
 
 ### Can we ingest file records before deciding which asset they belong to?
 
-Yes. Both `assets.asset_id` and `metadata.asset_id` are nullable, so scanners can persist
-discoveries immediately, even when we have not yet created or linked a canonical asset. The workflow
-is typically:
+Yes. Scanners persist every source record as an `assets` row keyed by `namespace + external_id`.
+That row can remain unmerged, or later be linked to another row by setting `canonical_asset_id`.
+The workflow is typically:
 
-1. Source plugin inserts a `assets` row with `asset_id = NULL` plus whatever metadata the actor
-   offers (URIs, hashes, timestamps).
-2. Processors emit metadata rows that still point at the `asset_id` (and leave `asset_id = NULL`).
-3. When a deduper decides that the file should join (or create) an asset, it issues an `UPDATE` to
-   set `asset_id` on both the `assets` row and any metadata rows referencing it.
+1. Source plugin upserts an `assets` row using `namespace + external_id` plus whatever metadata the
+   actor offers (URIs, hashes, timestamps, row values).
+2. Processors emit metadata rows for that same `assets.id`.
+3. When a deduper, user, or AI decides that two source records describe the same effective asset, it
+   updates `assets.canonical_asset_id` on the duplicate/member rows.
 
-Because of this, scanning is never blocked on asset decisions, and asset creation can be an async or
-human-in-the-loop step performed later.
+Because of this, scanning is never blocked on merge decisions, and entity resolution can be an async
+or human-in-the-loop step performed later.
 
 ### What happens when a source stops returning a previously seen file?
 
-`assets` keeps `last_seen_at` and `lost_at` timestamps, so every scan simply updates `last_seen_at`
-for the rows it touched. After a crawl, any file whose `last_seen_at` predates the scan window is
-implicitly missing from the source. By default we keep that row (and related metadata) while marking
-it as a soft delete by setting `lost_at = CURRENT_TIMESTAMP`. Queries that only care about live
-files filter on `lost_at IS NULL`, while history/audit views can still surface the full record.
-Workflows can also opt into hard deletion and remove missing assets entirely during scan
-finalization.
+The scan runtime tracks which asset ids were seen for each actor during the scan. After a scan, any
+previously known asset for that actor that was not seen can either be marked as lost or deleted,
+depending on `missing_assets_policy`.
+
+The default `lost` policy keeps the asset row and writes current `asset/lost = 1` metadata for that
+actor. Normal asset queries hide lost assets unless `include_lost_assets` is set. This keeps history
+and provenance intact while still making current views behave like a live catalog. The `delete`
+policy removes unseen assets and their metadata.
 
 ### Can we leverage sources that provide incremental change feeds?
 
-Yes. The schema keeps `first_seen_at`/`last_seen_at` plus actor identifiers (`actor_file_id`,
-`canonical_uri`). When a connector supports “changes since T”, we store the checkpoint timestamp in
-the `actors` table (inside `config` or a dedicated column) and ask the source only for files whose
-modification time is newer than that value. The scanner then:
+Partly. The current schema has the source-record identity needed for incremental upserts
+(`namespace + external_id`) and actors can store checkpoints in configuration or actor-local cache
+files. It does not currently have first-class `first_seen_at` or `last_seen_at` columns on
+`assets`.
 
-1. Upserts rows for returned files, bumping `last_seen_at` and updating any metadata that changed.
-2. Leaves untouched rows whose `last_seen_at` already exceeds the incremental window, so they are
-   implicitly up-to-date without re-fetching.
-3. After the incremental pass, any row with `last_seen_at < last_checkpoint` is a candidate for soft
-   deletion, identical to the full-scan logic.
+When a connector supports "changes since T", it should:
 
-Because the tables already expose the timestamps and uniqueness constraints we need, comparing the
-incremental payload to existing `assets` becomes an O(changes) operation—no full rescan is required.
+1. Store its checkpoint in actor config, actor-local cache, or a future dedicated checkpoint field.
+2. Upsert returned records by `namespace + external_id`.
+3. Emit enough deletion/lost information to avoid marking untouched records as lost during partial
+   incremental scans.
+
+See `docs/asset-identity-prd.md` for the proposed identity and merge model that would make this
+contract more explicit.
 
 # Developing plugins
 

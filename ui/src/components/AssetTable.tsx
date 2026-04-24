@@ -1,13 +1,14 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  CellRendererProps,
   ColumnType,
   FilterCondition,
-  HeaderObject,
+  ReactHeaderObject,
   SimpleTable,
   TableFilterState,
   ValueFormatterProps,
   ValueGetterProps,
-} from "simple-table-core";
+} from "@simple-table/react";
 import {
   Asset,
   ColumnDefinition,
@@ -15,12 +16,13 @@ import {
   MetadataValueEntry,
   ViewAssetsResponse,
 } from "../types/api";
-import "simple-table-core/styles.css";
+import "@simple-table/react/styles.css";
 import AssetCell from "./AssetCell";
 import { ActorCellPure } from "./ActorCell";
 import ExternalIdCell from "./ExternalIdCell";
 import { makeFlagCell, ThumbnailCell } from "./FlagCell";
 import MetadataSearchTable from "./MetadataSearchTable";
+import { simpleTableLegacyAppearance } from "./simpleTableAppearance";
 import TableFooter from "./TableFooter";
 import { useRegistry } from "../utils/registry";
 
@@ -177,7 +179,12 @@ const serializeFilter = (filter: FilterCondition): string | null => {
   if (operator === "isEmpty" || operator === "isNotEmpty") {
     return `${accessor} ${operator} true`;
   }
-  if (operator === "between" || operator === "notBetween" || operator === "in" || operator === "notIn") {
+  if (
+    operator === "between" ||
+    operator === "notBetween" ||
+    operator === "in" ||
+    operator === "notIn"
+  ) {
     const rawValues = filter.values ?? (filter.value !== undefined ? [filter.value] : []);
     const values = rawValues.map(normalizeFilterValue).filter((value) => value.length > 0);
     if (values.length === 0) {
@@ -191,7 +198,7 @@ const serializeFilter = (filter: FilterCondition): string | null => {
   return `${accessor} ${operator} ${normalizeFilterValue(filter.value)}`;
 };
 
-const cellRenderersById: Record<string, HeaderObject["cellRenderer"]> = {
+const cellRenderersById: Record<string, ReactHeaderObject["cellRenderer"]> = {
   [EXTERNAL_ID_KEY]: ExternalIdCell,
   [ASSET_ID_KEY]: AssetCell,
   [FLAG_FAVORITE_KEY]: favoriteFlagCell,
@@ -209,7 +216,7 @@ const headerLabelById: Record<string, string> = {
   [FILE_THUMBNAIL_URI_KEY]: "",
 };
 
-const valueFormatterById: Record<string, HeaderObject["valueFormatter"]> = {
+const valueFormatterById: Record<string, ReactHeaderObject["valueFormatter"]> = {
   "file/size": (props: ValueFormatterProps) => formatBytes(valueGetter(props)),
   "search/cosine_similarity": (props: ValueFormatterProps) => {
     const rawValue = props.row[props.accessor];
@@ -241,7 +248,7 @@ const valueFormatterById: Record<string, HeaderObject["valueFormatter"]> = {
   },
 };
 
-export const buildHeadersFromSchema = (schema: ColumnDefinition[]): HeaderObject[] => {
+export const buildHeadersFromSchema = (schema: ColumnDefinition[]): ReactHeaderObject[] => {
   const rv = schema
     .filter((column) => !column.hidden)
     .map((column, index) => ({
@@ -309,9 +316,7 @@ const AssetTable = ({
 }: AssetTableProps) => {
   const { data: registryData } = useRegistry();
   const [records, setRecords] = useState<Asset[]>([]);
-  const [metadataRecords, setMetadataRecords] = useState<MetadataSearchResponse["items"]>(
-    [],
-  );
+  const [metadataRecords, setMetadataRecords] = useState<MetadataSearchResponse["items"]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [schema, setSchema] = useState<ColumnDefinition[]>([]);
@@ -337,7 +342,7 @@ const AssetTable = ({
     searchRef.current = searchQuery;
   }, [searchQuery]);
 
-  const headers = useMemo<HeaderObject[]>(() => {
+  const headers = useMemo<ReactHeaderObject[]>(() => {
     if (!schema.length) {
       return [];
     }
@@ -346,7 +351,7 @@ const AssetTable = ({
       header.accessor === ACTOR_ID_KEY
         ? {
             ...header,
-            cellRenderer: (props) => (
+            cellRenderer: (props: CellRendererProps) => (
               <ActorCellPure {...props} actorsById={registryData?.actorsById} />
             ),
           }
@@ -369,10 +374,7 @@ const AssetTable = ({
       const effectiveSearch = (searchOverride ?? searchRef.current).trim();
       const sortParam =
         useServerSort && effectiveSort && effectiveSort.accessor && effectiveSort.direction
-          ? ([[effectiveSort.accessor, effectiveSort.direction]] as [
-              string,
-              "asc" | "desc",
-            ][])
+          ? ([[effectiveSort.accessor, effectiveSort.direction]] as [string, "asc" | "desc"][])
           : undefined;
       const filterParams: string[] = [];
       if (useServerFilters) {
@@ -505,16 +507,12 @@ const AssetTable = ({
             const topCosineRaw = (item as Record<string, unknown>).search_cosine_similarity;
             const topMatchRaw = (item as Record<string, unknown>).search_match;
             const topDistanceRaw = (item as Record<string, unknown>).search_distance;
-            let topCosine = Number.isFinite(Number(topCosineRaw))
-              ? Number(topCosineRaw)
-              : null;
+            let topCosine = Number.isFinite(Number(topCosineRaw)) ? Number(topCosineRaw) : null;
             let topDistance = Number.isFinite(Number(topDistanceRaw))
               ? Number(topDistanceRaw)
               : null;
             let topMatch =
-              typeof topMatchRaw === "string"
-                ? topMatchRaw.replace(/\s+/g, " ").trim()
-                : "";
+              typeof topMatchRaw === "string" ? topMatchRaw.replace(/\s+/g, " ").trim() : "";
             if (topMatch.length > 180) {
               topMatch = `${topMatch.slice(0, 177)}...`;
             }
@@ -532,9 +530,10 @@ const AssetTable = ({
                 topCosine = cosineValue;
                 const distanceValue = Number(match.distance);
                 topDistance = Number.isFinite(distanceValue) ? distanceValue : topDistance;
-                const compact = String(match.text ?? "").replace(/\s+/g, " ").trim();
-                topMatch =
-                  compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
+                const compact = String(match.text ?? "")
+                  .replace(/\s+/g, " ")
+                  .trim();
+                topMatch = compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
               }
             }
             return {
@@ -721,6 +720,7 @@ const AssetTable = ({
           />
         ) : (
           <SimpleTable
+            {...simpleTableLegacyAppearance}
             defaultHeaders={headers}
             rows={records}
             height="100%"
@@ -734,9 +734,17 @@ const AssetTable = ({
             totalRowCount={total ?? records.length}
             externalSortHandling={useServerSort}
             externalFilterHandling={useServerFilters}
-            footerRenderer={(props) => (
+            footerRenderer={() => (
               <TableFooter
-                {...props}
+                currentPage={pagination.page}
+                rowsPerPage={pagination.limit}
+                totalRows={total ?? records.length}
+                onPageChange={(page) => {
+                  if (page === pagination.page) {
+                    return;
+                  }
+                  void loadPage(page, undefined, sort, filters, searchQuery);
+                }}
                 queryTimeMs={durationMs}
                 selectedCount={selectedAssetIds.size}
               />

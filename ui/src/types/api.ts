@@ -1,4 +1,4 @@
-import type { Row } from "simple-table-core";
+import type { Row } from "@simple-table/react";
 
 export type MetadataValue = string | number | boolean | null | Record<string, unknown> | unknown[];
 

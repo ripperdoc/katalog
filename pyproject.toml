@@ -11,7 +11,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp==2.12.5",
-    "fastapi==0.127.1",            # Pinned to match convai usage
+    "fastapi==0.127.1",   # Pinned to match convai usage
     "uvicorn>=0.40.0",
     "loguru>=0.7.3",
     "sqlspec[aiosqlite]",
@@ -53,7 +53,7 @@ katalog = "katalog.cli:main"
 
 [project.entry-points."katalog.source"]
 filesystem = "katalog.sources.filesystem:FilesystemClient"
-gdrive = "katalog.sources.googledrive:GoogleDriveClient"
+gdrive = "katalog.sources.google_drive:GoogleDriveClient"
 fake_assets = "katalog.sources.fake_assets:FakeAssetSource"
 url_list = "katalog.sources.url_list:UrlListSource"
 json_list = "katalog.sources.json_list:JsonListSource"

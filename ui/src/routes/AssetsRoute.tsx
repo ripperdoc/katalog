@@ -4,13 +4,15 @@ import AssetTable from "../components/AssetTable";
 import AppHeader from "../components/AppHeader";
 import { createCollection, fetchAssets, fetchMetadataSearch, fetchViews } from "../api/client";
 import type { ViewAssetsResponse, ViewSpec } from "../types/api";
+import { useStringSearchParamState } from "../utils/useStringSearchParamState";
 
 const DEFAULT_VIEW_ID = "default";
 
 function AssetsRoute() {
   const navigate = useNavigate();
   const [views, setViews] = useState<ViewSpec[]>([]);
-  const [selectedViewId, setSelectedViewId] = useState<string>(DEFAULT_VIEW_ID);
+  const [selectedViewId, setSelectedViewId] = useStringSearchParamState("view", DEFAULT_VIEW_ID);
+  const [viewsLoaded, setViewsLoaded] = useState(false);
   const [lastResponse, setLastResponse] = useState<ViewAssetsResponse | null>(null);
   const [lastParams, setLastParams] = useState<{
     offset: number;
@@ -168,6 +170,7 @@ function AssetsRoute() {
   }, [lastParams, lastResponse, navigate, resultType, selectedAssetIds, selectedViewId]);
 
   const loadViews = useCallback(async () => {
+    setViewsLoaded(false);
     try {
       const response = await fetchViews();
       const all = response.views ?? [];
@@ -178,6 +181,8 @@ function AssetsRoute() {
     } catch {
       setViews([]);
       setSelectedViewId(DEFAULT_VIEW_ID);
+    } finally {
+      setViewsLoaded(true);
     }
   }, []);
 
@@ -192,7 +197,7 @@ function AssetsRoute() {
         : [
             {
               id: DEFAULT_VIEW_ID,
-              name: "Default",
+              name: "Files",
               columns: [],
               default_sort: [],
               default_columns: null,
@@ -238,17 +243,19 @@ function AssetsRoute() {
         </div>
       </AppHeader>
       <main className="app-main app-main--locked">
-        <AssetTable
-          key={`assets-view:${selectedViewId}`}
-          title="Assets"
-          fetchPage={fetchPage}
-          fetchMetadataPage={fetchMetadataPage}
-          onRowClick={handleRowClick}
-          onLoadComplete={handleLoadComplete}
-          onSelectionChange={setSelectedAssetIds}
-          onResultTypeChange={setResultType}
-          searchPlaceholder="Search all assets…"
-        />
+        {viewsLoaded ? (
+          <AssetTable
+            key={`assets-view:${selectedViewId}`}
+            title="Assets"
+            fetchPage={fetchPage}
+            fetchMetadataPage={fetchMetadataPage}
+            onRowClick={handleRowClick}
+            onLoadComplete={handleLoadComplete}
+            onSelectionChange={setSelectedAssetIds}
+            onResultTypeChange={setResultType}
+            searchPlaceholder="Search all assets…"
+          />
+        ) : null}
       </main>
     </>
   );

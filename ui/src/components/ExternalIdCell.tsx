@@ -1,5 +1,6 @@
-import type { CellRendererProps } from "simple-table-core";
+import type { CellRendererProps } from "@simple-table/react";
 import type { MetadataValueEntry } from "../types/api";
+import { stopTableCellSelection } from "../utils/tableCellLinkEvents";
 
 const extractValue = (value: unknown): string => {
   if (value === null || value === undefined) {
@@ -34,7 +35,15 @@ function ExternalIdCell({ value, row, formattedValue }: CellRendererProps) {
   const linkLabel = displayValue || canonicalUri;
 
   return (
-    <a href={canonicalUri} target="_blank" rel="noopener noreferrer">
+    <a
+      href={canonicalUri}
+      target="_blank"
+      rel="noopener noreferrer"
+      onPointerDown={stopTableCellSelection}
+      onMouseDown={stopTableCellSelection}
+      onTouchStart={stopTableCellSelection}
+      onClick={stopTableCellSelection}
+    >
       {linkLabel}
     </a>
   );

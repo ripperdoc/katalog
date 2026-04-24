@@ -8,8 +8,9 @@ erDiagram
     Actor ||--o{ ChangesetActor : participates
     Actor {
         int id PK
-        string name UK
+        string name
         string plugin_id
+        string identity_key UK
         json config
         text config_toml
         int type
@@ -21,7 +22,10 @@ erDiagram
     Asset ||--o{ Metadata : has
     Asset {
         int id PK
-        string external_id UK
+        int canonical_asset_id FK
+        int actor_id FK
+        string namespace "UK(namespace, external_id)"
+        string external_id "UK(namespace, external_id)"
         string canonical_uri
     }
 
@@ -85,8 +89,8 @@ erDiagram
     MetadataRegistry ||--o{ AssetCollection : defines_membership
     MetadataRegistry {
         int id PK
-        string plugin_id
-        string key
+        string plugin_id "UK(plugin_id, key)"
+        string key "UK(plugin_id, key)"
         int value_type
         string title
         text description
@@ -97,7 +101,7 @@ erDiagram
 ## Key Relationships
 
 - **Actor**: Represents plugins (sources, processors, analyzers, editors, exporters) that interact with assets
-- **Asset**: Core entity representing a file or resource
+- **Asset**: Source record representing one scanned file, row, URL, or resource
 - **Metadata**: Flexible key-value store for asset properties, versioned by changeset
 - **Changeset**: Tracks changes made during operations (scans, edits)
 - **MetadataRegistry**: Defines available metadata keys and their types
@@ -111,6 +115,13 @@ erDiagram
 - All metadata changes are versioned through changesets for audit trail
 - Soft-delete pattern via `removed` flag on Metadata
 - Confidence scores on metadata for ML/AI-generated values
+- `assets.namespace + assets.external_id` is the stable source-record identity for upserts
+- `assets.canonical_asset_id` links multiple source records into one effective asset in query paths
+- Lost assets are represented with current `asset/lost` metadata, not `last_seen_at`/`lost_at`
+  columns
+
+For planned improvements to global identifiers, merge proposals, and conflict handling, see
+`docs/asset-identity-prd.md`.
 
 ---
 
@@ -118,13 +129,13 @@ erDiagram
 
 To regenerate this database schema diagram:
 
-1. Read all Python files in `src/katalog/models/` directory
-2. Identify all classes that inherit from `tortoise.models.Model`
-3. For each model class:
-   - Extract the table name (class name)
-   - List all field definitions using Tortoise ORM field types
+1. Read `src/katalog/sql/schema.sql` as the source of truth for persisted tables
+2. Use Python models in `src/katalog/models/` only to clarify terminology and runtime meaning
+3. For each table:
+   - Extract the table name
+   - List all field definitions and constraints
    - Identify primary keys (PK), foreign keys (FK), unique constraints (UK)
-   - Note relationships: ForeignKeyField, on_delete behavior
+   - Note relationships and `ON DELETE` behavior from the SQL schema
 4. Create a Mermaid ERD using this format:
    ```
    EntityName {

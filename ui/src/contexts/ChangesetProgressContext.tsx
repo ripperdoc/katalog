@@ -105,10 +105,8 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
         const payload = evt.payload ?? {};
         upsertProgress({
           id: evt.changeset_id,
-          queued:
-            typeof payload["queued"] === "number" ? (payload["queued"] as number) : null,
-          running:
-            typeof payload["running"] === "number" ? (payload["running"] as number) : null,
+          queued: typeof payload["queued"] === "number" ? (payload["queued"] as number) : null,
+          running: typeof payload["running"] === "number" ? (payload["running"] as number) : null,
           finished:
             typeof payload["finished"] === "number" ? (payload["finished"] as number) : null,
           kind: typeof payload["kind"] === "string" ? (payload["kind"] as string) : null,
@@ -127,7 +125,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
         return;
       }
       if (evt.event === "changeset_status" || evt.event === "changeset_start") {
-        handleStatusEvent(evt.payload as Changeset);
+        handleStatusEvent(evt.payload as unknown as Changeset);
       }
     },
     [handleStatusEvent, upsertProgress],
@@ -170,9 +168,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
 
   const seedActive = useCallback(
     (changesets: Changeset[]) => {
-      changesets
-        .filter((c) => c.status === "in_progress")
-        .forEach((c) => startTracking(c));
+      changesets.filter((c) => c.status === "in_progress").forEach((c) => startTracking(c));
     },
     [startTracking],
   );
@@ -196,9 +192,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
   );
 
   return (
-    <ChangesetProgressContext.Provider value={value}>
-      {children}
-    </ChangesetProgressContext.Provider>
+    <ChangesetProgressContext.Provider value={value}>{children}</ChangesetProgressContext.Provider>
   );
 };
 

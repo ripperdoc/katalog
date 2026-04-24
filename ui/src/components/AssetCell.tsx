@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
-import type { CellRendererProps } from "simple-table-core";
+import type { CellRendererProps } from "@simple-table/react";
+import AppLink from "./AppLink";
 
 function AssetCell({ value }: CellRendererProps) {
   const assetId = typeof value === "number" ? value : Number(value);
@@ -8,7 +8,7 @@ function AssetCell({ value }: CellRendererProps) {
     return <span>{String(value ?? "")}</span>;
   }
 
-  return <Link to={`/assets/${assetId}`}>{String(assetId)}</Link>;
+  return <AppLink to={`/assets/${assetId}`}>{String(assetId)}</AppLink>;
 }
 
 export default AssetCell;

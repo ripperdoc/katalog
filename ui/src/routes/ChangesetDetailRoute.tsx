@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { cancelChangeset, fetchChangeset, fetchChangesetChanges, deleteChangeset } from "../api/client";
+import {
+  cancelChangeset,
+  fetchChangeset,
+  fetchChangesetChanges,
+  deleteChangeset,
+} from "../api/client";
 import type { Changeset, ChangesetChangeRecord, ChangesetEvent } from "../types/api";
 import AppHeader from "../components/AppHeader";
-import { HeaderObject, SimpleTable } from "simple-table-core";
-import "simple-table-core/styles.css";
+import { CellRendererProps, ReactHeaderObject, SimpleTable } from "@simple-table/react";
+import "@simple-table/react/styles.css";
 import { subscribeChangesetEvents } from "../utils/changesetEvents";
 import { ActorCellPure } from "../components/ActorCell";
 import AssetCell from "../components/AssetCell";
 import ChangesetCell from "../components/ChangesetCell";
+import { simpleTableLegacyAppearance } from "../components/simpleTableAppearance";
 import { useRegistry } from "../utils/registry";
 
 type ParsedChangesetRef =
@@ -63,11 +69,7 @@ function ChangesetDetailRoute() {
   const isSingle = parsedRef.kind === "single";
   const isRange = parsedRef.kind === "range";
   const primaryChangesetId =
-    parsedRef.kind === "single"
-      ? parsedRef.id
-      : parsedRef.kind === "range"
-        ? parsedRef.from
-        : NaN;
+    parsedRef.kind === "single" ? parsedRef.id : parsedRef.kind === "range" ? parsedRef.from : NaN;
   const fromChangesetId = parsedRef.kind === "range" ? parsedRef.from : undefined;
   const toChangesetId = parsedRef.kind === "range" ? parsedRef.to : undefined;
 
@@ -90,6 +92,7 @@ function ChangesetDetailRoute() {
 
   const statusRef = useRef<Changeset["status"] | null>(null);
   const streamCleanupRef = useRef<(() => void) | null>(null);
+  const previousChangesetStatusRef = useRef<Changeset["status"] | null>(null);
 
   const stopStream = useCallback(() => {
     if (streamCleanupRef.current) {
@@ -212,6 +215,21 @@ function ChangesetDetailRoute() {
   }, [loadChanges]);
 
   useEffect(() => {
+    if (!isSingle || !changeset) {
+      previousChangesetStatusRef.current = null;
+      return;
+    }
+    const previousStatus = previousChangesetStatusRef.current;
+    const nextStatus = changeset.status;
+    // Refresh the changes table exactly when a running changeset transitions
+    // to a terminal status, so users do not need to toggle Raw/Diff manually.
+    if (previousStatus === "in_progress" && nextStatus !== "in_progress") {
+      void loadChanges(changesPage);
+    }
+    previousChangesetStatusRef.current = nextStatus;
+  }, [changesPage, changeset, isSingle, loadChanges]);
+
+  useEffect(() => {
     if (!isSingle || !primaryChangesetId || Number.isNaN(primaryChangesetId)) {
       stopStream();
       return;
@@ -317,7 +335,7 @@ function ChangesetDetailRoute() {
     }
   };
 
-  const rawHeaders: HeaderObject[] = [
+  const rawHeaders: ReactHeaderObject[] = [
     { accessor: "id", label: "ID", width: 80, type: "number" },
     ...(isRange
       ? [
@@ -336,7 +354,7 @@ function ChangesetDetailRoute() {
       label: "Actor",
       width: 120,
       type: "number",
-      cellRenderer: (props) => (
+      cellRenderer: (props: CellRendererProps) => (
         <ActorCellPure {...props} actorsById={registryData?.actorsById} />
       ),
     },
@@ -357,7 +375,7 @@ function ChangesetDetailRoute() {
     },
   ];
 
-  const diffHeaders: HeaderObject[] = [
+  const diffHeaders: ReactHeaderObject[] = [
     {
       accessor: "id",
       label: "ID",
@@ -382,7 +400,7 @@ function ChangesetDetailRoute() {
       label: "Actor",
       width: 120,
       type: "number",
-      cellRenderer: (props) => (
+      cellRenderer: (props: CellRendererProps) => (
         <ActorCellPure {...props} actorsById={registryData?.actorsById} />
       ),
     },
@@ -408,13 +426,10 @@ function ChangesetDetailRoute() {
     },
   ];
 
-  const isRunning =
-    isSingle && changeset?.status === "in_progress" && changeset?.running !== false;
+  const isRunning = isSingle && changeset?.status === "in_progress" && changeset?.running !== false;
   const currentHeaders = changesView === "diff" ? diffHeaders : rawHeaders;
   const currentRows =
-    changesView === "diff"
-      ? diffRows
-      : (rawChanges as unknown as Record<string, unknown>[]);
+    changesView === "diff" ? diffRows : (rawChanges as unknown as Record<string, unknown>[]);
   const breadcrumbLabel =
     parsedRef.kind === "range"
       ? `Changesets ${parsedRef.from}..${parsedRef.to}`
@@ -510,6 +525,7 @@ function ChangesetDetailRoute() {
                 )}
                 {changesError && <p className="error">{changesError}</p>}
                 <SimpleTable
+                  {...simpleTableLegacyAppearance}
                   defaultHeaders={currentHeaders}
                   rows={currentRows as Record<string, any>[]}
                   height={"60vh"}

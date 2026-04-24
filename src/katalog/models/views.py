@@ -100,6 +100,37 @@ class ViewSpec(BaseModel):
         return {col.id: col for col in self.columns}
 
 
+def ensure_actor_column(view: ViewSpec) -> ViewSpec:
+    actor_column_id = str(ASSET_ACTOR_ID)
+    if any(column.id == actor_column_id for column in view.columns):
+        if view.default_columns is None or actor_column_id in view.default_columns:
+            return view
+        return view.model_copy(
+            update={"default_columns": [actor_column_id, *view.default_columns]}
+        )
+
+    actor_column = ColumnSpec.from_metadata(
+        ASSET_ACTOR_ID,
+        sortable=True,
+        filterable=True,
+        width=120,
+    )
+    columns = list(view.columns)
+    insert_index = 1 if columns and columns[0].id == str(ASSET_ID) else 0
+    columns.insert(insert_index, actor_column)
+
+    default_columns = view.default_columns
+    if default_columns is not None:
+        default_columns = [actor_column_id, *default_columns]
+
+    return view.model_copy(
+        update={
+            "columns": columns,
+            "default_columns": default_columns,
+        }
+    )
+
+
 def default_view() -> ViewSpec:
     """Default view: mirrors the previous list_assets_with_metadata output."""
     columns: list[ColumnSpec] = [
@@ -139,12 +170,14 @@ def default_view() -> ViewSpec:
         ColumnSpec.from_metadata(DOC_SUMMARY, hidden=True),
     ]
 
-    return ViewSpec(
-        id="default",
-        name="Default",
-        columns=columns,
-        default_sort=[(str(ASSET_ID), "asc")],
-        default_columns=None,  # Means all columns for now.
+    return ensure_actor_column(
+        ViewSpec(
+            id="default",
+            name="Files",
+            columns=columns,
+            default_sort=[(str(ASSET_ID), "asc")],
+            default_columns=None,  # Means all columns for now.
+        )
     )
 
 

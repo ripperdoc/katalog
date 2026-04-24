@@ -126,9 +126,12 @@ class TabularSourceConfig(BaseModel):
         default="tabular",
         description="Asset namespace for external_id uniqueness.",
     )
-    id_column: str = Field(
-        ...,
-        description="Header name used as stable external asset ID.",
+    id_column: str | None = Field(
+        default=None,
+        description=(
+            "Optional header name used as stable external asset ID. "
+            "When omitted, the 1-based source row number is used instead."
+        ),
     )
     header_row: int = Field(
         default=1,
@@ -145,13 +148,21 @@ class TabularSourceConfig(BaseModel):
         description="Column-to-metadata mappings.",
     )
 
-    @field_validator("namespace", "id_column", mode="before")
+    @field_validator("namespace", mode="before")
     @classmethod
     def _normalize_required_text(cls, value: Any) -> str:
         text = str(value or "").strip()
         if not text:
             raise ValueError("value cannot be empty")
         return text
+
+    @field_validator("id_column", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @model_validator(mode="after")
     def _validate_uniqueness(self) -> "TabularSourceConfig":
@@ -165,9 +176,7 @@ class TabularSourceConfig(BaseModel):
 
             key = str(TabularSource.metadata_key_for_mapping(mapping))
             if key in seen_keys:
-                raise ValueError(
-                    f"Duplicate metadata key in column mappings: '{key}'"
-                )
+                raise ValueError(f"Duplicate metadata key in column mappings: '{key}'")
             seen_keys.add(key)
         return self
 
@@ -267,10 +276,14 @@ class TabularSource(SourcePlugin):
         columns: list[ColumnSpec] = [
             ColumnSpec.from_metadata(ASSET_ID, hidden=True, sortable=True, width=80),
             ColumnSpec.from_metadata(
-                ASSET_ACTOR_ID, hidden=True, sortable=True, filterable=True, width=120
+                ASSET_ACTOR_ID, sortable=True, filterable=True, width=120
             ),
-            ColumnSpec.from_metadata(ASSET_EXTERNAL_ID, filterable=True, searchable=True),
-            ColumnSpec.from_metadata(TABULAR_ROW_NUMBER, sortable=True, filterable=True),
+            ColumnSpec.from_metadata(
+                ASSET_EXTERNAL_ID, filterable=True, searchable=True
+            ),
+            ColumnSpec.from_metadata(
+                TABULAR_ROW_NUMBER, sortable=True, filterable=True
+            ),
         ]
         for key in mapped_keys:
             columns.append(
@@ -323,6 +336,17 @@ class TabularSource(SourcePlugin):
             return f"{source}#row={row_number}&id={quote(external_id, safe='')}"
         return f"tabular://{self.get_namespace()}/{quote(external_id, safe='')}"
 
+    def external_id_for_row(
+        self,
+        *,
+        row_number: int,
+        values: list[Any],
+        id_column_index: int | None,
+    ) -> str | None:
+        if id_column_index is None:
+            return str(row_number)
+        return self._normalize_external_id(self._cell_value(values, id_column_index))
+
     def row_path_value(self, row_number: int) -> str | None:
         """Return optional FILE_PATH metadata value for this source row."""
         return f"row:{row_number}"
@@ -349,31 +373,36 @@ class TabularSource(SourcePlugin):
                 if row_number == self.header_row:
                     headers = self._build_headers(values)
                     column_index_by_name = self._build_column_index(headers)
-                    id_column_index = column_index_by_name.get(
-                        _normalize_column_name(self.id_column)
-                    )
-                    if id_column_index is None:
-                        header_preview = ", ".join(headers[:10]) if headers else "(empty)"
-                        if headers and len(headers) > 10:
-                            header_preview = f"{header_preview}, ..."
-                        raise ValueError(
-                            f"id_column '{self.id_column}' not found in header row {self.header_row} "
-                            f"for {self.source_debug_location()}. Header columns: {header_preview}"
+                    if self.id_column:
+                        id_column_index = column_index_by_name.get(
+                            _normalize_column_name(self.id_column)
                         )
+                        if id_column_index is None:
+                            header_preview = (
+                                ", ".join(headers[:10]) if headers else "(empty)"
+                            )
+                            if headers and len(headers) > 10:
+                                header_preview = f"{header_preview}, ..."
+                            raise ValueError(
+                                f"id_column '{self.id_column}' not found in header row {self.header_row} "
+                                f"for {self.source_debug_location()}. Header columns: {header_preview}"
+                            )
                     resolved_mappings = self._resolve_mappings(
                         column_index_by_name=column_index_by_name,
                         headers=headers,
                     )
                     continue
 
-                if headers is None or id_column_index is None:
+                if headers is None:
                     continue
                 if self._is_empty_row(values):
                     ignored += 1
                     continue
 
-                external_id = self._normalize_external_id(
-                    self._cell_value(values, id_column_index)
+                external_id = self.external_id_for_row(
+                    row_number=row_number,
+                    values=values,
+                    id_column_index=id_column_index,
                 )
                 if not external_id:
                     ignored += 1

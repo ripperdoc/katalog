@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { HeaderObject, SimpleTable } from "simple-table-core";
+import { ReactHeaderObject, SimpleTable } from "@simple-table/react";
 import { fetchChangesets } from "../api/client";
 import AppHeader from "../components/AppHeader";
 import ChangesetCell from "../components/ChangesetCell";
+import { simpleTableLegacyAppearance } from "../components/simpleTableAppearance";
 import type { Changeset } from "../types/api";
-import "simple-table-core/styles.css";
+import "@simple-table/react/styles.css";
 
 type SelectedRange = {
   from: number;
@@ -40,7 +41,7 @@ function ChangesetsRoute() {
     void loadChangesets();
   }, [loadChangesets]);
 
-  const headers: HeaderObject[] = useMemo(
+  const headers: ReactHeaderObject[] = useMemo(
     () => [
       {
         accessor: "id",
@@ -108,9 +109,7 @@ function ChangesetsRoute() {
       const firstIndex = selectedIndices[0];
       const lastIndex = selectedIndices[selectedIndices.length - 1];
       const rangeRows = rows.slice(firstIndex, lastIndex + 1);
-      const rangeIds = rangeRows
-        .map((row) => Number(row.id))
-        .filter((id) => Number.isFinite(id));
+      const rangeIds = rangeRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
 
       if (rangeIds.length === 0) {
         setSelectedRange(null);
@@ -147,13 +146,15 @@ function ChangesetsRoute() {
               </button>
               {selectedRange.normalizedCount !== selectedRange.selectedCount && (
                 <div className="note">
-                  Using contiguous range ({selectedRange.normalizedCount} rows) between selected endpoints.
+                  Using contiguous range ({selectedRange.normalizedCount} rows) between selected
+                  endpoints.
                 </div>
               )}
             </div>
           )}
           <div className="table-container">
             <SimpleTable
+              {...simpleTableLegacyAppearance}
               defaultHeaders={headers}
               rows={rows}
               height="60vh"

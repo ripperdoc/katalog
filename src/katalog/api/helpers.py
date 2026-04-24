@@ -105,9 +105,12 @@ def validate_and_normalize_config(
         model = config_model.model_validate(config or {})
     except ValidationError as exc:
         # Use JSON-serializable error payload for REST clients.
+        # Keep structured fields (type/loc/msg) for UI mapping while
+        # avoiding non-serializable Python exception objects in context.
+        errors = exc.errors(include_context=False, include_input=False)
         raise ApiError(
             status_code=400,
-            detail={"message": "Invalid config", "errors": exc.errors()},
+            detail={"message": "Invalid config", "errors": errors},
         ) from exc
     config_json = model.model_dump(mode="json", by_alias=False)
     return config_json

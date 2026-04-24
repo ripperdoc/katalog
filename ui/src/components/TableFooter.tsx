@@ -1,46 +1,41 @@
-import { FooterRendererProps } from "simple-table-core";
-
-type TableFooterProps = FooterRendererProps & {
+type TableFooterProps = {
+  currentPage: number;
+  rowsPerPage: number;
+  totalRows: number;
+  onPageChange: (page: number) => void;
   queryTimeMs?: number | null;
   selectedCount?: number;
 };
 
 const TableFooter = ({
   currentPage,
-  startRow,
-  endRow,
   totalRows,
-  totalPages,
   rowsPerPage,
-  hasPrevPage,
-  hasNextPage,
-  onPrevPage,
-  onNextPage,
   onPageChange,
   queryTimeMs,
   selectedCount = 0,
 }: TableFooterProps) => {
+  const normalizedRowsPerPage = Math.max(1, rowsPerPage);
+  const totalPages = Math.max(1, Math.ceil(totalRows / normalizedRowsPerPage));
+  const startRow = totalRows === 0 ? 0 : (currentPage - 1) * normalizedRowsPerPage + 1;
+  const endRow = totalRows === 0 ? 0 : Math.min(currentPage * normalizedRowsPerPage, totalRows);
+  const hasPrevPage = currentPage > 1;
+  const hasNextPage = currentPage < totalPages;
   const isPrevDisabled = !hasPrevPage;
   const isNextDisabled = !hasNextPage;
 
-  const handlePrevPage = async () => {
+  const handlePrevPage = () => {
     const prevPage = Math.max(1, currentPage - 1);
     if (prevPage === currentPage) return;
-    if (onPrevPage) {
-      await onPrevPage();
-    }
     onPageChange(prevPage);
   };
 
-  const handleNextPage = async () => {
+  const handleNextPage = () => {
     const nextPage = currentPage + 1;
-    if (onNextPage) {
-      await onNextPage();
-    }
     onPageChange(nextPage);
   };
 
-  const handlePageChange = async (page: number) => {
+  const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
       onPageChange(page);
     }

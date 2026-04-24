@@ -29,6 +29,9 @@
       the metadata is applied? E.g. what to do with the TIME_MODIFIED on the sidecar, it doesn't
       really say anything about the target file. Also should we skip running extractor on sidecar
       files?
+- [ ] Add explicit source-asset deletion operation: remove assets/metadata for one source actor
+      while keeping the actor config; define behavior for merged/canonical assets and
+      processor-produced metadata provenance.
 
 # Backlog
 

@@ -1,7 +1,8 @@
 import React from "react";
-import { SimpleTable, HeaderObject, ColumnType } from "simple-table-core";
+import { SimpleTable, ReactHeaderObject, ColumnType } from "@simple-table/react";
 import { createRoot } from "react-dom/client";
-import "simple-table-core/styles.css";
+import "@simple-table/react/styles.css";
+import { simpleTableLegacyAppearance } from "../components/simpleTableAppearance";
 
 const headers = [
   {
@@ -84,9 +85,9 @@ const headers = [
     isSortable: false,
     filterable: true,
   },
-] as HeaderObject[];
+] as ReactHeaderObject[];
 
-const makeRows = (rows = 100, headers: HeaderObject[]) =>
+const makeRows = (rows = 100, headers: ReactHeaderObject[]) =>
   Array.from({ length: rows }).map((_, r) => {
     const row: Record<string, unknown> = { id: r + 1 };
     for (let i = 0; i < headers.length; i++) {
@@ -122,6 +123,7 @@ const SimpleTableTestPage = () => {
       <section className="zpanel">
         <div className="ztable-container">
           <SimpleTable
+            {...simpleTableLegacyAppearance}
             defaultHeaders={headers}
             rows={records}
             height="100vh"

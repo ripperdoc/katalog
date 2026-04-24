@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
-import type { CellRendererProps } from "simple-table-core";
+import type { CellRendererProps } from "@simple-table/react";
+import AppLink from "./AppLink";
 
 function ChangesetCell({ value }: CellRendererProps) {
   const changesetId = typeof value === "number" ? value : Number(value);
@@ -8,7 +8,7 @@ function ChangesetCell({ value }: CellRendererProps) {
     return <span>{String(value ?? "")}</span>;
   }
 
-  return <Link to={`/changesets/${changesetId}`}>{String(changesetId)}</Link>;
+  return <AppLink to={`/changesets/${changesetId}`}>{String(changesetId)}</AppLink>;
 }
 
 export default ChangesetCell;

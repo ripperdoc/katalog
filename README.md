@@ -131,9 +131,11 @@ _Supported sources of digital assets_
 - ✓ Google Drive
 - ✓ List of URLs (web scanning seeds)
 - ✓ JSON list of documents (URLs + metadata mappings)
+- ✓ CSV tables
+- ✓ Google Sheets
 - ✓ HTTP URL recursive metadata fetcher (used during source recursion)
 - ⏳ (planned) Compressed archives
-- ⏳ (planned) List of data (e.g CSVs, Google Sheets)
+- ⏳ (planned) Excel and other tabular data sources
 - ⏳ (planned) Dropbox
 - ⏳ (planned) OneDrive
 - ⏳ (planned) S3 and compatible cloud storage

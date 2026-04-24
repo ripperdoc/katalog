@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Any
 
 from loguru import logger
@@ -8,15 +9,25 @@ from loguru import logger
 from katalog.api.helpers import ApiError
 from katalog.db.actors import get_actor_repo
 from katalog.models import Actor, ActorType
-from katalog.models.views import ViewSpec, get_view, list_views
+from katalog.models.views import ViewSpec, ensure_actor_column, get_view, list_views
 from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_actor_instance
 
 
+def _slugify_view_id(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
+    slug = slug.strip("-._")
+    return slug or "default"
+
+
+def _runtime_view_id(actor_id: int, local_id: str) -> str:
+    return f"actor-{actor_id}-{_slugify_view_id(local_id)}"
+
+
 def _normalize_view(raw: ViewSpec | dict[str, Any]) -> ViewSpec:
     if isinstance(raw, ViewSpec):
-        return raw
-    return ViewSpec.model_validate(raw)
+        return ensure_actor_column(raw)
+    return ensure_actor_column(ViewSpec.model_validate(raw))
 
 
 async def _plugin_views_for_actor(actor: Actor) -> list[ViewSpec]:
@@ -59,7 +70,7 @@ async def _plugin_views_for_actor(actor: Actor) -> list[ViewSpec]:
             )
             continue
         local_id = str(view.id or "default").strip() or "default"
-        runtime_id = f"actor:{int(actor.id)}:{local_id}"
+        runtime_id = _runtime_view_id(int(actor.id), local_id)
         runtime_name = f"{actor.name} / {view.name}"
         runtime_views.append(
             view.model_copy(update={"id": runtime_id, "name": runtime_name})

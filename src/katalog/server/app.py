@@ -6,6 +6,7 @@ from pathlib import Path
 from time import perf_counter
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -109,9 +110,13 @@ async def log_requests(request: Request, call_next):
 @app.exception_handler(ApiError)
 async def api_error_handler(request: Request, exc: ApiError):
     _ = request
+    detail = jsonable_encoder(
+        exc.detail,
+        custom_encoder={Exception: lambda value: str(value)},
+    )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
+        content={"detail": detail},
         headers=exc.headers,
     )
 

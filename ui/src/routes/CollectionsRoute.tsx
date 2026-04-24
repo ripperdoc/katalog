@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { HeaderObject, SimpleTable, type Row } from "simple-table-core";
+import {
+  ReactHeaderObject,
+  SimpleTable,
+  type CellRendererProps,
+  type Row,
+} from "@simple-table/react";
 import { fetchCollections } from "../api/client";
 import AppHeader from "../components/AppHeader";
+import AppLink from "../components/AppLink";
+import { simpleTableLegacyAppearance } from "../components/simpleTableAppearance";
 import type { AssetCollection } from "../types/api";
-import "simple-table-core/styles.css";
+import "@simple-table/react/styles.css";
 
 function CollectionsRoute() {
   const [collections, setCollections] = useState<AssetCollection[]>([]);
@@ -29,19 +35,19 @@ function CollectionsRoute() {
     void loadCollections();
   }, [loadCollections]);
 
-  const headers: HeaderObject[] = useMemo(
+  const headers: ReactHeaderObject[] = useMemo(
     () => [
       {
         accessor: "id",
         label: "ID",
         width: 90,
         type: "number",
-        cellRenderer: ({ value }) => {
+        cellRenderer: ({ value }: CellRendererProps) => {
           const id = typeof value === "number" ? value : Number(value);
           if (!id || Number.isNaN(id)) {
             return <span>{String(value ?? "")}</span>;
           }
-          return <Link to={`/collections/${id}`}>{String(id)}</Link>;
+          return <AppLink to={`/collections/${id}`}>{String(id)}</AppLink>;
         },
       },
       { accessor: "name", label: "Name", width: "1.5fr", type: "string" },
@@ -63,6 +69,7 @@ function CollectionsRoute() {
           {error && <p className="error">{error}</p>}
           <div className="table-container">
             <SimpleTable
+              {...simpleTableLegacyAppearance}
               defaultHeaders={headers}
               rows={rows}
               height="60vh"

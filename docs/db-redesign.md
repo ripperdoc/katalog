@@ -2,22 +2,25 @@
 
 ## Requirements:
 
-- Handle 1M file records with 30 pieces of metadata each, being able to insert/upsert maybe 500k per
-  scan without causing large delays
+- Handle 1M file records with 30+ pieces of metadata each, being able to insert/upsert maybe 500k
+  per scan without causing large delays
 - Be as space efficient as possible
-- Handle an extensible number of metadata keys, including plugins adding new keys without
-  migrations.
+- Handle an extensible number of metadata keys, maybe 100 built-in, including that plugins can add
+  new keys either through code or through config of an actor instance (e.g. to match columns found
+  in a configured CSV)
 - Handle multiple opinions from multiple actors on every metadata, on every asset
 - Full version history on all metadata, enabling full undo, restore and editing of history
+- Ability to link and unlink assets from different sources together as different representations of
+  the same real-world entity
 - Support full sorting, filtering and grouping on all metadata fields
 - Support full text search and vector search (using necessary plugins and/or separate tables)
-- Respond to queries quickly, preferrably below 200ms
-- With all of above, keep the schema and queries simple to create and understand, and make it easy
-  to create plugins and parse the database with other tools
+- Respond to queries quickly, preferably below 200ms
+- With all of above, keep the SQL schema and queries simple to create and understand, and make it
+  easy to create plugins and parse the database with other tools
 
 ## Current database design:
 
-- Defined in TortoiseORM in models.py
+- Defined in SQLSpec
 - Asset table mainly tracking external asset IDs
 - All keys converted to integers to reduce space in Metadata table, but this causes some extra
   complexity to lookup names from integers
@@ -33,7 +36,6 @@
 1. Complicated database design, not easy to analyze manually, write queries for or export
 2. Filtering, sorting and grouping by Metadata values not yet implemented and seem to require
    complicated queries and/or extra tables to not be very slow
-3. TortoiseORM _possibly_ creating overhead
 
 ## Proposed new design:
 
@@ -52,7 +54,7 @@
 1. Size may increase and we need to try and keep JSON keys compact
 2. Filtering inside JSON without using index is slow (several seconds on 500k asset table), maybe
    EAV would be faster or equally slow, although more complicated?
-3. JSON canny contain foreign keys, meaning we can't dynamically track relationships in metadata,
+3. JSON can't contain foreign keys, meaning we can't dynamically track relationships in metadata,
    which EAV can do out of the box
 
 ## Implementation plan

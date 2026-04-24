@@ -106,7 +106,7 @@ FILE_QUOTA_BYTES_USED = define_metadata(
     "file/quota_bytes_used",
     MetadataType.INT,
     "Quota bytes used",
-    plugin_id="katalog.sources.googledrive.GoogleDriveClient",
+    plugin_id="katalog.sources.google_drive.GoogleDriveClient",
 )
 
 
@@ -180,7 +180,7 @@ class GoogleDriveClient(SourcePlugin):
 
     """
 
-    plugin_id = "katalog.sources.googledrive.GoogleDriveClient"
+    plugin_id = "katalog.sources.google_drive.GoogleDriveClient"
     title = "Google Drive"
     description = "List files from a Google Drive account using OAuth2."
 
@@ -1013,7 +1013,7 @@ async def make_crawler():
     # Use a fresh storage client and request queue per scan to avoid reusing state across runs.
     storage_client = MemoryStorageClient()
     request_queue = await RequestQueue.open(
-        alias=f"googledrive-{secrets.token_hex(4)}",
+        alias=f"google_drive-{secrets.token_hex(4)}",
         storage_client=storage_client,
     )
     crawler = HttpCrawler(storage_client=storage_client, request_manager=request_queue)

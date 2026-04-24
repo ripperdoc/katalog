@@ -1,4 +1,4 @@
-import type { CellRendererProps } from "simple-table-core";
+import type { CellRendererProps } from "@simple-table/react";
 import type { MetadataValueEntry } from "../types/api";
 
 type FlagCellConfig = {
@@ -46,7 +46,7 @@ export const makeFlagCell = (config: FlagCellConfig) => {
   const FlagCell = ({ value }: CellRendererProps) => {
     const resolved = extractValue(value);
     const active = isTruthy(resolved);
-    const icon = active ? config.iconOn : config.iconOff ?? config.iconOn;
+    const icon = active ? config.iconOn : (config.iconOff ?? config.iconOn);
     const color = active ? config.onColor : config.offColor;
 
     return (
