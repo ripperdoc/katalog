@@ -61,6 +61,11 @@ def list_metadata(
     dimension: int = typer.Option(64, "--dimension", min=1, max=4096),
     embedding_model: str = typer.Option("fast", "--embedding-model"),
     embedding_backend: str = typer.Option("preset", "--embedding-backend"),
+    view_id: str = typer.Option(
+        "default",
+        "--view-id",
+        help="Asset view id context for query defaults (run `katalog views list` to discover ids).",
+    ),
 ) -> None:
     """List metadata rows, with optional semantic/hybrid ranking."""
 
@@ -81,7 +86,7 @@ def list_metadata(
         from katalog.api.metadata import list_metadata as list_metadata_api
 
         asset_query = AssetQuery(
-            view_id="default",
+            view_id=view_id,
             search=(query or None),
             search_mode=mode,
             search_granularity="metadata",

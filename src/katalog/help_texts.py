@@ -26,6 +26,7 @@ WORKFLOWS_GROUP_HELP = "Sync and run workflow pipelines from workflow TOML files
 METADATA_GROUP_HELP = (
     "Search asset properties (metadata), e.g. path, MIME type, and timestamps."
 )
+VIEWS_GROUP_HELP = "List and inspect asset views, including runtime/plugin-defined views."
 
 MCP_INSTRUCTIONS = (
     "Read-only access to katalog workspace data. "

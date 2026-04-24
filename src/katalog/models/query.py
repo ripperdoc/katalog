@@ -155,8 +155,8 @@ class AssetQuery(BaseModel):
     def _validate_view_id(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        get_view(value)
-        return value
+        text = value.strip()
+        return text or None
 
     @field_validator("metadata_actor_ids")
     @classmethod
@@ -225,8 +225,12 @@ class AssetQuery(BaseModel):
     def _validate_query(self) -> "AssetQuery":
         if self.view_id is None:
             self.view_id = "default"
-        view = get_view(self.view_id)
-        column_map = view.column_map()
+        try:
+            view = get_view(self.view_id)
+            column_map = view.column_map()
+        except KeyError:
+            # Runtime/plugin views are resolved in the API layer.
+            column_map = {}
         selected_columns = self.columns or []
 
         for column_id in selected_columns:

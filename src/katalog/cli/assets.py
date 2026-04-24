@@ -14,6 +14,11 @@ def list_assets(
     ctx: typer.Context,
     limit: int = typer.Option(100, "--limit", "-l", help="Max assets to list"),
     offset: int = typer.Option(0, "--offset", "-o", help="Offset into result set"),
+    view_id: str = typer.Option(
+        "default",
+        "--view-id",
+        help="Asset view id to query (run `katalog views list` to discover ids).",
+    ),
     include_linked_sidecars: bool = typer.Option(
         False,
         "--include-linked-sidecars",
@@ -26,7 +31,7 @@ def list_assets(
         from katalog.api.assets import list_assets as list_assets_api
 
         query = AssetQuery(
-            view_id="default",
+            view_id=view_id,
             limit=limit,
             offset=offset,
             metadata_include_linked_sidecars=include_linked_sidecars,

@@ -6,8 +6,8 @@ from katalog.db.assets import get_asset_repo
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
 from katalog.models.query import AssetQuery
-from katalog.models.views import get_view
 from katalog.api.helpers import ApiError, requires_write_access
+from katalog.api.views import get_view_api
 from katalog.api.schemas import (
     AssetsListResponse,
     GroupedAssetsResponse,
@@ -23,7 +23,7 @@ async def list_assets(query: AssetQuery) -> AssetsListResponse:
     await ensure_fts_index_ready(query)
     if query.search_mode in {"semantic", "hybrid"} and query.search_granularity == "asset":
         return await _list_assets_semantic(query)
-    view = get_view(query.view_id or "default")
+    view = await get_view_api(query.view_id or "default")
     db = get_asset_repo()
     # TODO: metadata_actor_ids support is intentionally skipped for now.
     return await db.list_assets_for_view_db(view, query=query)
@@ -37,7 +37,7 @@ async def list_grouped_assets(
     Grouped asset listing: returns group aggregates (row_kind='group').
     """
 
-    view = get_view("default")
+    view = await get_view_api("default")
     db = get_asset_repo()
     # TODO: metadata_actor_ids support is intentionally skipped for now.
     return await db.list_grouped_assets_db(
@@ -173,7 +173,7 @@ async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
             {"key": "asset/id", "op": "equals", "value": "-1"},
         ]
 
-    view = get_view(scoped_query.view_id or "default")
+    view = await get_view_api(scoped_query.view_id or "default")
     db = get_asset_repo()
     response = await db.list_assets_for_view_db(view, query=scoped_query)
     rank = {asset_id: index for index, asset_id in enumerate(page_asset_ids)}

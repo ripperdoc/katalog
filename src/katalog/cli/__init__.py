@@ -18,6 +18,7 @@ from katalog.help_texts import (
     PROCESSORS_GROUP_HELP,
     READ_ONLY_OPTION_HELP,
     SERVER_COMMAND_HELP,
+    VIEWS_GROUP_HELP,
     WORKFLOWS_GROUP_HELP,
     WORKSPACE_OPTION_HELP,
 )
@@ -30,6 +31,7 @@ changesets_app = typer.Typer(help=CHANGESETS_GROUP_HELP)
 processors_app = typer.Typer(help=PROCESSORS_GROUP_HELP)
 workflows_app = typer.Typer(help=WORKFLOWS_GROUP_HELP)
 metadata_app = typer.Typer(help=METADATA_GROUP_HELP)
+views_app = typer.Typer(help=VIEWS_GROUP_HELP)
 app.add_typer(actors_app, name="actors")
 app.add_typer(assets_app, name="assets")
 app.add_typer(collections_app, name="collections")
@@ -37,6 +39,7 @@ app.add_typer(changesets_app, name="changesets")
 app.add_typer(processors_app, name="processors")
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(metadata_app, name="metadata")
+app.add_typer(views_app, name="views")
 
 
 def _reset_workspace(ws: pathlib.Path) -> None:
@@ -313,6 +316,7 @@ from . import changesets as _changesets  # noqa: E402,F401
 from . import processors as _processors  # noqa: E402,F401
 from . import workflows as _workflows  # noqa: E402,F401
 from . import metadata as _metadata  # noqa: E402,F401
+from . import views as _views  # noqa: E402,F401
 from . import system as _system  # noqa: E402,F401
 
 

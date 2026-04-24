@@ -10,12 +10,16 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from katalog.constants.metadata import (
+    ASSET_ACTOR_ID,
+    ASSET_EXTERNAL_ID,
+    ASSET_ID,
     FILE_PATH,
     MetadataKey,
     MetadataType,
     define_metadata,
 )
 from katalog.models import Actor, Asset, DataReader, MetadataChanges, OpStatus
+from katalog.models.views import ColumnSpec, ViewSpec
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.utils import parse_datetime_utc
 
@@ -244,6 +248,48 @@ class TabularSource(SourcePlugin):
             "description": "Tabular source",
             "version": "0.1",
         }
+
+    def view_definitions(self) -> list[ViewSpec | dict[str, Any]]:
+        actor_id = self.actor.id
+        if actor_id is None:
+            return []
+
+        mapped_keys: list[MetadataKey] = []
+        seen: set[str] = set()
+        for mapping in self.column_mappings:
+            key = self.metadata_key_for_mapping(mapping)
+            key_str = str(key)
+            if key_str in seen:
+                continue
+            seen.add(key_str)
+            mapped_keys.append(key)
+
+        columns: list[ColumnSpec] = [
+            ColumnSpec.from_metadata(ASSET_ID, hidden=True, sortable=True, width=80),
+            ColumnSpec.from_metadata(
+                ASSET_ACTOR_ID, hidden=True, sortable=True, filterable=True, width=120
+            ),
+            ColumnSpec.from_metadata(ASSET_EXTERNAL_ID, filterable=True, searchable=True),
+            ColumnSpec.from_metadata(TABULAR_ROW_NUMBER, sortable=True, filterable=True),
+        ]
+        for key in mapped_keys:
+            columns.append(
+                ColumnSpec.from_metadata(
+                    key,
+                    filterable=True,
+                    searchable=True,
+                )
+            )
+
+        return [
+            ViewSpec(
+                id="table",
+                name="Table",
+                columns=columns,
+                default_sort=[(str(TABULAR_ROW_NUMBER), "asc")],
+                default_columns=None,
+            )
+        ]
 
     def authorize(self, **kwargs) -> str:
         _ = kwargs

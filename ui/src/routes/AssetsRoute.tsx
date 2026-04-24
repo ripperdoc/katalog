@@ -1,14 +1,16 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AssetTable from "../components/AssetTable";
 import AppHeader from "../components/AppHeader";
-import { createCollection, fetchAssets, fetchMetadataSearch } from "../api/client";
-import type { ViewAssetsResponse } from "../types/api";
+import { createCollection, fetchAssets, fetchMetadataSearch, fetchViews } from "../api/client";
+import type { ViewAssetsResponse, ViewSpec } from "../types/api";
 
 const DEFAULT_VIEW_ID = "default";
 
 function AssetsRoute() {
   const navigate = useNavigate();
+  const [views, setViews] = useState<ViewSpec[]>([]);
+  const [selectedViewId, setSelectedViewId] = useState<string>(DEFAULT_VIEW_ID);
   const [lastResponse, setLastResponse] = useState<ViewAssetsResponse | null>(null);
   const [lastParams, setLastParams] = useState<{
     offset: number;
@@ -44,7 +46,7 @@ function AssetsRoute() {
       searchMinScore?: number;
       searchIncludeMatches?: boolean;
     }) =>
-      fetchAssets(DEFAULT_VIEW_ID, {
+      fetchAssets(selectedViewId, {
         offset,
         limit,
         sort,
@@ -54,7 +56,7 @@ function AssetsRoute() {
         searchMinScore,
         searchIncludeMatches,
       }),
-    [],
+    [selectedViewId],
   );
 
   const handleRowClick = useCallback(
@@ -147,7 +149,7 @@ function AssetsRoute() {
       };
       const source = {
         query: {
-          view_id: DEFAULT_VIEW_ID,
+          view_id: selectedViewId,
           ...queryParams,
         },
       };
@@ -163,7 +165,41 @@ function AssetsRoute() {
     } finally {
       setSaving(false);
     }
-  }, [lastParams, lastResponse, navigate, resultType, selectedAssetIds]);
+  }, [lastParams, lastResponse, navigate, resultType, selectedAssetIds, selectedViewId]);
+
+  const loadViews = useCallback(async () => {
+    try {
+      const response = await fetchViews();
+      const all = response.views ?? [];
+      setViews(all);
+      setSelectedViewId((current) =>
+        all.some((view) => view.id === current) ? current : DEFAULT_VIEW_ID,
+      );
+    } catch {
+      setViews([]);
+      setSelectedViewId(DEFAULT_VIEW_ID);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadViews();
+  }, [loadViews]);
+
+  const viewOptions = useMemo(
+    () =>
+      views.length > 0
+        ? views
+        : [
+            {
+              id: DEFAULT_VIEW_ID,
+              name: "Default",
+              columns: [],
+              default_sort: [],
+              default_columns: null,
+            } as ViewSpec,
+          ],
+    [views],
+  );
 
   const selectedCount = selectedAssetIds.size;
   const saveAllAllowed = resultType === "assets";
@@ -178,6 +214,19 @@ function AssetsRoute() {
     <>
       <AppHeader>
         <div className="panel-actions">
+          <label className="toggle-inline">
+            <span style={{ marginRight: 8 }}>View</span>
+            <select
+              value={selectedViewId}
+              onChange={(event) => setSelectedViewId(event.target.value)}
+            >
+              {viewOptions.map((view) => (
+                <option key={view.id} value={view.id}>
+                  {view.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             className="app-btn btn-save"
             type="button"
@@ -190,6 +239,7 @@ function AssetsRoute() {
       </AppHeader>
       <main className="app-main app-main--locked">
         <AssetTable
+          key={`assets-view:${selectedViewId}`}
           title="Assets"
           fetchPage={fetchPage}
           fetchMetadataPage={fetchMetadataPage}
