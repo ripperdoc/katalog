@@ -1,5 +1,6 @@
 import type { CellRendererProps } from "@simple-table/react";
 import AppLink from "./AppLink";
+import { formatRelativeTime } from "../utils/relativeTime";
 
 function ChangesetCell({ value }: CellRendererProps) {
   const changesetId = typeof value === "number" ? value : Number(value);
@@ -8,7 +9,11 @@ function ChangesetCell({ value }: CellRendererProps) {
     return <span>{String(value ?? "")}</span>;
   }
 
-  return <AppLink to={`/changesets/${changesetId}`}>{String(changesetId)}</AppLink>;
+  return (
+    <AppLink to={`/changesets/${changesetId}`}>
+      {formatRelativeTime(changesetId)}
+    </AppLink>
+  );
 }
 
 export default ChangesetCell;

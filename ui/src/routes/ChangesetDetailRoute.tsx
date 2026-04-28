@@ -15,6 +15,7 @@ import { ActorCellPure } from "../components/ActorCell";
 import AssetCell from "../components/AssetCell";
 import ChangesetCell from "../components/ChangesetCell";
 import { simpleTableLegacyAppearance } from "../components/simpleTableAppearance";
+import { formatRelativeTime } from "../utils/relativeTime";
 import { useRegistry } from "../utils/registry";
 
 type ParsedChangesetRef =
@@ -434,7 +435,7 @@ function ChangesetDetailRoute() {
     parsedRef.kind === "range"
       ? `Changesets ${parsedRef.from}..${parsedRef.to}`
       : parsedRef.kind === "single"
-        ? `Changeset ${parsedRef.id}`
+        ? `Changeset ${formatRelativeTime(parsedRef.id)}`
         : null;
   const showActionButtons = isSingle && changeset !== null;
   const showChangesTable = isRange || changeset !== null;

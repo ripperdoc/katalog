@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import AppHeader from "../components/AppHeader";
 import ActorForm from "../components/ActorForm";
+import { formatRelativeTime } from "../utils/relativeTime";
 import {
   fetchActor,
   runSources,
@@ -238,7 +239,9 @@ function ActorDetailRoute() {
                 {changesets.length === 0 && <div className="empty-state">No changesets yet.</div>}
                 {changesets.map((snap) => (
                   <div key={snap.id} className="status-bar">
-                    <Link to={`/changesets/${snap.id}`}>Changeset #{snap.id}</Link>
+                    <Link to={`/changesets/${snap.id}`}>
+                      Changeset {formatRelativeTime(snap.id)}
+                    </Link>
                     <span>{snap.status}</span>
                   </div>
                 ))}

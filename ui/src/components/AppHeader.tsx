@@ -1,5 +1,6 @@
 import { ReactNode, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { formatRelativeTime } from "../utils/relativeTime";
 
 interface AppHeaderProps {
   children?: ReactNode;
@@ -47,7 +48,10 @@ const AppHeader = ({ children, breadcrumbLabel }: AppHeaderProps) => {
       actors: `Actor ${second}`,
       assets: `Asset ${second}`,
       collections: `Collection ${second}`,
-      changesets: `Changeset ${second}`,
+      changesets:
+        Number.isFinite(Number(second)) && Number(second) > 0
+          ? `Changeset ${formatRelativeTime(Number(second))}`
+          : `Changeset ${second}`,
     };
     const leafLabel = breadcrumbLabel?.trim() || defaultLabelMap[topLevel] || second;
     items.push({ label: leafLabel, to: `/${topLevel}/${second}` });

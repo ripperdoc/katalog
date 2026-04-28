@@ -7,6 +7,7 @@ import {
   updateChangesetMessage,
 } from "../api/client";
 import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
+import { formatRelativeTime } from "../utils/relativeTime";
 
 const truncate = (text: string, max: number) => {
   if (text.length <= max) return text;
@@ -52,7 +53,7 @@ function ChangesetProgressBar() {
         ? current.logMessage
         : current?.message;
   const label = truncate(
-    displayMessage ?? (current ? `Changeset #${current.id}` : "Changeset"),
+    displayMessage ?? (current ? `Changeset ${formatRelativeTime(current.id)}` : "Changeset"),
     28,
   );
   const progressLabel =
