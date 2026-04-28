@@ -241,6 +241,10 @@ but they should not replace source-record identity.
 It is not the same as the `plugin_id`; one workspace can have multiple Google Drive, CSV, or
 filesystem actors.
 
+`identity_key` is a workspace-wide unique actor instance key. It defaults to the actor's
+`plugin_id` when not provided, and should be set explicitly when you need multiple instances of the
+same plugin in one workspace.
+
 `plugin_id` is a Python package path that by definition has to be unique in the current imported
 code. It should be globally unique but can't be enforced without a plugin registry.
 

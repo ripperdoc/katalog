@@ -31,6 +31,7 @@ class ActorCreate(BaseModel):
     """Payload for creating an actor."""
     name: str = Field(min_length=1)
     plugin_id: str
+    identity_key: str | None = None
     config: dict[str, Any] | None = None
     config_toml: str | None = None
     disabled: bool | None = None
@@ -39,6 +40,7 @@ class ActorCreate(BaseModel):
 class ActorUpdate(BaseModel):
     """Payload for updating an actor."""
     name: str | None = None
+    identity_key: str | None = None
     config: dict[str, Any] | None = None
     config_toml: str | None = None
     disabled: bool | None = None
@@ -94,15 +96,19 @@ async def create_actor(payload: ActorCreate) -> Actor:
     identity_key = actor_identity_key(
         actor_type=spec.actor_type,
         plugin_id=payload.plugin_id,
-        config=normalized_config,
+        identity_key=payload.identity_key,
     )
 
     if identity_key is not None:
-        existing = await db.get_or_none(type=spec.actor_type, identity_key=identity_key)
+        existing = await db.get_or_none(identity_key=identity_key)
         if existing is not None:
-            if metadata_defs_changed:
-                await sync_metadata_registry()
-            return existing
+            raise ApiError(
+                status_code=400,
+                detail=(
+                    f"identity_key '{identity_key}' is already used by actor id={existing.id} "
+                    f"({existing.type.name}:{existing.plugin_id}). Choose another identity_key."
+                ),
+            )
 
     actor = await db.create(
         name=payload.name,
@@ -229,17 +235,33 @@ async def update_actor(actor_id: int, payload: ActorUpdate) -> Actor:
     if payload.disabled is not None:
         actor.disabled = bool(payload.disabled)
 
+    if payload.identity_key is not None:
+        resolved_identity_key = actor_identity_key(
+            actor_type=actor.type,
+            plugin_id=actor.plugin_id,
+            identity_key=payload.identity_key,
+        )
+        if resolved_identity_key is None:
+            raise ApiError(
+                status_code=400,
+                detail="identity_key resolved to empty value",
+            )
+        actor.identity_key = resolved_identity_key
+
     identity_key = actor_identity_key(
         actor_type=actor.type,
         plugin_id=actor.plugin_id,
-        config=actor.config,
+        identity_key=actor.identity_key,
     )
     if identity_key is not None:
-        duplicate = await db.get_or_none(type=actor.type, identity_key=identity_key)
+        duplicate = await db.get_or_none(identity_key=identity_key)
         if duplicate is not None and duplicate.id != actor.id:
             raise ApiError(
                 status_code=400,
-                detail="Actor with identical normalized config already exists",
+                detail=(
+                    f"identity_key '{identity_key}' is already used by actor id={duplicate.id} "
+                    f"({duplicate.type.name}:{duplicate.plugin_id}). Choose another identity_key."
+                ),
             )
     actor.identity_key = identity_key
 

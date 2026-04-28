@@ -267,6 +267,7 @@ spec = WorkflowSpec(
         WorkflowActorSpec(
             name="JSON document list",
             plugin_id="katalog.sources.json_list.JsonListSource",
+            identity_key="json-doc-list",
             actor_type=ActorType.SOURCE,
             config={"json_file": "ingest/documents.json"},
             disabled=False,
@@ -274,6 +275,7 @@ spec = WorkflowSpec(
         WorkflowActorSpec(
             name="HTTP recursive",
             plugin_id="katalog.sources.http_url.HttpUrlSource",
+            identity_key="http-recursive",
             actor_type=ActorType.SOURCE,
             config={},
             disabled=False,
@@ -288,6 +290,10 @@ result = await run_workflow_file(
     missing_assets_policy="delete",  # or "lost" for soft-delete behavior
 )
 ```
+
+Actor identities are workspace-wide and use `identity_key`. If omitted, `identity_key` defaults to
+`plugin_id`, which means you can only have one instance of that plugin unless you set a distinct
+`identity_key`.
 
 When `HttpUrlSource` is present in the same workspace/workflow, URL assets emitted by
 `UrlListSource` or `JsonListSource` can be recursively scanned to fetch HTTP metadata.

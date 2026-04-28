@@ -105,17 +105,41 @@ async def _sync_workflow_actor_specs(
     synced: list[Actor] = []
     db = get_actor_repo()
     for spec in specs:
-        actor = await create_actor(
-            ActorCreate(
-                name=spec.name,
-                plugin_id=spec.plugin_id,
-                config=spec.config or None,
-                disabled=spec.disabled,
-            )
+        identity = actor_identity_key(
+            actor_type=spec.actor_type,
+            plugin_id=spec.plugin_id,
+            identity_key=spec.identity_key,
         )
+        if identity is None:
+            raise ValueError(
+                f"Workflow actor '{spec.name}' ({spec.plugin_id}) has invalid identity_key"
+            )
+        actor = await db.get_or_none(identity_key=identity)
+        if actor is None:
+            actor = await create_actor(
+                ActorCreate(
+                    name=spec.name,
+                    plugin_id=spec.plugin_id,
+                    identity_key=identity,
+                    config=spec.config or None,
+                    disabled=spec.disabled,
+                )
+            )
         changed = False
         if actor.name != spec.name:
             actor.name = spec.name
+            changed = True
+        if actor.plugin_id != spec.plugin_id:
+            actor.plugin_id = spec.plugin_id
+            changed = True
+        if actor.type != spec.actor_type:
+            actor.type = spec.actor_type
+            changed = True
+        if actor.identity_key != identity:
+            actor.identity_key = identity
+            changed = True
+        if (actor.config or {}) != (spec.config or {}):
+            actor.config = spec.config or {}
             changed = True
         if actor.disabled != spec.disabled:
             actor.disabled = spec.disabled
@@ -145,6 +169,7 @@ def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec
                 {
                     "name": actor.name,
                     "plugin_id": actor.plugin_id,
+                    "identity_key": actor.identity_key,
                     "disabled": actor.disabled,
                     "config": actor.config or {},
                 }
@@ -176,11 +201,11 @@ async def _resolve_workflow_actors(
         identity = actor_identity_key(
             actor_type=spec.actor_type,
             plugin_id=spec.plugin_id,
-            config=spec.config or {},
+            identity_key=spec.identity_key,
         )
         if identity is None:
             raise ValueError(f"Could not compute identity for actor '{spec.name}'")
-        actor = await db.get_or_none(type=spec.actor_type, identity_key=identity)
+        actor = await db.get_or_none(identity_key=identity)
         if actor is None:
             raise ValueError(
                 f"Workflow actor '{spec.name}' ({spec.plugin_id}) is missing from DB for '{workflow_label}'. Run workflow sync first."
@@ -363,11 +388,11 @@ async def workflow_status(workflow_file: pathlib.Path | WorkflowSpec) -> dict[st
         identity = actor_identity_key(
             actor_type=actor.actor_type,
             plugin_id=actor.plugin_id,
-            config=actor.config or {},
+            identity_key=actor.identity_key,
         )
         if identity is None:
             continue
-        existing = await db.get_or_none(type=actor.actor_type, identity_key=identity)
+        existing = await db.get_or_none(identity_key=identity)
         if existing is not None:
             resolved += 1
 

@@ -36,12 +36,13 @@ def list_actors(ctx: typer.Context) -> None:
             "name": actor.name,
             "type": actor.type.name if hasattr(actor.type, "name") else str(actor.type),
             "plugin_id": actor.plugin_id or "-",
+            "identity_key": actor.identity_key or "-",
             "disabled": "yes" if actor.disabled else "no",
         }
         for actor in actors
     ]
-    headers = ["ID", "Name", "Type", "Plugin", "Disabled"]
-    keys = ["id", "name", "type", "plugin_id", "disabled"]
+    headers = ["ID", "Name", "Type", "Plugin", "Identity Key", "Disabled"]
+    keys = ["id", "name", "type", "plugin_id", "identity_key", "disabled"]
     render_table(rows, headers, keys)
 
 
@@ -71,6 +72,7 @@ def show_actor(actor_id: int, ctx: typer.Context) -> None:
     typer.echo(f"Name: {actor.name}")
     typer.echo(f"Type: {actor.type.name}")
     typer.echo(f"Plugin: {actor.plugin_id}")
+    typer.echo(f"Identity key: {actor.identity_key}")
     typer.echo(f"Disabled: {'yes' if actor.disabled else 'no'}")
     typer.echo(f"Changesets: {len(changesets)}")
 

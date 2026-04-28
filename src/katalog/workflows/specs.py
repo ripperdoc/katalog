@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import pathlib
 import tomllib
-from typing import Mapping
+from typing import Any, Mapping
 
 from katalog.api.helpers import validate_and_normalize_config
 from katalog.models import ActorType
@@ -14,6 +14,7 @@ from katalog.plugins.registry import get_plugin_class, get_plugin_spec, refresh_
 class WorkflowActorSpec:
     name: str
     plugin_id: str
+    identity_key: str | None
     actor_type: ActorType
     config: dict
     disabled: bool
@@ -62,6 +63,7 @@ def parse_workflow_payload(
 
     plugins = refresh_plugins()
     actor_specs: list[WorkflowActorSpec] = []
+    seen_identity_keys: set[str] = set()
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ValueError(f"{file_name}: actor #{index + 1} must be a table")
@@ -74,6 +76,10 @@ def parse_workflow_payload(
                 f"{file_name}: actor #{index + 1} references unknown plugin '{plugin_id}'"
             )
         name = str(entry.get("name") or plugin_id)
+        identity_key_raw = entry.get("identity_key")
+        identity_key = (
+            str(identity_key_raw).strip() if isinstance(identity_key_raw, str) else None
+        )
         disabled = bool(entry.get("disabled")) if "disabled" in entry else False
         if "config" in entry:
             config = entry.get("config") or {}
@@ -82,7 +88,7 @@ def parse_workflow_payload(
                     f"{file_name}: actor #{index + 1} config must be a table"
                 )
         else:
-            reserved = {"name", "plugin_id", "disabled"}
+            reserved = {"name", "plugin_id", "identity_key", "disabled"}
             config = {k: v for k, v in entry.items() if k not in reserved}
 
         try:
@@ -101,11 +107,18 @@ def parse_workflow_payload(
             WorkflowActorSpec(
                 name=name,
                 plugin_id=plugin_id,
+                identity_key=identity_key,
                 actor_type=plugin_spec.actor_type,
                 config=config,
                 disabled=disabled,
             )
         )
+        effective_identity = identity_key or plugin_id
+        if effective_identity in seen_identity_keys:
+            raise ValueError(
+                f"{file_name}: duplicate actor identity_key '{effective_identity}' in workflow"
+            )
+        seen_identity_keys.add(effective_identity)
 
     return WorkflowSpec(
         file_name=file_name,

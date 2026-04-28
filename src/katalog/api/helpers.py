@@ -1,7 +1,5 @@
 import functools
 from typing import Any, Awaitable, Callable, ParamSpec, TypeVar
-import hashlib
-import json
 
 from pydantic import ValidationError
 
@@ -141,18 +139,16 @@ def actor_identity_key(
     *,
     actor_type: ActorType,
     plugin_id: str | None,
-    config: dict[str, Any] | None,
+    identity_key: str | None,
 ) -> str | None:
-    """Return a stable identity key for actor deduplication."""
+    """Return a stable workspace-wide actor identity key.
+
+    The key is user-facing and defaults to plugin_id when omitted.
+    """
+    _ = actor_type
     if not plugin_id:
         return None
-    normalized = config or {}
-    config_json = json.dumps(
-        normalized,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-    payload = f"{int(actor_type)}|{plugin_id}|{config_json}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    resolved = (identity_key or plugin_id).strip()
+    if not resolved:
+        return None
+    return resolved

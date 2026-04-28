@@ -25,6 +25,7 @@ function ActorDetailRoute() {
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [formName, setFormName] = useState<string>("");
+  const [identityKey, setIdentityKey] = useState<string>("");
   const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
   const [configToml, setConfigToml] = useState<string>("");
@@ -44,6 +45,7 @@ function ActorDetailRoute() {
       setActor(response.actor);
       setChangesets(response.changesets ?? []);
       setFormName(response.actor?.name ?? "");
+      setIdentityKey(response.actor?.identity_key ?? "");
       setConfigData(response.actor?.config ?? {});
       setConfigToml(response.actor?.config_toml ?? "");
       try {
@@ -109,9 +111,11 @@ function ActorDetailRoute() {
     try {
       const payload: {
         name: string;
+        identity_key?: string;
         config?: Record<string, unknown>;
         config_toml?: string;
       } = { name: formName };
+      payload.identity_key = identityKey;
 
       // Only send the relevant field based on which mode is active
       if (configToml.trim()) {
@@ -214,6 +218,8 @@ function ActorDetailRoute() {
                   pluginId={actor.plugin_id ?? ""}
                   name={formName}
                   onNameChange={setFormName}
+                  identityKey={identityKey}
+                  onIdentityKeyChange={setIdentityKey}
                   schema={configSchema}
                   configData={configData}
                   onConfigChange={setConfigData}

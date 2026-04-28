@@ -36,6 +36,7 @@ async def test_kreuzberg_workflow_smoke_extracts_text(db_session, tmp_path) -> N
             WorkflowActorSpec(
                 name="Smoke filesystem source",
                 plugin_id="katalog.sources.filesystem.FilesystemClient",
+                identity_key="smoke-filesystem-source",
                 actor_type=ActorType.SOURCE,
                 config={
                     "root_path": str(tmp_path),
@@ -47,6 +48,7 @@ async def test_kreuzberg_workflow_smoke_extracts_text(db_session, tmp_path) -> N
             WorkflowActorSpec(
                 name="Smoke kreuzberg extract",
                 plugin_id="katalog.processors.kreuzberg_document_extract.KreuzbergDocumentExtractProcessor",
+                identity_key="smoke-kreuzberg-extract",
                 actor_type=ActorType.PROCESSOR,
                 config={"enable_chunking": True},
                 disabled=False,

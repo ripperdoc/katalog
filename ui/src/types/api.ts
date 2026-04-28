@@ -96,6 +96,7 @@ export interface Actor {
   name: string;
   type: string;
   plugin_id: string | null;
+  identity_key: string | null;
   config: Record<string, unknown> | null;
   config_toml: string | null;
   disabled?: boolean;

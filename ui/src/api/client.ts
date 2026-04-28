@@ -217,6 +217,7 @@ export async function fetchActiveChangesets(): Promise<ChangesetListResponse> {
 export async function createActor(payload: {
   name: string;
   plugin_id: string;
+  identity_key?: string;
   config?: Record<string, unknown> | null;
   config_toml?: string;
   disabled?: boolean;
@@ -236,6 +237,7 @@ export async function updateActor(
   id: number,
   payload: {
     name?: string;
+    identity_key?: string;
     config?: Record<string, unknown> | null;
     config_toml?: string;
     disabled?: boolean;

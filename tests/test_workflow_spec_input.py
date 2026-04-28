@@ -26,6 +26,7 @@ async def test_run_workflow_file_accepts_workflow_spec_object(db_session) -> Non
             WorkflowActorSpec(
                 name="Fake source",
                 plugin_id="katalog.sources.fake_assets.FakeAssetSource",
+                identity_key="katalog.sources.fake_assets.FakeAssetSource",
                 actor_type=ActorType.SOURCE,
                 config={
                     "namespace": "fake",

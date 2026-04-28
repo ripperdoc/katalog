@@ -10,6 +10,8 @@ type ActorFormProps = {
   onPluginChange?: (pluginId: string) => void;
   name: string;
   onNameChange: (value: string) => void;
+  identityKey: string;
+  onIdentityKeyChange: (value: string) => void;
   schema: Record<string, unknown> | null;
   configData: Record<string, unknown>;
   onConfigChange: (value: Record<string, unknown>) => void;
@@ -30,6 +32,8 @@ function ActorForm({
   onPluginChange,
   name,
   onNameChange,
+  identityKey,
+  onIdentityKeyChange,
   schema,
   configData,
   onConfigChange,
@@ -81,6 +85,15 @@ function ActorForm({
           placeholder="Friendly name"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
+        />
+      </label>
+      <label className="form-row">
+        <span>Identity Key</span>
+        <input
+          type="text"
+          placeholder="Unique actor identity (defaults to plugin id)"
+          value={identityKey}
+          onChange={(e) => onIdentityKeyChange(e.target.value)}
         />
       </label>
       {hasEditableSchema && schema && (

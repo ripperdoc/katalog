@@ -46,6 +46,7 @@ const ActorList = ({
             </span>
           </div>
           <p>Plugin: {actor.plugin_id ?? "n/a"}</p>
+          <p>Identity key: {actor.identity_key ?? "n/a"}</p>
           <div className="meta-grid">
             <div>Created: {actor.created_at ?? "—"}</div>
             <div>Updated: {actor.updated_at ?? "—"}</div>

@@ -13,6 +13,7 @@ function ActorCreateRoute() {
   const [plugins, setPlugins] = useState<PluginSpec[]>([]);
   const [pluginId, setPluginId] = useState<string>("");
   const [name, setName] = useState<string>("");
+  const [identityKey, setIdentityKey] = useState<string>("");
   const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
   const [configData, setConfigData] = useState<Record<string, unknown>>({});
   const [configToml, setConfigToml] = useState<string>("");
@@ -46,6 +47,7 @@ function ActorCreateRoute() {
         filtered.find((p) => p.plugin_id === USER_EDITOR_PLUGIN_ID) || filtered[0];
       if (defaultPlugin) {
         setPluginId(defaultPlugin.plugin_id);
+        setIdentityKey(defaultPlugin.plugin_id);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -69,6 +71,9 @@ function ActorCreateRoute() {
         setName(nextDefault);
         defaultNameRef.current = nextDefault;
       }
+      if (!identityKey) {
+        setIdentityKey(pluginId);
+      }
       try {
         const res = await fetchPluginConfigSchema(pluginId);
         setSchema(res.schema ?? null);
@@ -77,7 +82,7 @@ function ActorCreateRoute() {
       }
     };
     void loadSchema();
-  }, [pluginId]);
+  }, [identityKey, name, pluginId]);
 
   useEffect(() => {
     setConfigData({});
@@ -95,12 +100,14 @@ function ActorCreateRoute() {
       const payload: {
         name: string;
         plugin_id: string;
+        identity_key?: string;
         config?: Record<string, unknown>;
         config_toml?: string;
       } = {
         name: name || pluginId,
         plugin_id: pluginId,
       };
+      payload.identity_key = identityKey || pluginId;
 
       // Only send the relevant field based on which mode is active
       if (configToml.trim()) {
@@ -144,6 +151,8 @@ function ActorCreateRoute() {
               onPluginChange={setPluginId}
               name={name}
               onNameChange={setName}
+              identityKey={identityKey}
+              onIdentityKeyChange={setIdentityKey}
               schema={schema}
               configData={configData}
               onConfigChange={setConfigData}
