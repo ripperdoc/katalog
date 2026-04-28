@@ -827,7 +827,7 @@ requires-dist = [
     { name = "google-auth-oauthlib", marker = "extra == 'write'", specifier = ">=1.2.2" },
     { name = "google-cloud-storage", marker = "extra == 'write'", specifier = ">=3.9.0" },
     { name = "httpx", marker = "extra == 'write'", specifier = ">=0.28.1" },
-    { name = "kreuzberg", marker = "extra == 'write'", specifier = "==4.7.1" },
+    { name = "kreuzberg", marker = "extra == 'write'", specifier = ">=4.9.5,<5" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "markdown", marker = "extra == 'write'", specifier = ">=3.10" },
     { name = "markdownify", marker = "extra == 'write'", specifier = ">=1.2.2" },
@@ -856,14 +856,12 @@ dev = [
 
 [[package]]
 name = "kreuzberg"
-version = "4.7.1"
+version = "4.9.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b3/a0/4221b4cf2c3d5a6b745a2cdcb154eabff6939bb7356a4989b0460ff39750/kreuzberg-4.7.1.tar.gz", hash = "sha256:8885d6d10c46a21238df734773269dfab3438f1943852867d0b726b980f01eac", size = 2317390 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/55/79aa58a5362d5653c052815fc58df7a2261d5bf823f45f9be04e9b56e82c/kreuzberg-4.7.1-cp310-abi3-macosx_14_0_arm64.whl", hash = "sha256:7cf2c961e984846e0464a97b1a1dbd652b311190452376988aa388e749ba0ed9", size = 53236998 },
-    { url = "https://files.pythonhosted.org/packages/86/0e/ac39a6a18ecd729c1f4809cfe840d24851b247314b92a5272ed562b7f392/kreuzberg-4.7.1-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:7377efffcdba4987589f60232bf078875c422b90033c72a3c26b759e43950d59", size = 51900301 },
-    { url = "https://files.pythonhosted.org/packages/1e/f2/71b3edd5b7bd8ec096cc3846a20a381602e20cb7087e4ced0d8d1543e518/kreuzberg-4.7.1-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:d688e3f9e1df690cddb34e687bbea7ccc6ee5327a38840e91d0f71f2bac3c586", size = 54549335 },
-    { url = "https://files.pythonhosted.org/packages/b3/4a/55db08c6752d927c83909c87d26f61d765b343e1e8e90d5f8a2820b26d80/kreuzberg-4.7.1-cp310-abi3-win_amd64.whl", hash = "sha256:517f05db4d4a683740c54ad9ca832b7ffcc055af2e1b43384c1416bebbf6d8ae", size = 61438513 },
+    { url = "https://files.pythonhosted.org/packages/65/bc/1b77430cdd71e32ee1d985d8bb2faaeba1589217d38951f4acaa9f8ce0da/kreuzberg-4.9.5-cp310-abi3-macosx_14_0_arm64.whl", hash = "sha256:9319c01a0ae90dfbbe5d019109ed0ccc123508ecf0f5ed1430b2a6b56cbef99c", size = 28750375 },
+    { url = "https://files.pythonhosted.org/packages/09/ce/94cdc6856cb0596cc03f69d9df0f0879727be8d8ad65c5b2284a6a7aca4c/kreuzberg-4.9.5-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:335cf8a6565ca2b0a03e4f646afe549586a2a3387b68b770fb768c1de7dc35b1", size = 33278522 },
+    { url = "https://files.pythonhosted.org/packages/e0/36/5ff6fe57b6b91ef065b2ce0ba79ca46e800632843f3dc800aa4274f16cdd/kreuzberg-4.9.5-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:87c702b584103b8addb142dd879742f0c71ea15170fa6849166b79b870e6b595", size = 35499065 },
 ]
 
 [[package]]
