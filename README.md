@@ -38,6 +38,25 @@ Write-capable install (sources/processors that require heavier dependencies):
 pip install "katalog[write]"
 ```
 
+For local development with `uv`, there are two common sync modes:
+
+Basic usage, keeping the environment close to the lightweight default install:
+
+```bash
+uv sync
+```
+
+This installs the package with the core dependencies from `[project.dependencies]`.
+
+Full development environment, including optional extras and dependency groups:
+
+```bash
+uv sync --all-extras --all-groups
+```
+
+This also installs optional dependencies such as `katalog[write]` plus the development tools from
+`[dependency-groups]`.
+
 You can explicitly force profile/mode at runtime:
 
 ```bash
@@ -69,8 +88,8 @@ katalog -w /path/to/workspace actors show 1
 
 ### ONNX runtime for local embeddings (macOS)
 
-Kreuzberg local embeddings depend on ONNX Runtime (included in `katalog[write]`).
-If needed separately, install with `uv`:
+Kreuzberg local embeddings depend on ONNX Runtime (included in `katalog[write]`). If needed
+separately, install with `uv`:
 
 ```bash
 uv add onnxruntime
@@ -270,8 +289,8 @@ result = await run_workflow_file(
 )
 ```
 
-When `HttpUrlSource` is present in the same workspace/workflow, URL assets emitted by `UrlListSource`
-or `JsonListSource` can be recursively scanned to fetch HTTP metadata.
+When `HttpUrlSource` is present in the same workspace/workflow, URL assets emitted by
+`UrlListSource` or `JsonListSource` can be recursively scanned to fetch HTTP metadata.
 
 # AI policy
 

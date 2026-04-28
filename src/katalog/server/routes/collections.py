@@ -3,8 +3,10 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request
 
 from katalog.api.collections import (
+    CollectionAddAssets,
     CollectionCreate,
     CollectionRemoveAssets,
+    add_collection_assets,
     CollectionUpdate,
     create_collection,
     delete_collection,
@@ -90,3 +92,9 @@ async def delete_collection_rest(collection_id: int):
 async def remove_collection_assets_rest(collection_id: int, request: Request):
     payload = CollectionRemoveAssets.model_validate(await request.json())
     return await remove_collection_assets(collection_id, payload)
+
+
+@router.post("/collections/{collection_id}/add")
+async def add_collection_assets_rest(collection_id: int, request: Request):
+    payload = CollectionAddAssets.model_validate(await request.json())
+    return await add_collection_assets(collection_id, payload)

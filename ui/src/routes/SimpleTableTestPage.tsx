@@ -1,4 +1,4 @@
-import React from "react";
+import { useState } from "react";
 import { SimpleTable, ReactHeaderObject, ColumnType } from "@simple-table/react";
 import { createRoot } from "react-dom/client";
 import "@simple-table/react/styles.css";
@@ -69,48 +69,29 @@ const headers = [
     isSortable: false,
     filterable: true,
   },
-  {
-    accessor: "flag/starred",
-    label: "Favorited",
-    width: 100,
-    type: "number",
-    isSortable: false,
-    filterable: true,
-  },
-  {
-    accessor: "hash/md5",
-    label: "MD5 Hash",
-    width: 200,
-    type: "string",
-    isSortable: false,
-    filterable: true,
-  },
 ] as ReactHeaderObject[];
 
-const makeRows = (rows = 100, headers: ReactHeaderObject[]) =>
+const makeRows = (rows = 100, tableHeaders: ReactHeaderObject[]) =>
   Array.from({ length: rows }).map((_, r) => {
     const row: Record<string, unknown> = { id: r + 1 };
-    for (let i = 0; i < headers.length; i++) {
-      const header = headers[i];
-      const accessor = (header as any).accessor || `col${i}`;
-      const colType = ((header as any).type as ColumnType) || "string";
-
+    for (let i = 0; i < tableHeaders.length; i++) {
+      const header = tableHeaders[i];
+      const accessor = (header as { accessor?: string }).accessor ?? `col${i}`;
+      const colType = ((header as { type?: ColumnType }).type as ColumnType) ?? "string";
       if (colType === "number") {
-        // produce a simple numeric value with small variance
         row[accessor] = r + 1 + i * 0.01;
       } else if (colType === "date") {
-        // produce ISO date strings, decreasing by row
         const d = new Date(Date.now() - r * 24 * 60 * 60 * 1000);
         row[accessor] = d.toISOString();
       } else {
-        // default string
         row[accessor] = `R${r + 1}C${i + 1}`;
       }
     }
-    return row as Record<string, unknown>;
+    return row;
   });
 
-const SimpleTableTestPage = () => {
+function SimpleTableTestPage() {
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const records = makeRows(100, headers);
   const total = 1000;
   const pagination = {
@@ -122,6 +103,9 @@ const SimpleTableTestPage = () => {
     <main className="zapp-main">
       <section className="zpanel">
         <div className="ztable-container">
+          <div style={{ marginBottom: "8px" }}>
+            Selected rows: {selectedRows.size} | Raw IDs: {[...selectedRows].join(", ") || "none"}
+          </div>
           <SimpleTable
             {...simpleTableLegacyAppearance}
             defaultHeaders={headers}
@@ -135,12 +119,15 @@ const SimpleTableTestPage = () => {
             serverSidePagination={true}
             enableRowSelection={true}
             totalRowCount={total ?? records.length}
+            onRowSelectionChange={({ selectedRows: nextSelectedRows }) => {
+              setSelectedRows(nextSelectedRows);
+            }}
           />
         </div>
       </section>
     </main>
   );
-};
+}
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element not found");

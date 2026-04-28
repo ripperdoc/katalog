@@ -16,6 +16,12 @@ class RemoveAssetsResponse(BaseModel):
     skipped: int
 
 
+class AddAssetsResponse(BaseModel):
+    """Response payload for collection asset additions."""
+    added: int
+    skipped: int
+
+
 class ManualEditResult(BaseModel):
     """Result payload for manual asset metadata edits."""
     asset_id: int

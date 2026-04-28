@@ -11,6 +11,7 @@ from katalog.utils.changeset_events import ChangesetEventManager
 PORT = 8000
 RuntimeMode = Literal["read_write", "read_only", "fast_read"]
 InstallProfile = Literal["write", "readonly", "unknown"]
+DEFAULT_TASK_CONCURRENCY = 10
 
 
 @dataclass
@@ -129,6 +130,27 @@ def build_app_context(
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int, *, min_value: int | None = None) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if min_value is not None and value < min_value:
+        return default
+    return value
+
+
+def task_concurrency() -> int:
+    return env_int(
+        "KATALOG_TASK_CONCURRENCY",
+        DEFAULT_TASK_CONCURRENCY,
+        min_value=1,
+    )
 
 
 def _install_profile_from_env() -> InstallProfile:

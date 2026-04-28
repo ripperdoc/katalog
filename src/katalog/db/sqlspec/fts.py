@@ -15,6 +15,8 @@ def fts_table_name(actor_id: int) -> str:
 
 
 class SqlspecFtsRepo:
+    INSERT_BATCH_SIZE = 200
+
     async def is_ready(self) -> tuple[bool, str | None]:
         try:
             async with session_scope(analysis=True) as session:
@@ -74,17 +76,25 @@ class SqlspecFtsRepo:
                     [int(asset_id)],
                 )
 
-            updated = 0
+            rows_to_insert: list[tuple[int, str]] = []
             for point in points:
                 text = str(point.text or "").strip()
                 if not text:
                     continue
+                rows_to_insert.append((int(point.metadata_id), text))
+
+            updated = len(rows_to_insert)
+            for start in range(0, updated, self.INSERT_BATCH_SIZE):
+                chunk = rows_to_insert[start : start + self.INSERT_BATCH_SIZE]
+                placeholders = ", ".join("(?, ?)" for _ in chunk)
+                flat_params: list[Any] = []
+                for metadata_id, text in chunk:
+                    flat_params.extend([metadata_id, text])
                 await execute(
                     session,
-                    f'INSERT OR REPLACE INTO "{table}"(rowid, doc) VALUES (?, ?)',
-                    [int(point.metadata_id), text],
+                    f'INSERT OR REPLACE INTO "{table}"(rowid, doc) VALUES {placeholders}',
+                    flat_params,
                 )
-                updated += 1
 
             await session.commit()
             return updated

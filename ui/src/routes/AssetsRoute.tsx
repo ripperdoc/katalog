@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AssetTable from "../components/AssetTable";
 import AppHeader from "../components/AppHeader";
-import { createCollection, fetchAssets, fetchMetadataSearch, fetchViews } from "../api/client";
-import type { ViewAssetsResponse, ViewSpec } from "../types/api";
+import {
+  addCollectionAssets,
+  createCollection,
+  fetchAssets,
+  fetchCollections,
+  fetchMetadataSearch,
+  fetchViews,
+} from "../api/client";
+import type { AssetCollection, ViewAssetsResponse, ViewSpec } from "../types/api";
 import { useStringSearchParamState } from "../utils/useStringSearchParamState";
 
 const DEFAULT_VIEW_ID = "default";
@@ -11,6 +18,7 @@ const DEFAULT_VIEW_ID = "default";
 function AssetsRoute() {
   const navigate = useNavigate();
   const [views, setViews] = useState<ViewSpec[]>([]);
+  const [collections, setCollections] = useState<AssetCollection[]>([]);
   const [selectedViewId, setSelectedViewId] = useStringSearchParamState("view", DEFAULT_VIEW_ID);
   const [viewsLoaded, setViewsLoaded] = useState(false);
   const [lastResponse, setLastResponse] = useState<ViewAssetsResponse | null>(null);
@@ -27,6 +35,8 @@ function AssetsRoute() {
   const [saving, setSaving] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
   const [resultType, setResultType] = useState<"assets" | "metadata">("assets");
+  const [collectionMenuOpen, setCollectionMenuOpen] = useState(false);
+  const collectionMenuRef = useRef<HTMLDivElement | null>(null);
 
   const fetchPage = useCallback(
     ({
@@ -103,20 +113,18 @@ function AssetsRoute() {
     [],
   );
 
-  const handleSaveCollection = useCallback(async () => {
+  const handleSaveQueryAsCollection = useCallback(async () => {
     const totalCount = lastResponse?.stats?.total ?? lastResponse?.items?.length ?? 0;
-    const selectedIds = Array.from(selectedAssetIds);
-    if (totalCount === 0 && selectedIds.length === 0) {
+    if (totalCount === 0) {
       window.alert("Nothing to save. Run a query first.");
       return;
     }
-    const savingSelected = selectedIds.length > 0;
     const saveAllAllowed = resultType === "assets";
-    if (!savingSelected && !saveAllAllowed) {
+    if (!saveAllAllowed) {
       window.alert("Metadata result mode supports saving selected assets only.");
       return;
     }
-    const saveCount = savingSelected ? selectedIds.length : totalCount;
+    const saveCount = totalCount;
     const defaultName = `Collection ${new Date().toISOString().slice(0, 19)}`;
     if (
       saveCount > 1000 &&
@@ -131,16 +139,6 @@ function AssetsRoute() {
 
     setSaving(true);
     try {
-      if (savingSelected) {
-        const response = await createCollection({
-          name,
-          asset_ids: selectedIds,
-          source: null,
-        });
-        navigate(`/collections/${response.collection.id}`);
-        return;
-      }
-
       const queryParams = {
         sort: lastParams?.sort,
         filters: lastParams?.filters,
@@ -167,19 +165,104 @@ function AssetsRoute() {
     } finally {
       setSaving(false);
     }
-  }, [lastParams, lastResponse, navigate, resultType, selectedAssetIds, selectedViewId]);
+  }, [lastParams, lastResponse, navigate, resultType, selectedViewId]);
+
+  const handleCreateCollectionFromSelected = useCallback(async () => {
+    const selectedIds = Array.from(selectedAssetIds);
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const defaultName = `Collection ${new Date().toISOString().slice(0, 19)}`;
+    if (
+      selectedIds.length > 1000 &&
+      !window.confirm(
+        `Are you sure you want to save a new collection with ${selectedIds.length.toLocaleString()} assets?`,
+      )
+    ) {
+      return;
+    }
+    const name = window.prompt("Name for the new collection", defaultName);
+    if (!name) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await createCollection({
+        name,
+        asset_ids: selectedIds,
+        source: null,
+      });
+      navigate(`/collections/${response.collection.id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to save collection: ${message}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [navigate, selectedAssetIds]);
+
+  const handleAddToExistingCollection = useCallback(
+    async (collectionId: number) => {
+      const selectedIds = Array.from(selectedAssetIds);
+      if (selectedIds.length === 0) {
+        window.alert("Select one or more assets to add to an existing collection.");
+        return;
+      }
+
+      if (
+        selectedIds.length > 1000 &&
+        !window.confirm(
+          `Are you sure you want to add ${selectedIds.length.toLocaleString()} assets to this collection?`,
+        )
+      ) {
+        return;
+      }
+
+      setSaving(true);
+      try {
+        const result = await addCollectionAssets(collectionId, { asset_ids: selectedIds });
+        window.alert(
+          `Added ${result.added} assets to collection.${result.skipped > 0 ? ` Skipped ${result.skipped} already-present assets.` : ""}`,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        window.alert(`Failed to add assets to collection: ${message}`);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [selectedAssetIds],
+  );
+
+  const handleCollectionMenuPick = useCallback(
+    async (collectionId: number | null) => {
+      setCollectionMenuOpen(false);
+      if (collectionId === null) {
+        await handleCreateCollectionFromSelected();
+        return;
+      }
+      await handleAddToExistingCollection(collectionId);
+    },
+    [handleAddToExistingCollection, handleCreateCollectionFromSelected],
+  );
 
   const loadViews = useCallback(async () => {
     setViewsLoaded(false);
     try {
-      const response = await fetchViews();
-      const all = response.views ?? [];
+      const [viewsResponse, collectionsResponse] = await Promise.all([
+        fetchViews(),
+        fetchCollections(),
+      ]);
+      const all = viewsResponse.views ?? [];
       setViews(all);
+      setCollections(collectionsResponse.collections ?? []);
       setSelectedViewId((current) =>
         all.some((view) => view.id === current) ? current : DEFAULT_VIEW_ID,
       );
     } catch {
       setViews([]);
+      setCollections([]);
       setSelectedViewId(DEFAULT_VIEW_ID);
     } finally {
       setViewsLoaded(true);
@@ -189,6 +272,32 @@ function AssetsRoute() {
   useEffect(() => {
     void loadViews();
   }, [loadViews]);
+
+  useEffect(() => {
+    if (!collectionMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const menu = collectionMenuRef.current;
+      if (!menu) {
+        return;
+      }
+      if (!menu.contains(event.target as Node)) {
+        setCollectionMenuOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setCollectionMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [collectionMenuOpen]);
 
   const viewOptions = useMemo(
     () =>
@@ -207,13 +316,16 @@ function AssetsRoute() {
   );
 
   const selectedCount = selectedAssetIds.size;
+  const saveQueryEnabled = selectedCount === 0 && resultType === "assets";
+  const addSelectedEnabled = selectedCount > 0;
   const saveAllAllowed = resultType === "assets";
-  const saveLabel =
-    selectedCount > 0
-      ? `Add ${selectedCount.toLocaleString()} to collection`
-      : saveAllAllowed
-        ? "Add all to collection"
-        : "Select assets to add";
+  const addLabel = `Add ${selectedCount.toLocaleString()} to collection`;
+
+  useEffect(() => {
+    if (!addSelectedEnabled) {
+      setCollectionMenuOpen(false);
+    }
+  }, [addSelectedEnabled]);
 
   return (
     <>
@@ -235,11 +347,42 @@ function AssetsRoute() {
           <button
             className="app-btn btn-save"
             type="button"
-            onClick={() => void handleSaveCollection()}
-            disabled={saving}
+            onClick={() => void handleSaveQueryAsCollection()}
+            disabled={saving || !saveQueryEnabled || !saveAllAllowed}
           >
-            {saving ? "Saving…" : saveLabel}
+            {saving ? "Saving…" : "Save query as collection"}
           </button>
+          <div className="collection-dropdown" ref={collectionMenuRef}>
+            <button
+              className="app-btn btn-save collection-dropdown-trigger"
+              type="button"
+              onClick={() => setCollectionMenuOpen((open) => !open)}
+              disabled={saving || !addSelectedEnabled}
+            >
+              {saving ? "Saving…" : addLabel}
+            </button>
+            {collectionMenuOpen && addSelectedEnabled ? (
+              <div className="collection-dropdown-menu">
+                <button
+                  type="button"
+                  className="app-btn btn-save collection-dropdown-item"
+                  onClick={() => void handleCollectionMenuPick(null)}
+                >
+                  Create new
+                </button>
+                {collections.map((collection) => (
+                  <button
+                    key={collection.id}
+                    type="button"
+                    className="app-btn btn-save collection-dropdown-item"
+                    onClick={() => void handleCollectionMenuPick(collection.id)}
+                  >
+                    {collection.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </AppHeader>
       <main className="app-main app-main--locked">

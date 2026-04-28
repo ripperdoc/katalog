@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ReactHeaderObject, SimpleTable } from "@simple-table/react";
 import { fetchChangesets } from "../api/client";
@@ -66,6 +66,10 @@ function ChangesetsRoute() {
       })),
     [changesets],
   );
+  const rowsRef = useRef(rows);
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
 
   useEffect(() => {
     setSelectedRange(null);
@@ -78,26 +82,9 @@ function ChangesetsRoute() {
         return;
       }
 
-      // simple-table-core row selection emits internal row ids (e.g. "5-177245..."),
-      // where the custom getRowId() value is the last segment.
-      const selectedChangesetIds = [...selectedRows]
-        .map((rawRowId) => {
-          const suffix = String(rawRowId).split("-").pop();
-          return Number(suffix);
-        })
-        .filter((id) => Number.isFinite(id));
-
-      if (selectedChangesetIds.length === 0) {
-        setSelectedRange(null);
-        return;
-      }
-
-      const selectedIdSet = new Set(selectedChangesetIds);
-      const selectedIndices = rows
-        .map((row, idx) => ({ idx, id: Number(row.id) }))
-        .filter(({ id }) => selectedIdSet.has(id))
-        .map(({ idx }) => idx)
-        .filter((idx) => idx >= 0)
+      const selectedIndices = [...selectedRows]
+        .map((rawRowId) => Number(rawRowId))
+        .filter((idx) => Number.isFinite(idx) && idx >= 0)
         .sort((a, b) => a - b);
 
       if (selectedIndices.length === 0) {
@@ -105,10 +92,9 @@ function ChangesetsRoute() {
         return;
       }
 
-      // Normalize to a contiguous range in table order.
       const firstIndex = selectedIndices[0];
       const lastIndex = selectedIndices[selectedIndices.length - 1];
-      const rangeRows = rows.slice(firstIndex, lastIndex + 1);
+      const rangeRows = rowsRef.current.slice(firstIndex, lastIndex + 1);
       const rangeIds = rangeRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
 
       if (rangeIds.length === 0) {
@@ -119,11 +105,11 @@ function ChangesetsRoute() {
       setSelectedRange({
         from: Math.min(...rangeIds),
         to: Math.max(...rangeIds),
-        selectedCount: selectedIdSet.size,
+        selectedCount: selectedIndices.length,
         normalizedCount: rangeIds.length,
       });
     },
-    [rows],
+    [],
   );
 
   const openSelectedRange = useCallback(() => {

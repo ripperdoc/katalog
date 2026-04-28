@@ -21,6 +21,7 @@ import type {
   CollectionResponse,
   CollectionUpdateResponse,
   DeleteCollectionResponse,
+  CollectionAddAssetsResponse,
   CollectionRemoveAssetsResponse,
   WorkflowActionResponse,
   WorkflowListResponse,
@@ -416,6 +417,23 @@ export async function removeCollectionAssets(
   },
 ): Promise<CollectionRemoveAssetsResponse> {
   const response = await fetch(`${API_BASE}/collections/${collectionId}/remove`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function addCollectionAssets(
+  collectionId: number,
+  payload: {
+    asset_ids: number[];
+  },
+): Promise<CollectionAddAssetsResponse> {
+  const response = await fetch(`${API_BASE}/collections/${collectionId}/add`, {
     method: "POST",
     headers: {
       Accept: "application/json",

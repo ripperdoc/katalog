@@ -16,7 +16,7 @@ from katalog.processors.base import Processor, ProcessorResult
 
 class FullTextSearchIndexProcessor(Processor):
     plugin_id = "katalog.processors.search_index.FullTextSearchIndexProcessor"
-    execution_mode = "cpu"
+    execution_mode = "io"  # Not really io, but it gives better DB performance
 
     def __init__(self, actor, **config):
         super().__init__(actor, **config)

@@ -55,6 +55,7 @@ class AssetRepo(Protocol):
         *,
         query: AssetQuery,
     ) -> list[int]: ...
+    async def existing_asset_ids(self, asset_ids: Sequence[int]) -> set[int]: ...
     async def list_assets_for_view_db(
         self,
         view: ViewSpec,

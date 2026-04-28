@@ -13,7 +13,7 @@ from katalog.models.query import AssetFilter, AssetQuery
 from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError, requires_write_access
 from katalog.api.search import ensure_fts_index_ready
-from katalog.api.schemas import AssetsListResponse, RemoveAssetsResponse
+from katalog.api.schemas import AddAssetsResponse, AssetsListResponse, RemoveAssetsResponse
 from katalog.api.views import get_view_api
 from katalog.db.asset_collections import get_asset_collection_repo
 from katalog.db.assets import get_asset_repo
@@ -41,6 +41,11 @@ class CollectionRemoveAssets(BaseModel):
     """Payload for removing assets from a collection."""
     asset_ids: list[int] = Field(default_factory=list)
     changeset_id: int
+
+
+class CollectionAddAssets(BaseModel):
+    """Payload for adding assets to a collection."""
+    asset_ids: list[int] = Field(default_factory=list)
 
 
 async def list_collections() -> list[AssetCollection]:
@@ -106,12 +111,27 @@ async def create_collection(payload: CollectionCreate) -> AssetCollection:
     await ensure_fts_index_ready(query)
 
     unique_asset_ids = sorted(set(asset_ids))
+    asset_db = get_asset_repo()
+    if unique_asset_ids:
+        existing_asset_ids = await asset_db.existing_asset_ids(unique_asset_ids)
+        missing_asset_ids = [
+            asset_id
+            for asset_id in unique_asset_ids
+            if asset_id not in existing_asset_ids
+        ]
+        if missing_asset_ids:
+            raise ApiError(
+                status_code=400,
+                detail={
+                    "message": "Some asset_ids do not exist",
+                    "missing_asset_ids": missing_asset_ids[:100],
+                    "missing_count": len(missing_asset_ids),
+                },
+            )
+
     query_total_count = None
     if query_payload:
-        asset_db = get_asset_repo()
         query_total_count = await asset_db.count_assets_for_query(query=query)
-
-    # TODO Validate asset ids exist
 
     membership_key_id = get_metadata_id(COLLECTION_MEMBER)
 
@@ -369,4 +389,88 @@ async def remove_collection_assets(
     return RemoveAssetsResponse(
         removed=len(active_asset_ids),
         skipped=len(asset_ids) - len(active_asset_ids),
+    )
+
+
+@requires_write_access()
+async def add_collection_assets(
+    collection_id: int, payload: CollectionAddAssets
+) -> AddAssetsResponse:
+    """Add explicit assets to an existing collection."""
+    db = get_asset_collection_repo()
+    collection = await db.get_or_none(id=collection_id)
+    if collection is None:
+        raise ApiError(status_code=404, detail="Collection not found")
+
+    try:
+        asset_ids = sorted({int(a) for a in payload.asset_ids})
+    except Exception:
+        raise ApiError(status_code=400, detail="asset_ids must be integers")
+
+    if not asset_ids:
+        return AddAssetsResponse(added=0, skipped=0)
+
+    collection_id_value = collection.id
+    if collection_id_value is None:
+        raise ApiError(status_code=409, detail="Collection id is missing")
+
+    asset_db = get_asset_repo()
+    existing_asset_ids = await asset_db.existing_asset_ids(asset_ids)
+    missing_asset_ids = [asset_id for asset_id in asset_ids if asset_id not in existing_asset_ids]
+    if missing_asset_ids:
+        raise ApiError(
+            status_code=400,
+            detail={
+                "message": "Some asset_ids do not exist",
+                "missing_asset_ids": missing_asset_ids[:100],
+                "missing_count": len(missing_asset_ids),
+            },
+        )
+
+    actor = await ensure_user_editor()
+    if actor.id is None:
+        raise ApiError(status_code=409, detail="Actor id is missing")
+
+    changeset_db = get_changeset_repo()
+    changeset = await changeset_db.create_auto(
+        status=OpStatus.COMPLETED,
+        message=f"Added assets to collection {collection_id_value}",
+    )
+    await changeset_db.add_actors(changeset, [actor])
+
+    membership_key_id = get_metadata_id(COLLECTION_MEMBER)
+    md_db = get_metadata_repo()
+    active_asset_ids = await md_db.list_active_collection_asset_ids(
+        membership_key_id=membership_key_id,
+        collection_id=collection_id_value,
+        asset_ids=asset_ids,
+    )
+    active_ids = set(active_asset_ids)
+    asset_ids_to_add = [asset_id for asset_id in asset_ids if asset_id not in active_ids]
+
+    if not asset_ids_to_add:
+        return AddAssetsResponse(added=0, skipped=len(asset_ids))
+
+    membership_entries = []
+    for asset_id in asset_ids_to_add:
+        md = make_metadata(COLLECTION_MEMBER, collection_id_value, actor_id=actor.id)
+        md.asset_id = asset_id
+        md.changeset_id = changeset.id
+        membership_entries.append(md)
+        if len(membership_entries) >= 5000:
+            await md_db.bulk_create(membership_entries)
+            membership_entries = []
+    if membership_entries:
+        await md_db.bulk_create(membership_entries)
+
+    current_count = await md_db.count_active_collection_assets(
+        membership_key_id=membership_key_id,
+        collection_id=collection_id_value,
+    )
+    collection.asset_count = current_count
+    await db.save(collection)
+
+    return AddAssetsResponse(
+        added=len(asset_ids_to_add),
+        skipped=len(asset_ids) - len(asset_ids_to_add),
     )

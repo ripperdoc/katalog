@@ -439,6 +439,18 @@ class SqlspecAssetRepo:
             )
         return [int(row["asset_id"]) for row in asset_rows]
 
+    async def existing_asset_ids(self, asset_ids: Sequence[int]) -> set[int]:
+        if not asset_ids:
+            return set()
+
+        unique_asset_ids = sorted({int(asset_id) for asset_id in asset_ids})
+        placeholders = ", ".join("?" for _ in unique_asset_ids)
+        sql = f"SELECT id FROM {ASSET_TABLE} WHERE id IN ({placeholders})"
+
+        async with session_scope() as session:
+            rows = await select(session, sql, unique_asset_ids)
+        return {int(row["id"]) for row in rows}
+
     async def list_assets_for_view_db(
         self,
         view: "ViewSpec",

@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from katalog.config import task_concurrency
 
 
 class OpStatus(Enum):
@@ -81,7 +82,7 @@ class ChangesetStats(BaseModel):
     processings_error: int = 0  # Total processing operations failed with error
 
 
-DEFAULT_TASK_CONCURRENCY = 10
+DEFAULT_TASK_CONCURRENCY = task_concurrency()
 
 
 class Changeset(BaseModel):

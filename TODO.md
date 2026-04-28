@@ -2,6 +2,7 @@
 
 # Next up
 
+- [ ] Add stats for data downloaded during CHangeset
 - [ ] Read-only mode to guarantee that we are not editing the db. Set in the global context.
 - [ ] Support running a workflow with custom/runtime defined documents, e.g. apply it to a
       filesystem folder

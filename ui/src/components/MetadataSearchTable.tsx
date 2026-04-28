@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CellRendererProps,
   ReactHeaderObject,
@@ -145,12 +145,9 @@ function MetadataSearchTable({
       })),
     [items],
   );
-  const assetIdByRowId = useMemo(() => {
-    const lookup = new Map<string, number>();
-    for (const row of rows) {
-      lookup.set(String(row.id), Number(row.asset_id));
-    }
-    return lookup;
+  const rowsRef = useRef(rows);
+  useEffect(() => {
+    rowsRef.current = rows;
   }, [rows]);
 
   return (
@@ -192,8 +189,13 @@ function MetadataSearchTable({
       onRowSelectionChange={({ selectedRows }) => {
         const nextSelected = new Set<number>();
         for (const selectedRowId of selectedRows) {
-          const assetId = assetIdByRowId.get(String(selectedRowId));
-          if (assetId !== undefined && !Number.isNaN(assetId)) {
+          const rowIndex = Number(selectedRowId);
+          if (!Number.isFinite(rowIndex)) {
+            continue;
+          }
+          const row = rowsRef.current[rowIndex] as { asset_id?: unknown } | undefined;
+          const assetId = Number(row?.asset_id);
+          if (Number.isFinite(assetId)) {
             nextSelected.add(assetId);
           }
         }

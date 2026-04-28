@@ -250,6 +250,11 @@ export interface CollectionRemoveAssetsResponse {
   skipped: number;
 }
 
+export interface CollectionAddAssetsResponse {
+  added: number;
+  skipped: number;
+}
+
 export interface AssetDetailRecord {
   id: number;
   actor_id: number;

@@ -301,6 +301,36 @@ interface AssetTableProps {
   searchPlaceholder?: string;
 }
 
+const readNumericAssetId = (row: Asset | undefined): number | null => {
+  if (!row) {
+    return null;
+  }
+  const record = row as Record<string, unknown>;
+  const assetId = Number(record[ASSET_ID_KEY] ?? record.id);
+  if (Number.isFinite(assetId)) {
+    return assetId;
+  }
+  return null;
+};
+
+const selectedAssetIdsFromRows = (
+  selectedRows: Set<string>,
+  rows: Asset[],
+): Set<number> => {
+  const resolved = new Set<number>();
+  for (const selectedRowId of selectedRows) {
+    const rowIndex = Number(selectedRowId);
+    if (!Number.isFinite(rowIndex)) {
+      continue;
+    }
+    const assetId = readNumericAssetId(rows[rowIndex]);
+    if (assetId !== null) {
+      resolved.add(assetId);
+    }
+  }
+  return resolved;
+};
+
 const AssetTable = ({
   title,
   subtitle,
@@ -336,11 +366,16 @@ const AssetTable = ({
   const [semanticMinScoreInput, setSemanticMinScoreInput] = useState<string>("");
   const [resultType, setResultType] = useState<"assets" | "metadata">("assets");
   const searchRef = useRef("");
+  const recordsRef = useRef<Asset[]>([]);
   const lastRequestRef = useRef<string | null>(null);
 
   useEffect(() => {
     searchRef.current = searchQuery;
   }, [searchQuery]);
+
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
 
   const headers = useMemo<ReactHeaderObject[]>(() => {
     if (!schema.length) {
@@ -757,13 +792,10 @@ const AssetTable = ({
             }}
             isLoading={loading}
             onRowSelectionChange={({ selectedRows }) => {
-              const nextSelected = new Set<number>();
-              for (const selectedRowId of selectedRows) {
-                const assetId = Number(selectedRowId);
-                if (!Number.isNaN(assetId)) {
-                  nextSelected.add(assetId);
-                }
-              }
+              const nextSelected = selectedAssetIdsFromRows(
+                selectedRows,
+                recordsRef.current,
+              );
               setSelectedAssetIds(nextSelected);
               onSelectionChange?.(nextSelected);
             }}
