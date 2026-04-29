@@ -22,7 +22,7 @@ CHANGESETS_GROUP_HELP = (
 PROCESSORS_GROUP_HELP = (
     "Run processing jobs on assets, e.g. hashing or metadata extraction."
 )
-WORKFLOWS_GROUP_HELP = "Start workflow pipelines from workflow TOML files."
+WORKFLOWS_GROUP_HELP = "Run workflow pipelines from workflow TOML files."
 METADATA_GROUP_HELP = (
     "Search asset properties (metadata), e.g. path, MIME type, and timestamps."
 )

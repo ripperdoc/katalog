@@ -8,6 +8,7 @@ from katalog.workflows import (
     WorkflowSpec,
     discover_workflow_files,
     load_workflow_spec,
+    run_workflow_file,
     start_workflow_file,
     workflow_status,
 )
@@ -82,6 +83,7 @@ async def get_workflow(workflow_name: str) -> dict:
         "name": spec.name,
         "description": spec.description,
         "version": spec.version,
+        "always_process": spec.always_process,
         "actors": [
             {
                 "name": actor.name,
@@ -99,12 +101,15 @@ async def get_workflow(workflow_name: str) -> dict:
 @requires_write_access()
 async def start_workflow(
     workflow: WorkflowRef,
+    *,
+    always_process: bool | None = None,
 ) -> dict:
     """Start workflow execution (always syncs actors first)."""
     workflow_ref = _resolve_workflow_ref(workflow)
     result = await start_workflow_file(
         workflow_ref,
         sync_first=True,
+        always_process=always_process,
     )
     status = await workflow_status(workflow_ref)
     return {
@@ -112,4 +117,27 @@ async def start_workflow(
         "workflow": status,
         "result": result,
         "changeset": result.get("changeset"),
+    }
+
+
+@requires_write_access()
+async def run_workflow(
+    workflow: WorkflowRef,
+    *,
+    always_process: bool | None = None,
+) -> dict:
+    """Run workflow execution to completion (always syncs actors first)."""
+    workflow_ref = _resolve_workflow_ref(workflow)
+    result = await run_workflow_file(
+        workflow_ref,
+        sync_first=True,
+        always_process=always_process,
+    )
+    status = await workflow_status(workflow_ref)
+    result_payload = result.model_dump(mode="json")
+    return {
+        "status": "completed" if result.successful else "error",
+        "workflow": status,
+        "result": result_payload,
+        "changeset": None,
     }

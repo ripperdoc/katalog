@@ -293,9 +293,11 @@ class ProcessorPipelineStage:
         *,
         changeset: Changeset,
         pipeline: ProcessorPipeline,
+        always_process: bool = False,
     ) -> None:
         self.changeset = changeset
         self.pipeline = pipeline
+        self.always_process = always_process
         self.executors = ProcessorExecutorBundle()
 
     async def process(self, batch: LoadedBatch) -> LoadedBatch:
@@ -307,7 +309,7 @@ class ProcessorPipelineStage:
                 pipeline=self.pipeline,
                 changes=changes,
                 executors=self.executors,
-                force_run=True,
+                force_run=self.always_process,
             )
             for changes in batch.changes_list
         ]
@@ -359,6 +361,7 @@ class WorkflowPipelineRunner:
         source_actors: Sequence[Actor],
         processor_pipeline: ProcessorPipeline,
         missing_assets_policy: str = "lost",
+        always_process: bool = False,
     ) -> OpStatus:
         """Execute `load -> process -> persist` with pluggable stage implementations."""
         load_stage: LoadStage = self._load_stage_factory(
@@ -370,6 +373,7 @@ class WorkflowPipelineRunner:
         process_stage: ProcessStage = self._process_stage_factory(
             changeset=changeset,
             pipeline=processor_pipeline,
+            always_process=always_process,
         )
         persist_stage: PersistStage = self._persist_stage_factory(
             changeset=changeset,

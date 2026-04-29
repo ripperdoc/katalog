@@ -170,6 +170,7 @@ def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec
             },
             "policy": {
                 "missing_assets_policy": workflow.missing_assets_policy,
+                "always_process": workflow.always_process,
             },
             "actors": [
                 {
@@ -259,6 +260,7 @@ async def run_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec,
     *,
     sync_first: bool = False,
+    always_process: bool | None = None,
 ) -> WorkflowRunResult:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -282,6 +284,11 @@ async def run_workflow_file(
         pipeline, pipeline_actors = await sort_processors(processor_ids)
     else:
         pipeline, pipeline_actors = [], []
+    effective_always_process = (
+        bool(always_process)
+        if always_process is not None
+        else bool(spec.always_process)
+    )
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -293,6 +300,7 @@ async def run_workflow_file(
                 "workflow_id": spec.workflow_id,
                 "file_name": spec.file_name,
                 "file_path": spec.file_path,
+                "always_process": effective_always_process,
             }
         },
     )
@@ -305,6 +313,7 @@ async def run_workflow_file(
         source_actors=source_actors,
         processor_pipeline=pipeline,
         missing_assets_policy=spec.missing_assets_policy,
+        always_process=effective_always_process,
     )
     await changeset.finalize(status=status)
 
@@ -332,6 +341,7 @@ async def start_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec,
     *,
     sync_first: bool = False,
+    always_process: bool | None = None,
 ) -> dict[str, Any]:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -355,6 +365,11 @@ async def start_workflow_file(
         pipeline, pipeline_actors = await sort_processors(processor_ids)
     else:
         pipeline, pipeline_actors = [], []
+    effective_always_process = (
+        bool(always_process)
+        if always_process is not None
+        else bool(spec.always_process)
+    )
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -366,6 +381,7 @@ async def start_workflow_file(
                 "workflow_id": spec.workflow_id,
                 "file_name": spec.file_name,
                 "file_path": spec.file_path,
+                "always_process": effective_always_process,
             }
         },
     )
@@ -383,6 +399,7 @@ async def start_workflow_file(
             source_actors=source_actors,
             processor_pipeline=pipeline,
             missing_assets_policy=spec.missing_assets_policy,
+            always_process=effective_always_process,
         )
 
     task = changeset.start_operation(_run_pipeline)
@@ -401,6 +418,7 @@ async def start_workflow_file(
 
     return {
         "workflow_file": spec.file_path,
+        "always_process": effective_always_process,
         "actors": len(actors),
         "sources_run": len(source_actors),
         "processors_run": len(processor_actors),
@@ -449,6 +467,7 @@ async def workflow_status(workflow_file: pathlib.Path | WorkflowSpec) -> dict[st
         "name": spec.name,
         "description": spec.description,
         "version": spec.version,
+        "always_process": spec.always_process,
         "actor_count": total,
         "source_count": source_count,
         "processor_count": processor_count,

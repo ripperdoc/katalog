@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import UTC, datetime
 from typing import Awaitable, Sequence, cast
 
 from loguru import logger
@@ -32,6 +33,58 @@ from katalog.runtime.batch import get_batch_size, iter_batches
 from katalog.config import current_db_url, current_workspace
 
 ProcessorStage = list[Processor]
+
+
+def _coerce_utc(dt: datetime) -> datetime:
+    """Normalize datetimes for safe comparisons with changeset-id timestamps."""
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _should_run_coarse(
+    processor: Processor,
+    changes: MetadataChanges,
+) -> bool:
+    """Coarse skip contract for one processor on one asset.
+
+    Run when either dependencies changed since last successful output or when
+    `Actor.updated_at` is newer than the processor's latest output changeset on
+    this asset. Skip only when both signals indicate no need to rerun.
+    """
+
+    actor = processor.actor
+    actor_id = actor.id
+    if actor_id is None:
+        return True
+
+    dependencies = set(processor.dependencies)
+    outputs = set(processor.outputs)
+    if not outputs:
+        # Without declared outputs we cannot infer last successful run.
+        return True
+
+    deps_changed = changes.changed_since_actor(
+        dependencies,
+        actor_id=int(actor_id),
+        actor_outputs=outputs,
+    )
+    if deps_changed:
+        return True
+
+    last_run_changeset_id = changes.latest_changeset_id(outputs, actor_id=int(actor_id))
+    if last_run_changeset_id is None:
+        return True
+
+    actor_updated = actor.updated_at
+    if actor_updated is None:
+        return False
+
+    last_run_started_at = datetime.fromtimestamp(
+        int(last_run_changeset_id) / 1000.0,
+        tz=UTC,
+    )
+    return _coerce_utc(actor_updated) > last_run_started_at
 
 
 async def sort_processors(
@@ -204,6 +257,10 @@ async def _run_pipeline(
     for stage in pipeline:
         coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
         for processor in stage:
+            if not force_run and not _should_run_coarse(processor, changes):
+                if stats:
+                    stats.processings_skipped += 1
+                continue
             try:
                 should_run = True if force_run else processor.should_run(changes)
             except Exception:
@@ -348,7 +405,7 @@ async def _process_batch(
                     pipeline=pipeline,
                     changes=changes,
                     executors=executors,
-                    force_run=True,
+                    force_run=False,
                 )
             )
         )

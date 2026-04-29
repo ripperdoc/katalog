@@ -42,7 +42,7 @@ def _extract_changeset_ids(result: dict[str, Any]) -> list[int]:
     return ids
 
 
-@workflows_app.command("start")
+@workflows_app.command("start", hidden=True)
 def start_workflow_command(
     ctx: typer.Context,
     workflow_file: str = typer.Option(
@@ -51,20 +51,54 @@ def start_workflow_command(
         "-f",
         help="Path to workflow TOML file (relative to workspace by default)",
     ),
+    always_process: bool | None = typer.Option(
+        None,
+        "--always-process/--respect-skip",
+        help="Override workflow skip behavior for processors.",
+    ),
 ) -> None:
-    """Start workflow execution (always syncs actors first)."""
+    """Run workflow execution and wait for completion."""
+    _run_workflow_command(ctx, workflow_file, always_process=always_process)
+
+
+@workflows_app.command("run")
+def run_workflow_command(
+    ctx: typer.Context,
+    workflow_file: str = typer.Option(
+        "workflow.toml",
+        "--file",
+        "-f",
+        help="Path to workflow TOML file (relative to workspace by default)",
+    ),
+    always_process: bool | None = typer.Option(
+        None,
+        "--always-process/--respect-skip",
+        help="Override workflow skip behavior for processors.",
+    ),
+) -> None:
+    """Run workflow execution and wait for completion."""
+    _run_workflow_command(ctx, workflow_file, always_process=always_process)
+
+
+def _run_workflow_command(
+    ctx: typer.Context,
+    workflow_file: str,
+    *,
+    always_process: bool | None,
+) -> None:
+    """Shared implementation for synchronous workflow CLI commands."""
 
     async def _run() -> dict[str, Any]:
-        from katalog.api.workflows import start_workflow
+        from katalog.api.workflows import run_workflow
         from katalog.workflows import load_workflow_spec
 
         path = _resolve_workflow_path(ctx, workflow_file)
         spec = load_workflow_spec(path)
-        started = await start_workflow(spec)
-        result_payload = started.get("result") or {}
+        completed = await run_workflow(spec, always_process=always_process)
+        result_payload = completed.get("result") or {}
         changeset_ids = _extract_changeset_ids(result_payload)
-        started["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
-        return started
+        completed["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
+        return completed
 
     result = run_cli(_run)
     if wants_json(ctx):

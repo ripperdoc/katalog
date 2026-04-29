@@ -53,6 +53,116 @@ Before execution, the runtime performs additive actor sync:
 
 Each run records the workflow reference in changeset metadata.
 
+### Workflow lifecycle test cases
+
+The workflow lifecycle must be validated with deterministic tests (preferably in-memory workspaces)
+that cover:
+
+1. First-time sync creates actors.
+- Given an empty workspace actor table and a valid workflow, sync creates all workflow actors.
+
+2. Re-sync is idempotent for unchanged workflows.
+- Re-running sync with the same workflow does not create duplicate actors and does not change actor
+  count.
+
+3. Selective actor update.
+- If only one actor definition changes (for example config or disabled flag), sync updates that
+  actor and leaves non-changed actors untouched.
+
+4. Identity key change creates a new actor.
+- If a workflow actor changes `identity_key`, sync creates a new actor row and does not mutate the
+  old actor identity.
+
+5. Workflow discovery/listing.
+- Workflow listing returns all discoverable workflow files in a workspace with correct status
+  information.
+
+6. `WorkflowSpec` parity with TOML workflows.
+- The runtime accepts `WorkflowSpec` input and applies the same lifecycle/sync semantics as for
+  file-based workflows.
+
+7. Validation errors for invalid workflow definitions.
+- Invalid TOML or invalid payloads fail fast with clear errors (unknown plugin id, bad policy
+  values, malformed actor entries, duplicate identity keys, invalid config schema).
+
+### Workflow execution test cases
+
+The workflow execution model must be validated with deterministic tests for core behavior and
+targeted integration tests for runtime/performance risks.
+
+1. Basic end-to-end run completes.
+- Given one source and one processor with valid config, workflow run finishes as completed.
+- One changeset is created and workflow reference metadata is stored.
+
+2. Dependency staging order is respected.
+- Given processors A and B where B depends on A output, B runs only after A output is merged into
+  the in-memory batch state.
+
+3. Coarse skip behavior in default mode.
+- If dependencies have not changed and processor `Actor.updated_at` has not advanced, processor is
+  skipped.
+- Skip counts increase and run counts do not.
+
+4. `always_process` policy forces execution.
+- With `policy.always_process = true`, processors run even when skip logic would normally skip.
+
+5. Start-time `always_process` override precedence.
+- Start option overrides workflow policy in both directions:
+  - policy false + start true => run
+  - policy true + start false => respect skip
+
+6. Missing assets policy: `lost`.
+- Unseen assets are marked lost (not deleted) and stats reflect lost counts.
+
+7. Missing assets policy: `delete`.
+- Unseen assets are deleted and stats reflect deletion/lost semantics.
+
+8. Multi-batch execution correctness.
+- Source emits multiple batches; all batches are processed and persisted without drops.
+
+9. Processor failure handling.
+- If a processor fails for one or more assets, run status and changeset error metadata follow the
+  defined failure semantics.
+
+10. Workflow cancellation behavior.
+- Canceling an in-progress run leads to final canceled/partial status and no orphan in-progress
+  changeset remains.
+
+11. Run provenance completeness.
+- Changeset metadata includes workflow identity (id/name/file), effective `always_process`, and
+  runtime stats payload.
+
+12. `WorkflowSpec` parity with TOML.
+- Equivalent definitions in TOML and `WorkflowSpec` produce equivalent sync and execution behavior.
+
+13. Recursive source flow (if recursion is enabled).
+- Recursive seeds produce recursive batches and respect recursion depth limits.
+
+14. Source-only workflows.
+- Workflow without processors still completes and persists source metadata correctly.
+
+15. Selector-only processing mode (when supported).
+- Workflows using non-source selectors (all assets / collection / asset ids) run processors without
+  requiring a source scan stage.
+
+16. Bounded memory under larger synthetic runs.
+- With fixed batch size, memory usage stays within expected bounds as asset count scales.
+
+17. SQLite contention resilience (integration).
+- Under higher concurrency and index writes, runtime avoids uncontrolled lock/pool failures and
+  fails with diagnosable errors when it cannot proceed.
+
+18. CLI synchronous run semantics.
+- `workflows run` waits for completion and returns final status only after run termination.
+
+19. REST async start semantics.
+- REST start returns quickly with run reference; run continues in background and reaches terminal
+  status via polling/events.
+
+20. Invalid execution inputs fail fast.
+- Unknown plugins, invalid config/schema, duplicate identity keys, and invalid policy values fail
+  before run start, without leaking in-progress changesets.
+
 ## Runtime Execution Model
 
 ### Outer pipeline stages

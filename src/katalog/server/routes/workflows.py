@@ -22,5 +22,11 @@ async def get_workflow_rest(workflow_name: str):
 
 
 @router.post("/workflows/{workflow_name}/start")
-async def start_workflow_rest(workflow_name: str):
-    return await start_workflow(workflow_name)
+async def start_workflow_rest(
+    workflow_name: str,
+    always_process: bool | None = None,
+):
+    return await start_workflow(
+        workflow_name,
+        always_process=always_process,
+    )

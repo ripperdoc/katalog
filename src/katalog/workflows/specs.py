@@ -31,6 +31,7 @@ class WorkflowSpec:
     version: str | None
     actors: list[WorkflowActorSpec]
     missing_assets_policy: Literal["lost", "delete"] = "lost"
+    always_process: bool = False
 
 
 def parse_workflow_file(workflow_file: pathlib.Path) -> WorkflowSpec:
@@ -134,6 +135,15 @@ def parse_workflow_payload(
             )
         missing_assets_policy = raw_missing_assets_policy
 
+    always_process = False
+    raw_always_process = policy_block.get("always_process")
+    if raw_always_process is not None:
+        if not isinstance(raw_always_process, bool):
+            raise ValueError(
+                f"{file_name}: policy.always_process must be true or false"
+            )
+        always_process = raw_always_process
+
     return WorkflowSpec(
         file_name=file_name,
         file_path=file_path,
@@ -156,5 +166,6 @@ def parse_workflow_payload(
             else None
         ),
         missing_assets_policy=missing_assets_policy,
+        always_process=always_process,
         actors=actor_specs,
     )
