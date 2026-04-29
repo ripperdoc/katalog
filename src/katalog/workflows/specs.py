@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import pathlib
 import tomllib
 from typing import Any, Mapping
+from typing import Literal
 
 from katalog.api.helpers import validate_and_normalize_config
 from katalog.models import ActorType
@@ -29,6 +30,7 @@ class WorkflowSpec:
     description: str | None
     version: str | None
     actors: list[WorkflowActorSpec]
+    missing_assets_policy: Literal["lost", "delete"] = "lost"
 
 
 def parse_workflow_file(workflow_file: pathlib.Path) -> WorkflowSpec:
@@ -56,6 +58,9 @@ def parse_workflow_payload(
     workflow_block = raw.get("workflow") or {}
     if workflow_block and not isinstance(workflow_block, dict):
         raise ValueError(f"{file_name}: 'workflow' must be a table")
+    policy_block = raw.get("policy") or {}
+    if policy_block and not isinstance(policy_block, dict):
+        raise ValueError(f"{file_name}: 'policy' must be a table")
 
     entries = raw.get("actors") or []
     if not isinstance(entries, list):
@@ -120,6 +125,15 @@ def parse_workflow_payload(
             )
         seen_identity_keys.add(effective_identity)
 
+    missing_assets_policy = "lost"
+    raw_missing_assets_policy = policy_block.get("missing_assets_policy")
+    if raw_missing_assets_policy is not None:
+        if raw_missing_assets_policy not in ("lost", "delete"):
+            raise ValueError(
+                f"{file_name}: policy.missing_assets_policy must be 'lost' or 'delete'"
+            )
+        missing_assets_policy = raw_missing_assets_policy
+
     return WorkflowSpec(
         file_name=file_name,
         file_path=file_path,
@@ -141,5 +155,6 @@ def parse_workflow_payload(
             if isinstance(workflow_block.get("version"), str)
             else None
         ),
+        missing_assets_policy=missing_assets_policy,
         actors=actor_specs,
     )

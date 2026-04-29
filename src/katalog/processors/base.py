@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Collection, FrozenSet, cast
 
@@ -86,6 +87,19 @@ class Processor(PluginBase, ABC):
     ) -> ProcessorResult:
         """Run the processor logic and return a result class with changes to persist."""
         raise NotImplementedError()
+
+    async def run_batch(
+        self,
+        changes_batch: list[MetadataChanges],
+    ) -> list[ProcessorResult]:
+        """Run processor for a batch of assets.
+
+        Default implementation calls `run()` concurrently per asset.
+        Processors may override to implement optimized batch execution.
+        """
+        if not changes_batch:
+            return []
+        return list(await asyncio.gather(*(self.run(changes) for changes in changes_batch)))
 
 
 def file_data_changed(

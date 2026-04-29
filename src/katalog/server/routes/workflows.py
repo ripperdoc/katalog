@@ -1,11 +1,9 @@
 from fastapi import APIRouter
 
 from katalog.api.workflows import (
-    apply_workflow,
     get_workflow,
     list_workflows,
-    run_workflow,
-    sync_workflow,
+    start_workflow,
 )
 
 router = APIRouter()
@@ -23,16 +21,6 @@ async def get_workflow_rest(workflow_name: str):
     return {"workflow": workflow}
 
 
-@router.post("/workflows/{workflow_name}/sync")
-async def sync_workflow_rest(workflow_name: str):
-    return await sync_workflow(workflow_name)
-
-
-@router.post("/workflows/{workflow_name}/run")
-async def run_workflow_rest(workflow_name: str):
-    return await run_workflow(workflow_name)
-
-
-@router.post("/workflows/{workflow_name}/apply")
-async def apply_workflow_rest(workflow_name: str):
-    return await apply_workflow(workflow_name)
+@router.post("/workflows/{workflow_name}/start")
+async def start_workflow_rest(workflow_name: str):
+    return await start_workflow(workflow_name)

@@ -57,12 +57,11 @@ Each run records the workflow reference in changeset metadata.
 
 ### Outer pipeline stages
 
-Each workflow run executes in four stages:
+Each workflow run executes in three stages:
 
 1. Loading: read one batch of assets into memory.
-2. Downloading: fetch required remote binary metadata for that batch (if needed).
-3. Processing: run processor pipeline on the batch.
-4. Persisting: write deltas for the batch to SQLite.
+2. Processing: run processor pipeline on the batch.
+3. Persisting: write deltas for the batch to SQLite.
 
 The runtime allows up to one batch in flight per stage.
 
@@ -84,6 +83,12 @@ Each processor must:
   between batches if it wants to
 
 Each processor may define processor-specific concurrency settings.
+
+### Data access strategy
+
+- There is no dedicated downloading stage in MVP.
+- Binary data should be fetched lazily on access through existing data-reader metadata contracts.
+- This keeps the runtime simple and avoids unnecessary prefetch/download work.
 
 ### Processor skip contract (coarse invalidation)
 
@@ -178,8 +183,8 @@ logging and progress.
 - Keep single changeset semantics for a workflow run.
 
 6. Align user-facing entry points.
-- API: add workflow list/read/run as first-class operations.
-- CLI: run by workflow ID/name.
+- API: add workflow list/read/start as first-class operations.
+- CLI: start by workflow ID/name.
 - UI: promote workflows as run targets; remove actor-specific run controls in MVP mode.
 
 ### Rollout steps
@@ -199,7 +204,7 @@ logging and progress.
 
 1. A workflow file can be discovered, listed, and executed from API, CLI, and UI.
 2. Actor sync maps workflow actors by `identity_key` and updates config before run.
-3. Runtime executes the four-stage outer pipeline with bounded in-flight batches.
+3. Runtime executes the three-stage outer pipeline with bounded in-flight batches.
 4. Processor staging honors declared dependencies.
 5. Skip behavior uses dependency freshness plus `Actor.updated_at`.
 6. Persisting writes batch deltas correctly when using internal chunking.

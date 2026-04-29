@@ -36,7 +36,7 @@ def _write_minimal_workflow(path: Path, *, source_root: Path) -> None:
     )
 
 
-def test_workflow_apply_cli_exits_cleanly_for_temp_workspace(tmp_path: Path) -> None:
+def test_workflow_start_cli_exits_cleanly_for_temp_workspace(tmp_path: Path) -> None:
     pytest.importorskip("kreuzberg")
 
     workspace = tmp_path / "workspace"
@@ -63,7 +63,7 @@ def test_workflow_apply_cli_exits_cleanly_for_temp_workspace(tmp_path: Path) -> 
         "--workspace",
         str(workspace),
         "workflows",
-        "apply",
+        "start",
         "--file",
         str(workflow_file),
     ]

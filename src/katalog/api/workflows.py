@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from typing import Union
+
 from katalog.api.helpers import ApiError, requires_write_access
 from katalog.config import current_workspace
 from katalog.workflows import (
+    WorkflowSpec,
     discover_workflow_files,
     load_workflow_spec,
     start_workflow_file,
-    sync_workflow_file,
     workflow_status,
 )
+
+
+WorkflowRef = Union[str, WorkflowSpec]
 
 
 def _resolve_workflow_file(workflow_name: str):
@@ -22,6 +27,12 @@ def _resolve_workflow_file(workflow_name: str):
     if file_path is None:
         raise ApiError(status_code=404, detail="Workflow not found")
     return file_path
+
+
+def _resolve_workflow_ref(workflow: WorkflowRef):
+    if isinstance(workflow, WorkflowSpec):
+        return workflow
+    return _resolve_workflow_file(workflow)
 
 
 async def list_workflows() -> list[dict]:
@@ -86,38 +97,16 @@ async def get_workflow(workflow_name: str) -> dict:
 
 
 @requires_write_access()
-async def sync_workflow(workflow_name: str) -> dict:
-    """Synchronize workflow actors into the workspace."""
-    file_path = _resolve_workflow_file(workflow_name)
-    actors = await sync_workflow_file(file_path)
-    status = await workflow_status(file_path)
-    return {
-        "status": "synced",
-        "workflow": status,
-        "actors": [actor.model_dump(mode="json") for actor in actors],
-    }
-
-
-@requires_write_access()
-async def run_workflow(workflow_name: str) -> dict:
-    """Start workflow execution without actor sync."""
-    file_path = _resolve_workflow_file(workflow_name)
-    result = await start_workflow_file(file_path, sync_first=False)
-    status = await workflow_status(file_path)
-    return {
-        "status": "started",
-        "workflow": status,
-        "result": result,
-        "changeset": result.get("changeset"),
-    }
-
-
-@requires_write_access()
-async def apply_workflow(workflow_name: str) -> dict:
-    """Start workflow execution and sync actors before running."""
-    file_path = _resolve_workflow_file(workflow_name)
-    result = await start_workflow_file(file_path, sync_first=True)
-    status = await workflow_status(file_path)
+async def start_workflow(
+    workflow: WorkflowRef,
+) -> dict:
+    """Start workflow execution (always syncs actors first)."""
+    workflow_ref = _resolve_workflow_ref(workflow)
+    result = await start_workflow_file(
+        workflow_ref,
+        sync_first=True,
+    )
+    status = await workflow_status(workflow_ref)
     return {
         "status": "started",
         "workflow": status,

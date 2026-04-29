@@ -31,8 +31,19 @@ async def _summaries_for_changesets(changeset_ids: list[int]) -> list[dict[str, 
     return summaries
 
 
-@workflows_app.command("sync")
-def sync_workflow(
+def _extract_changeset_ids(result: dict[str, Any]) -> list[int]:
+    source_changesets = [int(v) for v in result.get("source_changesets", [])]
+    processor_changeset = result.get("processor_changeset")
+    analyzer_changesets = [int(v) for v in result.get("analyzer_changesets", [])]
+    ids: list[int] = [*source_changesets]
+    if processor_changeset is not None:
+        ids.append(int(processor_changeset))
+    ids.extend(analyzer_changesets)
+    return ids
+
+
+@workflows_app.command("start")
+def start_workflow_command(
     ctx: typer.Context,
     workflow_file: str = typer.Option(
         "workflow.toml",
@@ -41,98 +52,29 @@ def sync_workflow(
         help="Path to workflow TOML file (relative to workspace by default)",
     ),
 ) -> None:
-    """Sync workflow actors into the database."""
+    """Start workflow execution (always syncs actors first)."""
 
     async def _run() -> dict[str, Any]:
-        from katalog.workflows import sync_workflow_file
+        from katalog.api.workflows import start_workflow
+        from katalog.workflows import load_workflow_spec
 
         path = _resolve_workflow_path(ctx, workflow_file)
-        actors = await sync_workflow_file(path)
-        return {
-            "workflow_file": str(path),
-            "actors": [actor.model_dump(mode="json") for actor in actors],
-            "count": len(actors),
-        }
+        spec = load_workflow_spec(path)
+        started = await start_workflow(spec)
+        result_payload = started.get("result") or {}
+        changeset_ids = _extract_changeset_ids(result_payload)
+        started["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
+        return started
 
     result = run_cli(_run)
     if wants_json(ctx):
         typer.echo(json.dumps(result, default=str))
         return
-    typer.echo(f"Workflow: {result['workflow_file']}")
-    typer.echo(f"Actors synced: {result['count']}")
-
-
-@workflows_app.command("run")
-def run_workflow(
-    ctx: typer.Context,
-    workflow_file: str = typer.Option(
-        "workflow.toml",
-        "--file",
-        "-f",
-        help="Path to workflow TOML file (relative to workspace by default)",
-    ),
-) -> None:
-    """Run workflow actors. Expects actors to already be synced."""
-
-    async def _run() -> dict[str, Any]:
-        from katalog.workflows import run_workflow_file
-
-        path = _resolve_workflow_path(ctx, workflow_file)
-        result = await run_workflow_file(path, sync_first=False)
-        changeset_ids = [
-            *result.source_changesets,
-            *([result.processor_changeset] if result.processor_changeset else []),
-            *result.analyzer_changesets,
-        ]
-        payload = result.model_dump(mode="json")
-        payload["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
-        return payload
-
-    result = run_cli(_run)
-    if wants_json(ctx):
-        typer.echo(json.dumps(result, default=str))
-        return
-    typer.echo(f"Workflow: {result['workflow_file']}")
-    typer.echo(f"Sources run: {result['sources_run']}")
-    typer.echo(f"Processors run: {result['processors_run']}")
-    typer.echo(f"Analyzers run: {result.get('analyzers_run', 0)}")
-    for summary in result.get("changeset_summaries", []):
-        print_changeset_summary(summary)
-
-
-@workflows_app.command("apply")
-def apply_workflow(
-    ctx: typer.Context,
-    workflow_file: str = typer.Option(
-        "workflow.toml",
-        "--file",
-        "-f",
-        help="Path to workflow TOML file (relative to workspace by default)",
-    ),
-) -> None:
-    """Sync workflow actors and then run the workflow."""
-
-    async def _run() -> dict[str, Any]:
-        from katalog.workflows import run_workflow_file
-
-        path = _resolve_workflow_path(ctx, workflow_file)
-        result = await run_workflow_file(path, sync_first=True)
-        changeset_ids = [
-            *result.source_changesets,
-            *([result.processor_changeset] if result.processor_changeset else []),
-            *result.analyzer_changesets,
-        ]
-        payload = result.model_dump(mode="json")
-        payload["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
-        return payload
-
-    result = run_cli(_run)
-    if wants_json(ctx):
-        typer.echo(json.dumps(result, default=str))
-        return
-    typer.echo(f"Workflow: {result['workflow_file']}")
-    typer.echo(f"Sources run: {result['sources_run']}")
-    typer.echo(f"Processors run: {result['processors_run']}")
-    typer.echo(f"Analyzers run: {result.get('analyzers_run', 0)}")
+    workflow = result.get("workflow", {})
+    run_result = result.get("result", {})
+    typer.echo(f"Workflow: {workflow.get('file_path', workflow_file)}")
+    typer.echo(f"Sources run: {run_result.get('sources_run', 0)}")
+    typer.echo(f"Processors run: {run_result.get('processors_run', 0)}")
+    typer.echo(f"Analyzers run: {run_result.get('analyzers_run', 0)}")
     for summary in result.get("changeset_summaries", []):
         print_changeset_summary(summary)

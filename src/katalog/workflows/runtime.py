@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import pathlib
 import traceback
 from typing import Any
-from typing import Literal
 
 from loguru import logger
 
@@ -11,11 +11,14 @@ from katalog.analyzers.base import AnalyzerScope
 from katalog.analyzers.runtime import do_run_analyzer
 from katalog.api.actors import ActorCreate, create_actor
 from katalog.api.helpers import actor_identity_key
-from katalog.api.operations import run_processors, run_source
 from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import Actor, ActorType, OpStatus
 from katalog.plugins.registry import get_plugin_class
+from katalog.processors.runtime import sort_processors
+from katalog.runtime.state import get_running_changesets
+from katalog.workflows.contracts import WorkflowSourceActorsInput
+from katalog.workflows.pipeline import WorkflowPipelineRunner
 from katalog.workflows.results import WorkflowChangesetResult, WorkflowRunResult
 from katalog.workflows.specs import (
     WorkflowActorSpec,
@@ -165,6 +168,9 @@ def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec
                 "description": workflow.description,
                 "version": workflow.version,
             },
+            "policy": {
+                "missing_assets_policy": workflow.missing_assets_policy,
+            },
             "actors": [
                 {
                     "name": actor.name,
@@ -253,7 +259,6 @@ async def run_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec,
     *,
     sync_first: bool = False,
-    missing_assets_policy: Literal["lost", "delete"] = "lost",
 ) -> WorkflowRunResult:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -265,41 +270,53 @@ async def run_workflow_file(
         )
 
     source_actors = [a for a in actors if a.type == ActorType.SOURCE and not a.disabled]
-    processor_actors = [
-        a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled
-    ]
-    analyzer_actors = [
-        a for a in actors if a.type == ActorType.ANALYZER and not a.disabled
-    ]
-
-    source_results: list[WorkflowChangesetResult] = []
-    processor_result: WorkflowChangesetResult | None = None
-    analyzer_results: list[WorkflowChangesetResult] = []
-    for source in source_actors:
-        if source.id is None:
-            continue
-        changeset = await run_source(
-            int(source.id),
-            finalize=True,
-            run_processors=False,
-            missing_assets_policy=missing_assets_policy,
-        )
-        source_results.append(WorkflowChangesetResult.from_changeset(changeset))
-
-    if processor_actors:
-        processor_ids = [
-            int(actor.id) for actor in processor_actors if actor.id is not None
-        ]
-        if processor_ids:
-            changeset = await run_processors(
-                processor_ids=processor_ids,
-                asset_ids=None,
-                finalize=True,
-            )
-            processor_result = WorkflowChangesetResult.from_changeset(changeset)
-
+    processor_actors = [a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled]
+    analyzer_actors = [a for a in actors if a.type == ActorType.ANALYZER and not a.disabled]
     if analyzer_actors:
-        analyzer_results = await _run_workflow_analyzers(analyzer_actors)
+        logger.warning(
+            "Workflow analyzers are currently out of scope for the modular pipeline runtime; analyzers will be skipped."
+        )
+
+    processor_ids = [int(actor.id) for actor in processor_actors if actor.id is not None]
+    if processor_ids:
+        pipeline, pipeline_actors = await sort_processors(processor_ids)
+    else:
+        pipeline, pipeline_actors = [], []
+    changeset_db = get_changeset_repo()
+    changeset_actors = [*source_actors, *pipeline_actors]
+    changeset = await changeset_db.begin(
+        message=f"Workflow run: {spec.name}",
+        actors=changeset_actors,
+        status=OpStatus.IN_PROGRESS,
+        data={
+            "workflow": {
+                "workflow_id": spec.workflow_id,
+                "file_name": spec.file_name,
+                "file_path": spec.file_path,
+            }
+        },
+    )
+    runner = WorkflowPipelineRunner()
+    status = await runner.run(
+        changeset=changeset,
+        workflow_input=WorkflowSourceActorsInput(
+            actor_ids=[int(actor.id) for actor in source_actors if actor.id is not None]
+        ),
+        source_actors=source_actors,
+        processor_pipeline=pipeline,
+        missing_assets_policy=spec.missing_assets_policy,
+    )
+    await changeset.finalize(status=status)
+
+    source_results: list[WorkflowChangesetResult]
+    processor_result: WorkflowChangesetResult | None
+    if processor_actors:
+        source_results = []
+        processor_result = WorkflowChangesetResult.from_changeset(changeset)
+    else:
+        source_results = [WorkflowChangesetResult.from_changeset(changeset)]
+        processor_result = None
+    analyzer_results: list[WorkflowChangesetResult] = []
 
     return WorkflowRunResult.build(
         workflow_file=spec.file_path,
@@ -315,7 +332,6 @@ async def start_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec,
     *,
     sync_first: bool = False,
-    missing_assets_policy: Literal["lost", "delete"] = "lost",
 ) -> dict[str, Any]:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -327,55 +343,73 @@ async def start_workflow_file(
         )
 
     source_actors = [a for a in actors if a.type == ActorType.SOURCE and not a.disabled]
-    processor_actors = [
-        a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled
-    ]
-    analyzer_actors = [
-        a for a in actors if a.type == ActorType.ANALYZER and not a.disabled
-    ]
-
-    source_changesets: list[int] = []
-    for source in source_actors:
-        if source.id is None:
-            continue
-        changeset = await run_source(
-            int(source.id),
-            finalize=True,
-            run_processors=False,
-            missing_assets_policy=missing_assets_policy,
+    processor_actors = [a for a in actors if a.type == ActorType.PROCESSOR and not a.disabled]
+    analyzer_actors = [a for a in actors if a.type == ActorType.ANALYZER and not a.disabled]
+    if analyzer_actors:
+        logger.warning(
+            "Workflow analyzers are currently out of scope for the modular pipeline runtime; analyzers will be skipped."
         )
-        source_changesets.append(int(changeset.id))
 
-    processor_changeset = None
-    if processor_actors:
-        processor_ids = [
-            int(actor.id) for actor in processor_actors if actor.id is not None
-        ]
-        if processor_ids:
-            started = await run_processors(
-                processor_ids=processor_ids,
-                asset_ids=None,
-                finalize=False,
-            )
-            processor_changeset = started
+    processor_ids = [int(actor.id) for actor in processor_actors if actor.id is not None]
+    if processor_ids:
+        pipeline, pipeline_actors = await sort_processors(processor_ids)
+    else:
+        pipeline, pipeline_actors = [], []
+    changeset_db = get_changeset_repo()
+    changeset_actors = [*source_actors, *pipeline_actors]
+    changeset = await changeset_db.begin(
+        message=f"Workflow run: {spec.name}",
+        actors=changeset_actors,
+        status=OpStatus.IN_PROGRESS,
+        data={
+            "workflow": {
+                "workflow_id": spec.workflow_id,
+                "file_name": spec.file_name,
+                "file_path": spec.file_path,
+            }
+        },
+    )
+
+    runner = WorkflowPipelineRunner()
+    running_changesets = get_running_changesets()
+    running_changesets[changeset.id] = changeset
+
+    async def _run_pipeline() -> OpStatus:
+        return await runner.run(
+            changeset=changeset,
+            workflow_input=WorkflowSourceActorsInput(
+                actor_ids=[int(actor.id) for actor in source_actors if actor.id is not None]
+            ),
+            source_actors=source_actors,
+            processor_pipeline=pipeline,
+            missing_assets_policy=spec.missing_assets_policy,
+        )
+
+    task = changeset.start_operation(_run_pipeline)
+
+    def _cleanup(_task) -> None:
+        try:
+            _task.exception()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+        finally:
+            running_changesets.pop(changeset.id, None)
+
+    task.add_done_callback(_cleanup)
 
     return {
         "workflow_file": spec.file_path,
         "actors": len(actors),
-        "sources_run": len(source_changesets),
+        "sources_run": len(source_actors),
         "processors_run": len(processor_actors),
         "analyzers_run": 0,
-        "source_changesets": source_changesets,
-        "processor_changeset": (
-            int(processor_changeset.id) if processor_changeset is not None else None
-        ),
+        "source_changesets": [],
+        "processor_changeset": int(changeset.id),
         "analyzer_changesets": [],
-        "last_changeset_id": (
-            int(processor_changeset.id)
-            if processor_changeset is not None
-            else (source_changesets[-1] if source_changesets else None)
-        ),
-        "changeset": processor_changeset,
+        "last_changeset_id": int(changeset.id),
+        "changeset": changeset,
     }
 
 
