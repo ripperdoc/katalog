@@ -7,14 +7,16 @@ from typing import AsyncIterator, Protocol, Sequence, cast
 
 from loguru import logger
 
-from katalog.constants.metadata import ASSET_LOST
+from katalog.constants.metadata import ASSET_LOST, MetadataKey
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.models import (
     Actor,
     ActorType,
+    Asset,
     Changeset,
     ChangesetStats,
+    DataReader,
     Metadata,
     MetadataChanges,
     make_metadata,
@@ -87,6 +89,28 @@ class PersistStage(Protocol):
     async def persist(self, batch: LoadedBatch) -> None: ...
 
 
+class SourceDataReaderResolver:
+    """Resolve data readers from in-memory source plugin instances (no DB lookup)."""
+
+    def __init__(self, plugins_by_actor_id: dict[int, SourcePlugin]) -> None:
+        self._plugins_by_actor_id = plugins_by_actor_id
+
+    async def get_data_reader(
+        self, key: MetadataKey, changes: MetadataChanges
+    ) -> DataReader | None:
+        current = changes.current()
+        entries = current.get(key, [])
+        if not entries:
+            return None
+        actor_id = entries[0].actor_id
+        if actor_id is None:
+            return None
+        plugin = self._plugins_by_actor_id.get(int(actor_id))
+        if plugin is None:
+            return None
+        return await plugin.get_data_reader(key, changes)
+
+
 class SourceLoadStage:
     """Load stage that scans source actors, hydrates metadata, and tracks missing assets."""
 
@@ -107,6 +131,7 @@ class SourceLoadStage:
         self.metadata_repo = get_metadata_repo()
         self._actors_by_id: dict[int, Actor] = {}
         self._plugins_by_actor_id: dict[int, SourcePlugin] = {}
+        self._data_reader_resolver = SourceDataReaderResolver(self._plugins_by_actor_id)
 
     async def _prepare_sources(self) -> None:
         """Resolve and readiness-check all source plugins participating in this run."""
@@ -175,10 +200,10 @@ class SourceLoadStage:
             actor_id = int(source_actor.id or 0)
             staged_metadata = list(payload.metadata)
             staged_metadata.append(make_metadata_lost(actor_id))
-            changes = MetadataChanges(
+            changes = self._build_changes(
                 asset=payload.asset,
-                loaded=loaded_metadata,
-                staged=staged_metadata,
+                loaded_metadata=loaded_metadata,
+                staged_metadata=staged_metadata,
             )
             changes_list.append(changes)
 
@@ -212,6 +237,21 @@ class SourceLoadStage:
             changes_list=changes_list,
             existing_metadata_by_asset=existing_by_asset,
         )
+
+    def _build_changes(
+        self,
+        *,
+        asset: Asset,
+        loaded_metadata: list[Metadata],
+        staged_metadata: list[Metadata],
+    ) -> MetadataChanges:
+        changes = MetadataChanges(
+            asset=asset,
+            loaded=loaded_metadata,
+            staged=staged_metadata,
+        )
+        changes.bind_data_reader_resolver(self._data_reader_resolver)
+        return changes
 
     async def produce(self, *, workflow_input: WorkflowInputSpec) -> AsyncIterator[LoadedBatch]:
         """Produce initial and recursive source batches as hydrated workflow batches."""

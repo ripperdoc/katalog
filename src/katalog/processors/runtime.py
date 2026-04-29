@@ -29,6 +29,7 @@ from katalog.plugins.registry import get_actor_instance
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.db.actors import get_actor_repo
+from katalog.db.sqlspec import forbid_db_access
 from katalog.runtime.batch import get_batch_size, iter_batches
 from katalog.config import current_db_url, current_workspace
 
@@ -254,53 +255,54 @@ async def _run_pipeline(
         changeset.stats = stats
     stats.assets_processed += 1
 
-    for stage in pipeline:
-        coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
-        for processor in stage:
-            if not force_run and not _should_run_coarse(processor, changes):
-                if stats:
-                    stats.processings_skipped += 1
-                continue
-            try:
-                should_run = True if force_run else processor.should_run(changes)
-            except Exception:
-                logger.exception(
-                    f"Processor {processor}.should_run failed for record {asset.id}"
+    with forbid_db_access():
+        for stage in pipeline:
+            coros: list[tuple[Processor, Awaitable[ProcessorResult]]] = []
+            for processor in stage:
+                if not force_run and not _should_run_coarse(processor, changes):
+                    if stats:
+                        stats.processings_skipped += 1
+                    continue
+                try:
+                    should_run = True if force_run else processor.should_run(changes)
+                except Exception:
+                    logger.exception(
+                        f"Processor {processor}.should_run failed for record {asset.id}"
+                    )
+                    continue
+                if not should_run:
+                    continue
+                coros.append(
+                    (processor, _run_processor_with_mode(processor, changes, executors))
                 )
+                if stats:
+                    stats.processings_started += 1
+            if not coros:
                 continue
-            if not should_run:
-                continue
-            coros.append(
-                (processor, _run_processor_with_mode(processor, changes, executors))
+            results: list[ProcessorResult] = await asyncio.gather(
+                *(coro for _, coro in coros)
             )
-            if stats:
-                stats.processings_started += 1
-        if not coros:
-            continue
-        results: list[ProcessorResult] = await asyncio.gather(
-            *(coro for _, coro in coros)
-        )
-        stage_metadata: list[Metadata] = []
-        for result in results:
-            status = result.status
-            if stats:
-                if status == OpStatus.COMPLETED:
-                    stats.processings_completed += 1
-                elif status == OpStatus.PARTIAL:
-                    stats.processings_partial += 1
-                elif status == OpStatus.CANCELED:
-                    stats.processings_cancelled += 1
-                elif status == OpStatus.SKIPPED:
-                    stats.processings_skipped += 1
-                elif status == OpStatus.ERROR:
-                    stats.processings_error += 1
-            if status in (OpStatus.CANCELED, OpStatus.ERROR):
-                continue
-            if status == OpStatus.SKIPPED:
-                continue
-            for meta in result.metadata:
-                stage_metadata.append(meta)
-        changes.add(stage_metadata)
+            stage_metadata: list[Metadata] = []
+            for result in results:
+                status = result.status
+                if stats:
+                    if status == OpStatus.COMPLETED:
+                        stats.processings_completed += 1
+                    elif status == OpStatus.PARTIAL:
+                        stats.processings_partial += 1
+                    elif status == OpStatus.CANCELED:
+                        stats.processings_cancelled += 1
+                    elif status == OpStatus.SKIPPED:
+                        stats.processings_skipped += 1
+                    elif status == OpStatus.ERROR:
+                        stats.processings_error += 1
+                if status in (OpStatus.CANCELED, OpStatus.ERROR):
+                    continue
+                if status == OpStatus.SKIPPED:
+                    continue
+                for meta in result.metadata:
+                    stage_metadata.append(meta)
+            changes.add(stage_metadata)
     return changes
 
 

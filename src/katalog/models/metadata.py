@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-from typing import Any, Iterable, Sequence, TYPE_CHECKING, TypeVar, overload
+from typing import Any, Iterable, Protocol, Sequence, TYPE_CHECKING, TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field, field_serializer
 
@@ -17,7 +17,7 @@ from katalog.constants.metadata import (
     metadata_key_for_id_or_fallback,
 )
 from katalog.models.core import Changeset
-from katalog.models.assets import Asset
+from katalog.models.assets import Asset, DataReader
 
 if TYPE_CHECKING:
     from katalog.models.core import Changeset
@@ -273,6 +273,12 @@ def make_metadata(
     return md
 
 
+class MetadataChangesDataReaderResolver(Protocol):
+    async def get_data_reader(
+        self, key: MetadataKey, changes: "MetadataChanges"
+    ) -> DataReader | None: ...
+
+
 class MetadataChanges(BaseModel):
     """Track metadata state for an asset during processing (loaded + staged changes)."""
 
@@ -293,6 +299,9 @@ class MetadataChanges(BaseModel):
         default_factory=dict
     )
     _cache_latest_ready: bool = PrivateAttr(default=False)
+    _data_reader_resolver: MetadataChangesDataReaderResolver | None = PrivateAttr(
+        default=None
+    )
 
     def model_post_init(self, __context: Any) -> None:
         self._loaded = list(self.loaded)
@@ -302,6 +311,22 @@ class MetadataChanges(BaseModel):
         self._cache_latest_by_key = {}
         self._cache_latest_by_actor_key = {}
         self._cache_latest_ready = False
+        self._data_reader_resolver = None
+
+    def bind_data_reader_resolver(
+        self, resolver: "MetadataChangesDataReaderResolver | None"
+    ) -> None:
+        """Attach runtime-only data reader resolver for processor-time access."""
+        self._data_reader_resolver = resolver
+
+    async def get_data_reader(self, key: MetadataKey) -> DataReader | None:
+        """Resolve a DataReader using bound resolver, with legacy fallback."""
+        if self._data_reader_resolver is not None:
+            return await self._data_reader_resolver.get_data_reader(key, self)
+        asset = self.asset
+        if asset is None:
+            return None
+        return await asset.get_data_reader(key, self)
 
     @staticmethod
     def _current_metadata(

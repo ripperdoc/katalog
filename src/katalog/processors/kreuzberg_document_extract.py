@@ -180,7 +180,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
             return ProcessorResult(
                 status=OpStatus.ERROR, message="MetadataChanges.asset is missing"
             )
-        reader = await asset.get_data_reader(DATA_FILE_READER, changes)
+        reader = await changes.get_data_reader(DATA_FILE_READER)
         if reader is None:
             return ProcessorResult(
                 status=OpStatus.SKIPPED, message="Asset does not have a data accessor"

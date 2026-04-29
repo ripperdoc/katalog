@@ -66,7 +66,7 @@ class StandardSidecarProcessor(Processor):
         if descriptor is None:
             return ProcessorResult(status=OpStatus.SKIPPED, message="Not a sidecar asset")
 
-        reader = await asset.get_data_reader(DATA_FILE_READER, changes)
+        reader = await changes.get_data_reader(DATA_FILE_READER)
         if reader is None:
             return ProcessorResult(status=OpStatus.SKIPPED, message="No data reader for sidecar")
         raw = await reader.read()

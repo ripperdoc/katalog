@@ -22,7 +22,7 @@ class MimeTypeProcessor(Processor):
     plugin_id = "katalog.processors.mime_type.MimeTypeProcessor"
     title = "MIME type"
     description = "Detect MIME type from file bytes using libmagic."
-    execution_mode = "cpu"
+    execution_mode = "io"
     _dependencies = file_data_change_dependencies
     _outputs = frozenset({FILE_TYPE})
 
@@ -77,7 +77,7 @@ class MimeTypeProcessor(Processor):
             return ProcessorResult(status=OpStatus.ERROR, message="MetadataChanges.asset is missing")
         # So we should probably re-check octet-stream
         # Reads the first 2048 bytes of a file
-        reader = await asset.get_data_reader(DATA_FILE_READER, changes)
+        reader = await changes.get_data_reader(DATA_FILE_READER)
         if not reader:
             return ProcessorResult(
                 status=OpStatus.SKIPPED, message="Asset does not have a data accessor"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager, nullcontext
-from contextvars import ContextVar
+from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextvars import ContextVar, Token
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode
 from typing import Any, AsyncIterator
@@ -18,6 +18,28 @@ SCHEMA_PATH = SQL_DIR / "schema.sql"
 
 spec = SQLSpec()
 _ACTIVE_SESSION: ContextVar[Any | None] = ContextVar("sqlspec_active_session", default=None)
+_DB_ACCESS_ALLOWED = "allowed"
+_DB_ACCESS_FORBIDDEN = "forbidden"
+_DB_ACCESS_MODE: ContextVar[str] = ContextVar(
+    "sqlspec_db_access_mode",
+    default=_DB_ACCESS_ALLOWED,
+)
+
+
+@contextmanager
+def forbid_db_access() -> Any:
+    """Disallow SQLSpec session creation in the current execution context."""
+    token: Token[str] = _DB_ACCESS_MODE.set(_DB_ACCESS_FORBIDDEN)
+    try:
+        yield
+    finally:
+        _DB_ACCESS_MODE.reset(token)
+
+
+def _assert_db_access_allowed() -> None:
+    mode = _DB_ACCESS_MODE.get()
+    if mode == _DB_ACCESS_FORBIDDEN:
+        raise RuntimeError("Database access is forbidden during processor execution")
 
 
 def _sqlspec_state() -> tuple[AiosqliteConfig | None, set[int]]:
@@ -103,6 +125,7 @@ def _get_config(*, analysis: bool = False) -> AiosqliteConfig:
 
 @asynccontextmanager
 async def session_scope(*, analysis: bool = False) -> AsyncIterator[Any]:
+    _assert_db_access_allowed()
     active = _ACTIVE_SESSION.get()
     if active is not None:
         yield active

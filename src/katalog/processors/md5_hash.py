@@ -20,7 +20,7 @@ class MD5HashProcessor(Processor):
     plugin_id = "katalog.processors.md5_hash.MD5HashProcessor"
     title = "MD5 hash"
     description = "Compute md5 checksum for assets."
-    execution_mode = "cpu"
+    execution_mode = "io"
     _dependencies = frozenset({DATA_KEY, FILE_SIZE, TIME_MODIFIED})
     _outputs = frozenset({HASH_MD5})
 
@@ -63,7 +63,7 @@ class MD5HashProcessor(Processor):
         asset = changes.asset
         if asset is None:
             return ProcessorResult(status=OpStatus.ERROR, message="MetadataChanges.asset is missing")
-        reader = await asset.get_data_reader(DATA_FILE_READER, changes)
+        reader = await changes.get_data_reader(DATA_FILE_READER)
         if reader is None:
             return ProcessorResult(
                 status=OpStatus.SKIPPED, message="Asset does not have a data accessor"

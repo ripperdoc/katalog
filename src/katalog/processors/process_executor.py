@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from katalog.config import build_app_context, use_app_context
+from katalog.db.sqlspec import forbid_db_access
 from katalog.processors.serialization import (
     normalize_metadata_changes_payload,
     seed_registry,
@@ -23,8 +24,9 @@ async def _run_processor(
     actor: Actor,
     changes: MetadataChanges,
 ) -> ProcessorResult:
-    processor = await get_actor_instance(actor)
-    return await processor.run(changes)
+    with forbid_db_access():
+        processor = await get_actor_instance(actor)
+        return await processor.run(changes)
 
 
 def run_processor_in_process(
