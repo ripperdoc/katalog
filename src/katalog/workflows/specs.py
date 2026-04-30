@@ -9,6 +9,11 @@ from typing import Literal
 from katalog.api.helpers import validate_and_normalize_config
 from katalog.models import ActorType
 from katalog.plugins.registry import get_plugin_class, get_plugin_spec, refresh_plugins
+from katalog.workflows.contracts import (
+    WorkflowInputSpec,
+    WorkflowSourceActorsInput,
+    parse_workflow_input_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,7 @@ class WorkflowSpec:
     description: str | None
     version: str | None
     actors: list[WorkflowActorSpec]
+    input: WorkflowInputSpec
     missing_assets_policy: Literal["lost", "delete"] = "lost"
     always_process: bool = False
 
@@ -62,6 +68,9 @@ def parse_workflow_payload(
     policy_block = raw.get("policy") or {}
     if policy_block and not isinstance(policy_block, dict):
         raise ValueError(f"{file_name}: 'policy' must be a table")
+    input_block = raw.get("input")
+    if input_block is not None and not isinstance(input_block, dict):
+        raise ValueError(f"{file_name}: 'input' must be a table")
 
     entries = raw.get("actors") or []
     if not isinstance(entries, list):
@@ -144,6 +153,11 @@ def parse_workflow_payload(
             )
         always_process = raw_always_process
 
+    parsed_input = parse_workflow_input_payload(input_block)
+    if parsed_input is None:
+        # Empty actor_ids means "all enabled source actors in this workflow" at runtime.
+        parsed_input = WorkflowSourceActorsInput(actor_ids=[])
+
     return WorkflowSpec(
         file_name=file_name,
         file_path=file_path,
@@ -165,6 +179,7 @@ def parse_workflow_payload(
             if isinstance(workflow_block.get("version"), str)
             else None
         ),
+        input=parsed_input,
         missing_assets_policy=missing_assets_policy,
         always_process=always_process,
         actors=actor_specs,

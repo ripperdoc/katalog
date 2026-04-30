@@ -7,7 +7,7 @@ from typing import AsyncIterator, Protocol, Sequence, cast
 
 from loguru import logger
 
-from katalog.constants.metadata import ASSET_LOST, MetadataKey
+from katalog.constants.metadata import ASSET_LOST, COLLECTION_MEMBER, MetadataKey
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.models import (
@@ -21,6 +21,7 @@ from katalog.models import (
     MetadataChanges,
     make_metadata,
 )
+from katalog.models.query import AssetFilter, AssetQuery
 from katalog.models.core import OpStatus
 from katalog.plugins.registry import get_actor_instance
 from katalog.processors.base import Processor
@@ -32,6 +33,9 @@ from katalog.workflows.contracts import (
     RecursionSeed,
     SourceBatch,
     StageBatchEnvelope,
+    WorkflowAllAssetsInput,
+    WorkflowAssetIdsInput,
+    WorkflowCollectionInput,
     WorkflowInputSpec,
     WorkflowSourceActorsInput,
 )
@@ -255,8 +259,20 @@ class SourceLoadStage:
 
     async def produce(self, *, workflow_input: WorkflowInputSpec) -> AsyncIterator[LoadedBatch]:
         """Produce initial and recursive source batches as hydrated workflow batches."""
+        if isinstance(workflow_input, WorkflowAllAssetsInput):
+            async for batch in self._produce_from_all_assets():
+                yield batch
+            return
+        if isinstance(workflow_input, WorkflowCollectionInput):
+            async for batch in self._produce_from_collection(workflow_input.collection_id):
+                yield batch
+            return
+        if isinstance(workflow_input, WorkflowAssetIdsInput):
+            async for batch in self._produce_from_asset_ids(workflow_input.asset_ids):
+                yield batch
+            return
         if not isinstance(workflow_input, WorkflowSourceActorsInput):
-            raise NotImplementedError("Only source_actors workflow input is currently implemented.")
+            raise NotImplementedError(f"Unsupported workflow input type: {type(workflow_input)}")
 
         await self._prepare_sources()
         selected_actor_ids = (
@@ -296,6 +312,85 @@ class SourceLoadStage:
                     source_batch=source_batch,
                     depth=seed.depth,
                 )
+
+    async def _hydrate_db_assets_batch(self, assets: list[Asset]) -> LoadedBatch:
+        """Build one loaded batch from already-persisted asset rows."""
+        stats = self.changeset.stats
+        if stats is None:
+            stats = ChangesetStats()
+            self.changeset.stats = stats
+
+        changes_list: list[MetadataChanges] = []
+        existing_by_asset: dict[int, list[Metadata]] = {}
+
+        for asset in assets:
+            loaded_metadata = list(await self.asset_repo.load_metadata(asset, include_removed=True))
+            changes = self._build_changes(
+                asset=asset,
+                loaded_metadata=loaded_metadata,
+                staged_metadata=[],
+            )
+            changes_list.append(changes)
+            if asset.id is not None:
+                existing_by_asset[int(asset.id)] = loaded_metadata
+            stats.assets_seen += 1
+
+        batch_id = self.state.next_batch_id
+        self.state.next_batch_id += 1
+        return LoadedBatch(
+            batch_id=batch_id,
+            changes_list=changes_list,
+            existing_metadata_by_asset=existing_by_asset,
+        )
+
+    async def _produce_from_all_assets(self) -> AsyncIterator[LoadedBatch]:
+        offset = 0
+        while True:
+            assets = await self.asset_repo.list_rows(
+                order_by="id",
+                offset=offset,
+                limit=self.settings.batch_size,
+            )
+            if not assets:
+                break
+            yield await self._hydrate_db_assets_batch(assets)
+            offset += len(assets)
+
+    async def _produce_from_collection(self, collection_id: int) -> AsyncIterator[LoadedBatch]:
+        offset = 0
+        while True:
+            query = AssetQuery(
+                filters=[
+                    AssetFilter(
+                        key=str(COLLECTION_MEMBER),
+                        op="in",
+                        values=[str(int(collection_id))],
+                    )
+                ],
+                offset=offset,
+                limit=self.settings.batch_size,
+                include_lost_assets=True,
+            )
+            asset_ids = await self.asset_repo.list_asset_ids_for_query(query=query)
+            if not asset_ids:
+                break
+            assets = await self.asset_repo.list_rows(
+                order_by="id",
+                id__in=sorted(set(int(value) for value in asset_ids)),
+            )
+            if assets:
+                yield await self._hydrate_db_assets_batch(assets)
+            offset += len(asset_ids)
+
+    async def _produce_from_asset_ids(self, asset_ids: Sequence[int]) -> AsyncIterator[LoadedBatch]:
+        unique_ids = sorted(set(int(value) for value in asset_ids))
+        if not unique_ids:
+            return
+        for start in range(0, len(unique_ids), self.settings.batch_size):
+            chunk_ids = unique_ids[start : start + self.settings.batch_size]
+            assets = await self.asset_repo.list_rows(order_by="id", id__in=chunk_ids)
+            if assets:
+                yield await self._hydrate_db_assets_batch(assets)
 
     async def finalize(self) -> None:
         """Apply missing-assets policy after scan completion per source actor."""

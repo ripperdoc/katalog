@@ -14,6 +14,7 @@ from katalog.workflows import (
     discover_workflow_files,
     sync_workflow_file,
 )
+from katalog.workflows.contracts import WorkflowSourceActorsInput
 from katalog.workflows.specs import parse_workflow_file
 
 
@@ -30,6 +31,7 @@ def _workflow_spec(
         name="Workflow lifecycle",
         description=None,
         version="1.0.0",
+        input=WorkflowSourceActorsInput(),
         actors=[
             WorkflowActorSpec(
                 name="Fake source",

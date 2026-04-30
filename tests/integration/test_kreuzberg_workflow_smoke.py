@@ -8,6 +8,7 @@ from katalog.constants.metadata import DOC_TEXT
 from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.models import ActorType
+from katalog.workflows.contracts import WorkflowSourceActorsInput
 from katalog.workflows import WorkflowActorSpec, WorkflowSpec, run_workflow_file
 
 
@@ -32,6 +33,7 @@ async def test_kreuzberg_workflow_smoke_extracts_text(db_session, tmp_path) -> N
         name="Kreuzberg smoke",
         description=None,
         version="1.0.0",
+        input=WorkflowSourceActorsInput(),
         actors=[
             WorkflowActorSpec(
                 name="Smoke filesystem source",

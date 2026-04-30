@@ -17,7 +17,7 @@ from katalog.models import Actor, ActorType, OpStatus
 from katalog.plugins.registry import get_plugin_class
 from katalog.processors.runtime import sort_processors
 from katalog.runtime.state import get_running_changesets
-from katalog.workflows.contracts import WorkflowSourceActorsInput
+from katalog.workflows.contracts import WorkflowInputSpec, workflow_input_to_payload
 from katalog.workflows.pipeline import WorkflowPipelineRunner
 from katalog.workflows.results import WorkflowChangesetResult, WorkflowRunResult
 from katalog.workflows.specs import (
@@ -172,6 +172,7 @@ def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec
                 "missing_assets_policy": workflow.missing_assets_policy,
                 "always_process": workflow.always_process,
             },
+            "input": workflow_input_to_payload(workflow.input),
             "actors": [
                 {
                     "name": actor.name,
@@ -261,6 +262,7 @@ async def run_workflow_file(
     *,
     sync_first: bool = False,
     always_process: bool | None = None,
+    workflow_input: WorkflowInputSpec | None = None,
 ) -> WorkflowRunResult:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -289,6 +291,7 @@ async def run_workflow_file(
         if always_process is not None
         else bool(spec.always_process)
     )
+    effective_workflow_input = workflow_input or spec.input
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -301,15 +304,14 @@ async def run_workflow_file(
                 "file_name": spec.file_name,
                 "file_path": spec.file_path,
                 "always_process": effective_always_process,
+                "input": workflow_input_to_payload(effective_workflow_input),
             }
         },
     )
     runner = WorkflowPipelineRunner()
     status = await runner.run(
         changeset=changeset,
-        workflow_input=WorkflowSourceActorsInput(
-            actor_ids=[int(actor.id) for actor in source_actors if actor.id is not None]
-        ),
+        workflow_input=effective_workflow_input,
         source_actors=source_actors,
         processor_pipeline=pipeline,
         missing_assets_policy=spec.missing_assets_policy,
@@ -342,6 +344,7 @@ async def start_workflow_file(
     *,
     sync_first: bool = False,
     always_process: bool | None = None,
+    workflow_input: WorkflowInputSpec | None = None,
 ) -> dict[str, Any]:
     spec = _coerce_workflow_spec(workflow_file)
     if sync_first:
@@ -370,6 +373,7 @@ async def start_workflow_file(
         if always_process is not None
         else bool(spec.always_process)
     )
+    effective_workflow_input = workflow_input or spec.input
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -382,6 +386,7 @@ async def start_workflow_file(
                 "file_name": spec.file_name,
                 "file_path": spec.file_path,
                 "always_process": effective_always_process,
+                "input": workflow_input_to_payload(effective_workflow_input),
             }
         },
     )
@@ -393,9 +398,7 @@ async def start_workflow_file(
     async def _run_pipeline() -> OpStatus:
         return await runner.run(
             changeset=changeset,
-            workflow_input=WorkflowSourceActorsInput(
-                actor_ids=[int(actor.id) for actor in source_actors if actor.id is not None]
-            ),
+            workflow_input=effective_workflow_input,
             source_actors=source_actors,
             processor_pipeline=pipeline,
             missing_assets_policy=spec.missing_assets_policy,
@@ -419,6 +422,7 @@ async def start_workflow_file(
     return {
         "workflow_file": spec.file_path,
         "always_process": effective_always_process,
+        "workflow_input": workflow_input_to_payload(effective_workflow_input),
         "actors": len(actors),
         "sources_run": len(source_actors),
         "processors_run": len(processor_actors),
@@ -468,6 +472,7 @@ async def workflow_status(workflow_file: pathlib.Path | WorkflowSpec) -> dict[st
         "description": spec.description,
         "version": spec.version,
         "always_process": spec.always_process,
+        "input": workflow_input_to_payload(spec.input),
         "actor_count": total,
         "source_count": source_count,
         "processor_count": processor_count,

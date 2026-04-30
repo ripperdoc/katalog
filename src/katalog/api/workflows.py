@@ -12,6 +12,7 @@ from katalog.workflows import (
     start_workflow_file,
     workflow_status,
 )
+from katalog.workflows.contracts import WorkflowInputSpec, workflow_input_to_payload
 
 
 WorkflowRef = Union[str, WorkflowSpec]
@@ -84,6 +85,7 @@ async def get_workflow(workflow_name: str) -> dict:
         "description": spec.description,
         "version": spec.version,
         "always_process": spec.always_process,
+        "input": workflow_input_to_payload(spec.input),
         "actors": [
             {
                 "name": actor.name,
@@ -103,6 +105,7 @@ async def start_workflow(
     workflow: WorkflowRef,
     *,
     always_process: bool | None = None,
+    workflow_input: WorkflowInputSpec | None = None,
 ) -> dict:
     """Start workflow execution (always syncs actors first)."""
     workflow_ref = _resolve_workflow_ref(workflow)
@@ -110,6 +113,7 @@ async def start_workflow(
         workflow_ref,
         sync_first=True,
         always_process=always_process,
+        workflow_input=workflow_input,
     )
     status = await workflow_status(workflow_ref)
     return {
@@ -125,6 +129,7 @@ async def run_workflow(
     workflow: WorkflowRef,
     *,
     always_process: bool | None = None,
+    workflow_input: WorkflowInputSpec | None = None,
 ) -> dict:
     """Run workflow execution to completion (always syncs actors first)."""
     workflow_ref = _resolve_workflow_ref(workflow)
@@ -132,6 +137,7 @@ async def run_workflow(
         workflow_ref,
         sync_first=True,
         always_process=always_process,
+        workflow_input=workflow_input,
     )
     status = await workflow_status(workflow_ref)
     result_payload = result.model_dump(mode="json")

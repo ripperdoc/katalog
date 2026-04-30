@@ -7,6 +7,13 @@ import typer
 
 from . import workflows_app
 from .utils import changeset_summary, print_changeset_summary, run_cli, wants_json
+from katalog.workflows.contracts import (
+    WorkflowAllAssetsInput,
+    WorkflowAssetIdsInput,
+    WorkflowCollectionInput,
+    WorkflowInputSpec,
+    WorkflowSourceActorsInput,
+)
 
 
 def _workspace_path(ctx: typer.Context) -> pathlib.Path:
@@ -85,6 +92,38 @@ def _extract_changeset_ids(result: dict[str, Any]) -> list[int]:
     return ids
 
 
+def _build_cli_workflow_input(
+    *,
+    input_all: bool,
+    input_actor: list[int],
+    input_collection: int | None,
+    input_asset: list[int],
+) -> WorkflowInputSpec | None:
+    selected = 0
+    if input_all:
+        selected += 1
+    if input_actor:
+        selected += 1
+    if input_collection is not None:
+        selected += 1
+    if input_asset:
+        selected += 1
+    if selected == 0:
+        return None
+    if selected > 1:
+        raise typer.BadParameter(
+            "Input override flags are mutually exclusive. Use exactly one of --input-all, "
+            "--input-actor, --input-collection, or --input-asset."
+        )
+    if input_all:
+        return WorkflowAllAssetsInput()
+    if input_collection is not None:
+        return WorkflowCollectionInput(collection_id=int(input_collection))
+    if input_actor:
+        return WorkflowSourceActorsInput(actor_ids=sorted(set(int(value) for value in input_actor)))
+    return WorkflowAssetIdsInput(asset_ids=sorted(set(int(value) for value in input_asset)))
+
+
 @workflows_app.command("start", hidden=True)
 def start_workflow_command(
     ctx: typer.Context,
@@ -103,6 +142,26 @@ def start_workflow_command(
         "--always-process/--respect-skip",
         help="Override workflow skip behavior for processors.",
     ),
+    input_all: bool = typer.Option(
+        False,
+        "--input-all",
+        help="Override workflow input to all assets in the workspace.",
+    ),
+    input_actor: list[int] = typer.Option(
+        [],
+        "--input-actor",
+        help="Override workflow input to one or more source actor ids (repeatable).",
+    ),
+    input_collection: int | None = typer.Option(
+        None,
+        "--input-collection",
+        help="Override workflow input to one collection id.",
+    ),
+    input_asset: list[int] = typer.Option(
+        [],
+        "--input-asset",
+        help="Override workflow input to one or more asset ids (repeatable).",
+    ),
 ) -> None:
     """Run workflow execution and wait for completion."""
     _run_workflow_command(
@@ -110,6 +169,12 @@ def start_workflow_command(
         workflow_name=workflow_name,
         workflow_file=workflow_file,
         always_process=always_process,
+        workflow_input=_build_cli_workflow_input(
+            input_all=input_all,
+            input_actor=input_actor,
+            input_collection=input_collection,
+            input_asset=input_asset,
+        ),
     )
 
 
@@ -131,6 +196,26 @@ def run_workflow_command(
         "--always-process/--respect-skip",
         help="Override workflow skip behavior for processors.",
     ),
+    input_all: bool = typer.Option(
+        False,
+        "--input-all",
+        help="Override workflow input to all assets in the workspace.",
+    ),
+    input_actor: list[int] = typer.Option(
+        [],
+        "--input-actor",
+        help="Override workflow input to one or more source actor ids (repeatable).",
+    ),
+    input_collection: int | None = typer.Option(
+        None,
+        "--input-collection",
+        help="Override workflow input to one collection id.",
+    ),
+    input_asset: list[int] = typer.Option(
+        [],
+        "--input-asset",
+        help="Override workflow input to one or more asset ids (repeatable).",
+    ),
 ) -> None:
     """Run workflow execution and wait for completion."""
     _run_workflow_command(
@@ -138,6 +223,12 @@ def run_workflow_command(
         workflow_name=workflow_name,
         workflow_file=workflow_file,
         always_process=always_process,
+        workflow_input=_build_cli_workflow_input(
+            input_all=input_all,
+            input_actor=input_actor,
+            input_collection=input_collection,
+            input_asset=input_asset,
+        ),
     )
 
 
@@ -147,6 +238,7 @@ def _run_workflow_command(
     workflow_name: str | None,
     workflow_file: str | None,
     always_process: bool | None,
+    workflow_input: WorkflowInputSpec | None,
 ) -> None:
     """Shared implementation for synchronous workflow CLI commands."""
     resolved_workflow_name = workflow_name
@@ -167,6 +259,7 @@ def _run_workflow_command(
         completed = await run_workflow(
             resolved_workflow_name,
             always_process=always_process,
+            workflow_input=workflow_input,
         )
         result_payload = completed.get("result") or {}
         changeset_ids = _extract_changeset_ids(result_payload)

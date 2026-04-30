@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Union
+from typing import Any, Literal, Mapping, Union
 
 from katalog.models import Asset, Metadata, MetadataChanges, OpStatus
 
@@ -43,6 +43,54 @@ WorkflowInputSpec = Union[
     WorkflowCollectionInput,
     WorkflowAssetIdsInput,
 ]
+
+
+def parse_workflow_input_payload(
+    payload: Mapping[str, Any] | WorkflowInputSpec | None,
+) -> WorkflowInputSpec | None:
+    """Parse and validate one workflow input selector payload."""
+    if payload is None or isinstance(
+        payload,
+        (
+            WorkflowSourceActorsInput,
+            WorkflowAllAssetsInput,
+            WorkflowCollectionInput,
+            WorkflowAssetIdsInput,
+        ),
+    ):
+        return payload
+
+    kind = payload.get("kind")
+    if kind == "source_actors":
+        raw_actor_ids = payload.get("actor_ids") or []
+        if not isinstance(raw_actor_ids, list):
+            raise ValueError("input.actor_ids must be a list of integers")
+        return WorkflowSourceActorsInput(actor_ids=[int(value) for value in raw_actor_ids])
+    if kind == "all_assets":
+        return WorkflowAllAssetsInput()
+    if kind == "collection":
+        if "collection_id" not in payload:
+            raise ValueError("input.collection_id is required for collection input")
+        return WorkflowCollectionInput(collection_id=int(payload["collection_id"]))
+    if kind == "asset_ids":
+        raw_asset_ids = payload.get("asset_ids") or []
+        if not isinstance(raw_asset_ids, list):
+            raise ValueError("input.asset_ids must be a list of integers")
+        return WorkflowAssetIdsInput(asset_ids=[int(value) for value in raw_asset_ids])
+    raise ValueError(
+        "input.kind must be one of: source_actors, all_assets, collection, asset_ids"
+    )
+
+
+def workflow_input_to_payload(workflow_input: WorkflowInputSpec) -> dict[str, Any]:
+    """Serialize workflow input selector to a JSON-compatible payload."""
+    if isinstance(workflow_input, WorkflowSourceActorsInput):
+        return {"kind": "source_actors", "actor_ids": list(workflow_input.actor_ids)}
+    if isinstance(workflow_input, WorkflowCollectionInput):
+        return {"kind": "collection", "collection_id": int(workflow_input.collection_id)}
+    if isinstance(workflow_input, WorkflowAssetIdsInput):
+        return {"kind": "asset_ids", "asset_ids": list(workflow_input.asset_ids)}
+    return {"kind": "all_assets"}
 
 
 @dataclass(frozen=True)

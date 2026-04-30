@@ -4,9 +4,16 @@ from typing import Any, Literal
 
 import pytest
 
+from katalog.api.collections import CollectionCreate, create_collection
 from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import ActorType, Changeset, OpStatus
+from katalog.workflows.contracts import (
+    WorkflowAllAssetsInput,
+    WorkflowAssetIdsInput,
+    WorkflowCollectionInput,
+    WorkflowSourceActorsInput,
+)
 from katalog.workflows import WorkflowActorSpec, WorkflowSpec, run_workflow_file
 
 
@@ -53,9 +60,43 @@ def _workflow_spec(
         name=f"Workflow {namespace}",
         description=None,
         version="1.0.0",
+        input=WorkflowSourceActorsInput(),
         missing_assets_policy=missing_assets_policy,
         always_process=always_process,
         actors=actors,
+    )
+
+
+def _processor_only_workflow_spec(
+    *,
+    workflow_name: str,
+    input_selector: (
+        WorkflowAllAssetsInput
+        | WorkflowAssetIdsInput
+        | WorkflowCollectionInput
+        | WorkflowSourceActorsInput
+    ),
+) -> WorkflowSpec:
+    return WorkflowSpec(
+        file_name=f"{workflow_name}.workflow.toml",
+        file_path=f"<{workflow_name}>",
+        workflow_id=f"workflow-{workflow_name}",
+        name=f"Workflow {workflow_name}",
+        description=None,
+        version="1.0.0",
+        input=input_selector,
+        missing_assets_policy="lost",
+        always_process=False,
+        actors=[
+            WorkflowActorSpec(
+                name="Name readability",
+                plugin_id="katalog.processors.name_readability.NameReadabilityProcessor",
+                identity_key=f"{workflow_name}-processor",
+                actor_type=ActorType.PROCESSOR,
+                config={},
+                disabled=False,
+            )
+        ],
     )
 
 
@@ -223,3 +264,80 @@ async def test_multi_batch_execution_processes_all_assets(db_session, monkeypatc
     assert stats["assets_seen"] == 5
     assert stats["assets_saved"] == 5
     assert stats["processings_started"] == 5
+
+
+@pytest.mark.asyncio
+async def test_input_all_assets_runs_processor_without_source_scan(db_session) -> None:
+    _ = db_session
+    source_spec = _workflow_spec(
+        namespace="wf-input-all-seed",
+        total_assets=4,
+        include_processor=False,
+    )
+    await _run_and_load_changeset(source_spec)
+
+    processor_spec = _processor_only_workflow_spec(
+        workflow_name="wf-input-all",
+        input_selector=WorkflowAllAssetsInput(),
+    )
+    _, changeset = await _run_and_load_changeset(processor_spec, always_process=True)
+    stats = _stats(changeset)
+
+    assert stats["processings_started"] >= 4
+    assert stats["assets_seen"] >= 4
+
+
+@pytest.mark.asyncio
+async def test_input_asset_ids_limits_processing_to_selected_assets(db_session) -> None:
+    _ = db_session
+    namespace = "wf-input-asset-ids-seed"
+    source_spec = _workflow_spec(
+        namespace=namespace,
+        total_assets=5,
+        include_processor=False,
+    )
+    await _run_and_load_changeset(source_spec)
+    assets = await get_asset_repo().list_rows(namespace=namespace, order_by="id")
+    selected_ids = [int(assets[0].id), int(assets[1].id)]
+
+    processor_spec = _processor_only_workflow_spec(
+        workflow_name="wf-input-asset-ids",
+        input_selector=WorkflowAssetIdsInput(asset_ids=selected_ids),
+    )
+    _, changeset = await _run_and_load_changeset(processor_spec, always_process=True)
+    stats = _stats(changeset)
+
+    assert stats["processings_started"] == len(selected_ids)
+    assert stats["assets_seen"] == len(selected_ids)
+
+
+@pytest.mark.asyncio
+async def test_input_collection_limits_processing_to_collection_members(db_session) -> None:
+    _ = db_session
+    namespace = "wf-input-collection-seed"
+    source_spec = _workflow_spec(
+        namespace=namespace,
+        total_assets=5,
+        include_processor=False,
+    )
+    await _run_and_load_changeset(source_spec)
+    assets = await get_asset_repo().list_rows(namespace=namespace, order_by="id")
+    selected_ids = [int(assets[0].id), int(assets[1].id), int(assets[2].id)]
+
+    collection = await create_collection(
+        CollectionCreate(
+            name="workflow-input-collection",
+            asset_ids=selected_ids,
+        )
+    )
+    assert collection.id is not None
+
+    processor_spec = _processor_only_workflow_spec(
+        workflow_name="wf-input-collection",
+        input_selector=WorkflowCollectionInput(collection_id=int(collection.id)),
+    )
+    _, changeset = await _run_and_load_changeset(processor_spec, always_process=True)
+    stats = _stats(changeset)
+
+    assert stats["processings_started"] == len(selected_ids)
+    assert stats["assets_seen"] == len(selected_ids)

@@ -9,6 +9,7 @@ from katalog.workflows import (
     run_workflow_file,
     workflow_status,
 )
+from katalog.workflows.contracts import WorkflowSourceActorsInput
 
 
 @pytest.mark.asyncio
@@ -22,6 +23,7 @@ async def test_run_workflow_file_accepts_workflow_spec_object(db_session) -> Non
         name="In-memory workflow",
         description=None,
         version="1.0.0",
+        input=WorkflowSourceActorsInput(),
         actors=[
             WorkflowActorSpec(
                 name="Fake source",
