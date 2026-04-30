@@ -362,6 +362,121 @@ async def process_asset_collect(
             runtime_executors.shutdown(cancelled=cancelled)
 
 
+def _has_custom_batch_run(processor: Processor) -> bool:
+    return processor.__class__.run_batch is not Processor.run_batch
+
+
+async def process_batch_collect(
+    *,
+    changeset: Changeset,
+    pipeline: Sequence[ProcessorStage],
+    changes_batch: list[MetadataChanges],
+    executors: ProcessorExecutorBundle | None = None,
+    force_run: bool = False,
+) -> list[MetadataChanges]:
+    """Run a dependency-sorted processor pipeline over one hydrated asset batch."""
+    if not changes_batch:
+        return changes_batch
+    stats = changeset.stats
+    if stats is None:
+        stats = ChangesetStats()
+        changeset.stats = stats
+    for changes in changes_batch:
+        if changes.asset is not None:
+            stats.assets_processed += 1
+
+    owns_executors = executors is None
+    runtime_executors = executors or ProcessorExecutorBundle()
+    cancelled = False
+    try:
+        with forbid_db_access():
+            for stage in pipeline:
+                for processor in stage:
+                    eligible: list[tuple[int, MetadataChanges]] = []
+                    for idx, changes in enumerate(changes_batch):
+                        asset = changes.asset
+                        if asset is None:
+                            continue
+                        if not force_run and not _should_run_coarse(processor, changes):
+                            stats.processings_skipped += 1
+                            continue
+                        try:
+                            should_run = True if force_run else processor.should_run(changes)
+                        except Exception:
+                            logger.exception(
+                                "Processor {processor}.should_run failed for record {asset_id}",
+                                processor=processor,
+                                asset_id=asset.id,
+                            )
+                            continue
+                        if not should_run:
+                            continue
+                        eligible.append((idx, changes))
+                    if not eligible:
+                        continue
+                    stats.processings_started += len(eligible)
+                    results_by_idx: dict[int, ProcessorResult] = {}
+                    if _has_custom_batch_run(processor):
+                        run_inputs = [changes for _, changes in eligible]
+                        try:
+                            run_results = await processor.run_batch(run_inputs)
+                            if len(run_results) != len(run_inputs):
+                                raise RuntimeError(
+                                    f"run_batch length mismatch for {processor}: "
+                                    f"{len(run_results)} != {len(run_inputs)}"
+                                )
+                            for (idx, _changes), result in zip(eligible, run_results, strict=True):
+                                results_by_idx[idx] = result
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception(
+                                "Processor {processor}.run_batch failed: {error}",
+                                processor=processor,
+                                error=str(exc),
+                            )
+                            for idx, changes in eligible:
+                                asset_id = changes.asset.id if changes.asset is not None else None
+                                results_by_idx[idx] = ProcessorResult(
+                                    status=OpStatus.ERROR,
+                                    message=(
+                                        f"Processor {processor} failed for record {asset_id}: {exc}"
+                                    ),
+                                )
+                    else:
+                        coros: list[tuple[int, Awaitable[ProcessorResult]]] = [
+                            (
+                                idx,
+                                _run_processor_with_mode(processor, changes, runtime_executors),
+                            )
+                            for idx, changes in eligible
+                        ]
+                        run_results = await asyncio.gather(*(coro for _, coro in coros))
+                        for (idx, _), result in zip(coros, run_results, strict=True):
+                            results_by_idx[idx] = result
+
+                    for idx, result in results_by_idx.items():
+                        status = result.status
+                        if status == OpStatus.COMPLETED:
+                            stats.processings_completed += 1
+                        elif status == OpStatus.PARTIAL:
+                            stats.processings_partial += 1
+                        elif status == OpStatus.CANCELED:
+                            stats.processings_cancelled += 1
+                        elif status == OpStatus.SKIPPED:
+                            stats.processings_skipped += 1
+                        elif status == OpStatus.ERROR:
+                            stats.processings_error += 1
+                        if status in (OpStatus.CANCELED, OpStatus.ERROR, OpStatus.SKIPPED):
+                            continue
+                        changes_batch[idx].add(result.metadata)
+        return changes_batch
+    except asyncio.CancelledError:
+        cancelled = True
+        raise
+    finally:
+        if owns_executors:
+            runtime_executors.shutdown(cancelled=cancelled)
+
+
 async def _process_batch(
     *,
     batch_assets: list[Asset],

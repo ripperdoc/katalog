@@ -10,11 +10,11 @@ from katalog.constants.metadata import (
     FILE_DESCRIPTION,
     FILE_NAME,
     FILE_TITLE,
+    INTERNAL_VECTOR_REINDEX,
     MetadataKey,
     VECTOR_INDEXED_COUNT,
-    get_metadata_def_by_key,
 )
-from katalog.db.vectors import VectorPoint, get_vector_repo
+from katalog.db.vectors import get_vector_repo
 from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.vectors.embedding import DEFAULT_EMBEDDING_MODEL, embed_text_kreuzberg
@@ -61,7 +61,7 @@ class KreuzbergVectorIndexProcessor(Processor):
 
     @property
     def outputs(self) -> FrozenSet[MetadataKey]:
-        return frozenset({VECTOR_INDEXED_COUNT})
+        return frozenset({INTERNAL_VECTOR_REINDEX, VECTOR_INDEXED_COUNT})
 
     async def is_ready(self) -> tuple[bool, str | None]:
         repo = get_vector_repo()
@@ -97,53 +97,9 @@ class KreuzbergVectorIndexProcessor(Processor):
         if self.actor.id is None:
             return ProcessorResult(status=OpStatus.ERROR, message="Actor id is missing")
 
-        points = await self._collect_points(changes)
-        indexed_key_ids: list[int] = []
-        for key in self.dependencies:
-            registry_id = get_metadata_def_by_key(key).registry_id
-            if registry_id is not None:
-                indexed_key_ids.append(int(registry_id))
-        repo = get_vector_repo()
-        indexed = await repo.upsert_asset_points(
-            asset_id=int(asset.id),
-            actor_id=int(self.actor.id),
-            dim=self.config.dimension,
-            metadata_key_ids=indexed_key_ids,
-            points=points,
-        )
         return ProcessorResult(
-            metadata=[make_metadata(VECTOR_INDEXED_COUNT, indexed, self.actor.id)]
+            metadata=[
+                make_metadata(INTERNAL_VECTOR_REINDEX, 1, self.actor.id),
+            ],
+            message="Queued vector reindex",
         )
-
-    async def _collect_points(self, changes: MetadataChanges) -> list[VectorPoint]:
-        points: list[VectorPoint] = []
-        current = changes.current()
-        for key in self.dependencies:
-            entries = current.get(key, [])
-            for entry in entries:
-                value = entry.value
-                if not isinstance(value, str):
-                    continue
-                text = value.strip()
-                if len(text) < self.config.min_text_length:
-                    continue
-                vector = await embed_text_kreuzberg(
-                    text,
-                    model=self.config.embedding_model,
-                    backend=str(self.config.embedding_backend),
-                    normalize=bool(self.config.embedding_normalize),
-                    batch_size=int(self.config.embedding_batch_size),
-                    dim=self.config.dimension,
-                )
-                if entry.id is None:
-                    # Vector row ids are keyed by metadata.id, so skip non-persisted entries.
-                    continue
-                points.append(
-                    VectorPoint(
-                        metadata_id=int(entry.id),
-                        vector=vector,
-                    )
-                )
-                if len(points) >= self.config.max_points:
-                    return points
-        return points

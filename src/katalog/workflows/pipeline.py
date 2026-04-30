@@ -26,7 +26,7 @@ from katalog.models.core import OpStatus
 from katalog.plugins.registry import get_actor_instance
 from katalog.processors.base import Processor
 from katalog.processors.executors import ProcessorExecutorBundle
-from katalog.processors.runtime import process_asset_collect
+from katalog.processors.runtime import process_batch_collect
 from katalog.runtime.batch import get_batch_size
 from katalog.sources.base import SourcePlugin
 from katalog.workflows.contracts import (
@@ -439,17 +439,13 @@ class ProcessorPipelineStage:
     async def process(self, batch: LoadedBatch) -> LoadedBatch:
         if not self.pipeline or not batch.changes_list:
             return batch
-        tasks = [
-            process_asset_collect(
-                changeset=self.changeset,
-                pipeline=self.pipeline,
-                changes=changes,
-                executors=self.executors,
-                force_run=self.always_process,
-            )
-            for changes in batch.changes_list
-        ]
-        batch.changes_list = list(await asyncio.gather(*tasks))
+        batch.changes_list = await process_batch_collect(
+            changeset=self.changeset,
+            pipeline=self.pipeline,
+            changes_batch=batch.changes_list,
+            executors=self.executors,
+            force_run=self.always_process,
+        )
         return batch
 
     def shutdown(self) -> None:

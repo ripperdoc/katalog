@@ -276,6 +276,12 @@ INTERNAL_FTS_REINDEX = define_metadata(
     "Internal FTS Reindex",
     searchable=False,
 )
+INTERNAL_VECTOR_REINDEX = define_metadata(
+    "internal/vector_reindex",
+    MetadataType.INT,
+    "Internal Vector Reindex",
+    searchable=False,
+)
 
 # Built-in metadata
 FILE_ID_PATH = define_metadata("file/id_path", MetadataType.STRING)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, FrozenSet, Mapping, Protocol, Sequence
 
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from katalog.constants.metadata import (
@@ -59,6 +60,8 @@ from kreuzberg import (
     ExtractionConfig,
     LanguageDetectionConfig,
     ValidationError,
+    batch_extract_bytes,
+    batch_extract_files,
     detect_mime_type_from_bytes,
     extract_bytes,
     extract_file,
@@ -139,6 +142,10 @@ class KreuzbergDocumentExtractProcessor(Processor):
         enable_chunking: bool = Field(
             default=True, description="Generate chunked text output."
         )
+        use_batch: bool = Field(
+            default=True,
+            description="Use Kreuzberg batch extraction APIs when processing a workflow batch.",
+        )
 
     config_model = ConfigModel
 
@@ -174,7 +181,80 @@ class KreuzbergDocumentExtractProcessor(Processor):
         return False
 
     async def run(self, changes: MetadataChanges) -> ProcessorResult:
+        return (await self.run_batch([changes]))[0]
 
+    async def run_batch(
+        self,
+        changes_batch: list[MetadataChanges],
+    ) -> list[ProcessorResult]:
+        if not changes_batch:
+            return []
+        if not self.config.use_batch:
+            return [await self._run_single(changes) for changes in changes_batch]
+        results: list[ProcessorResult | None] = [None] * len(changes_batch)
+        path_jobs: list[tuple[int, Path]] = []
+        bytes_jobs: list[tuple[int, bytes, str]] = []
+
+        for idx, changes in enumerate(changes_batch):
+            asset = changes.asset
+            if asset is None:
+                results[idx] = ProcessorResult(
+                    status=OpStatus.ERROR, message="MetadataChanges.asset is missing"
+                )
+                continue
+            reader = await changes.get_data_reader(DATA_FILE_READER)
+            if reader is None:
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
+                )
+                continue
+            mime_type = self._resolve_mime_type(changes)
+            if mime_type and not _is_supported_mime(mime_type):
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message=f"Unsupported mime type for kreuzberg: {mime_type}",
+                )
+                continue
+            reader_path = reader.path
+            if reader_path:
+                path_jobs.append((idx, Path(reader_path)))
+                continue
+            data = await reader.read()
+            if not data:
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message="Asset data reader returned empty content",
+                )
+                continue
+            inferred_mime_type = mime_type or detect_mime_type_from_bytes(data)
+            if not inferred_mime_type:
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message="Could not infer mime type for byte extraction",
+                )
+                continue
+            if not _is_supported_mime(inferred_mime_type):
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message=f"Unsupported mime type for kreuzberg: {inferred_mime_type}",
+                )
+                continue
+            bytes_jobs.append((idx, data, inferred_mime_type))
+
+        await self._run_path_jobs(path_jobs=path_jobs, results=results)
+        await self._run_bytes_jobs(bytes_jobs=bytes_jobs, results=results)
+
+        finalized: list[ProcessorResult] = []
+        for result in results:
+            if result is None:
+                finalized.append(
+                    ProcessorResult(status=OpStatus.ERROR, message="Missing extraction result")
+                )
+            else:
+                finalized.append(result)
+        return finalized
+
+    async def _run_single(self, changes: MetadataChanges) -> ProcessorResult:
         asset = changes.asset
         if asset is None:
             return ProcessorResult(
@@ -232,6 +312,85 @@ class KreuzbergDocumentExtractProcessor(Processor):
             )
 
         return self._build_processor_result(doc)
+
+    async def _run_path_jobs(
+        self,
+        *,
+        path_jobs: list[tuple[int, Path]],
+        results: list[ProcessorResult | None],
+    ) -> None:
+        if not path_jobs:
+            return
+        paths = [path for _idx, path in path_jobs]
+        try:
+            docs = await batch_extract_files(paths, config=self.extraction_config)
+            for (idx, _path), doc in zip(path_jobs, docs, strict=True):
+                results[idx] = self._build_processor_result(doc)
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Kreuzberg batch_extract_files failed for {count} files, falling back to single extraction: {error}",
+                count=len(path_jobs),
+                error=str(exc),
+            )
+        for idx, path in path_jobs:
+            try:
+                doc = await extract_file(path, config=self.extraction_config)
+                results[idx] = self._build_processor_result(doc)
+            except ValidationError as exc:
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message=f"Kreuzberg validation failed: {exc}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                results[idx] = ProcessorResult(
+                    status=OpStatus.ERROR,
+                    message=f"Kreuzberg extraction failed: {exc}",
+                )
+
+    async def _run_bytes_jobs(
+        self,
+        *,
+        bytes_jobs: list[tuple[int, bytes, str]],
+        results: list[ProcessorResult | None],
+    ) -> None:
+        if not bytes_jobs:
+            return
+        data_list = [data for _idx, data, _mime in bytes_jobs]
+        mime_types = [mime for _idx, _data, mime in bytes_jobs]
+        try:
+            docs = await batch_extract_bytes(
+                data_list,
+                mime_types=mime_types,
+                config=self.extraction_config,
+            )
+            for (idx, _data, _mime), doc in zip(bytes_jobs, docs, strict=True):
+                results[idx] = self._build_processor_result(doc)
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Kreuzberg batch_extract_bytes failed for {count} files, falling back to single extraction: {error}",
+                count=len(bytes_jobs),
+                error=str(exc),
+            )
+        for idx, data, mime_type in bytes_jobs:
+            try:
+                doc = await extract_bytes(
+                    data,
+                    mime_type=mime_type,
+                    config=self.extraction_config,
+                )
+                results[idx] = self._build_processor_result(doc)
+            except ValidationError as exc:
+                results[idx] = ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message=f"Kreuzberg validation failed: {exc}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                results[idx] = ProcessorResult(
+                    status=OpStatus.ERROR,
+                    message=f"Kreuzberg extraction failed: {exc}",
+                )
 
     def _build_extraction_config(
         self,
