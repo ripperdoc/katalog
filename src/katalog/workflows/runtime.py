@@ -15,6 +15,7 @@ from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import Actor, ActorType, OpStatus
 from katalog.plugins.registry import get_plugin_class
+from katalog.plugins.registry import get_actor_instance
 from katalog.processors.runtime import sort_processors
 from katalog.runtime.state import get_running_changesets
 from katalog.workflows.contracts import WorkflowInputSpec, workflow_input_to_payload
@@ -257,6 +258,37 @@ async def _run_workflow_analyzers(analyzers: list[Actor]) -> list[WorkflowChange
     return analyzer_changesets
 
 
+def _selected_sources_for_input(
+    source_actors: list[Actor], workflow_input: WorkflowInputSpec
+) -> list[Actor]:
+    """Resolve which source actors are actually involved for this run input selector."""
+    if not hasattr(workflow_input, "actor_ids"):
+        return []
+    selected_actor_ids = list(getattr(workflow_input, "actor_ids") or [])
+    if not selected_actor_ids:
+        return source_actors
+    selected = set(int(actor_id) for actor_id in selected_actor_ids)
+    return [actor for actor in source_actors if actor.id is not None and int(actor.id) in selected]
+
+
+async def _ensure_workflow_actors_ready(
+    *,
+    source_actors: list[Actor],
+    processor_actors: list[Actor],
+    workflow_input: WorkflowInputSpec,
+) -> None:
+    """Fail fast before starting a run when any involved actor reports not-ready."""
+    actors_to_check = [*_selected_sources_for_input(source_actors, workflow_input), *processor_actors]
+    for actor in actors_to_check:
+        plugin = await get_actor_instance(actor)
+        ready, reason = await plugin.is_ready()
+        if not ready:
+            detail = reason or "unknown reason"
+            raise RuntimeError(
+                f"Workflow actor '{actor.name}' ({actor.plugin_id}) is not ready: {detail}"
+            )
+
+
 async def run_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec,
     *,
@@ -292,6 +324,11 @@ async def run_workflow_file(
         else bool(spec.always_process)
     )
     effective_workflow_input = workflow_input or spec.input
+    await _ensure_workflow_actors_ready(
+        source_actors=source_actors,
+        processor_actors=processor_actors,
+        workflow_input=effective_workflow_input,
+    )
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -374,6 +411,11 @@ async def start_workflow_file(
         else bool(spec.always_process)
     )
     effective_workflow_input = workflow_input or spec.input
+    await _ensure_workflow_actors_ready(
+        source_actors=source_actors,
+        processor_actors=processor_actors,
+        workflow_input=effective_workflow_input,
+    )
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(

@@ -8,13 +8,20 @@ from katalog.api.collections import CollectionCreate, create_collection
 from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import ActorType, Changeset, OpStatus
+from katalog.plugins.base import PluginBase
 from katalog.workflows.contracts import (
     WorkflowAllAssetsInput,
     WorkflowAssetIdsInput,
     WorkflowCollectionInput,
     WorkflowSourceActorsInput,
 )
-from katalog.workflows import WorkflowActorSpec, WorkflowSpec, run_workflow_file
+from katalog.workflows import (
+    WorkflowActorSpec,
+    WorkflowSpec,
+    run_workflow_file,
+    start_workflow_file,
+)
+from katalog.workflows import runtime as workflow_runtime
 
 
 def _workflow_spec(
@@ -341,3 +348,36 @@ async def test_input_collection_limits_processing_to_collection_members(db_sessi
 
     assert stats["processings_started"] == len(selected_ids)
     assert stats["assets_seen"] == len(selected_ids)
+
+
+class _NotReadyPlugin(PluginBase):
+    async def is_ready(self) -> tuple[bool, str | None]:
+        return False, "not authorized"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entrypoint", ["run", "start"])
+async def test_workflow_rejects_not_ready_actor_before_changeset_start(
+    db_session,
+    monkeypatch,
+    entrypoint: str,
+) -> None:
+    _ = db_session
+    spec = _workflow_spec(namespace="wf-not-ready", total_assets=1)
+    changeset_repo = get_changeset_repo()
+    before = await changeset_repo.list_rows(order_by="id")
+
+    async def fake_get_actor_instance(actor):
+        _ = actor
+        return _NotReadyPlugin(actor=actor)
+
+    monkeypatch.setattr(workflow_runtime, "get_actor_instance", fake_get_actor_instance)
+
+    with pytest.raises(RuntimeError, match="not ready"):
+        if entrypoint == "run":
+            await run_workflow_file(spec, sync_first=True)
+        else:
+            await start_workflow_file(spec, sync_first=True)
+
+    after = await changeset_repo.list_rows(order_by="id")
+    assert len(after) == len(before)

@@ -4,18 +4,14 @@ type WorkflowListProps = {
   workflows: WorkflowSummary[];
   loading?: boolean;
   runningName?: string | null;
-  onSync?: (workflow: WorkflowSummary) => void;
   onRun?: (workflow: WorkflowSummary) => void;
-  onApply?: (workflow: WorkflowSummary) => void;
 };
 
 const WorkflowList = ({
   workflows,
   loading = false,
   runningName = null,
-  onSync,
   onRun,
-  onApply,
 }: WorkflowListProps) => {
   return (
     <div className="record-list">
@@ -50,27 +46,11 @@ const WorkflowList = ({
           <div className="button-row">
             <button
               type="button"
-              className="app-btn btn-save"
-              onClick={() => onSync?.(workflow)}
-              disabled={runningName !== null}
-            >
-              {runningName === workflow.file_name ? "Working..." : "Sync"}
-            </button>
-            <button
-              type="button"
               className="app-btn btn-action"
               onClick={() => onRun?.(workflow)}
               disabled={runningName !== null || workflow.status !== "ready"}
             >
               {runningName === workflow.file_name ? "Working..." : "Run"}
-            </button>
-            <button
-              type="button"
-              className="app-btn btn-action"
-              onClick={() => onApply?.(workflow)}
-              disabled={runningName !== null}
-            >
-              {runningName === workflow.file_name ? "Working..." : "Apply"}
             </button>
           </div>
         </div>

@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import AssetTable from "../components/AssetTable";
-import ActorList from "../components/ActorList";
 import AppHeader from "../components/AppHeader";
-import Sidebar from "../components/Sidebar";
 import {
   deleteCollection,
-  fetchActors,
   fetchCollection,
   fetchCollectionAssets,
+  fetchWorkflows,
   removeCollectionAssets,
-  runAnalyzer,
+  startWorkflow,
   startManualChangeset,
   updateCollection,
 } from "../api/client";
-import type { Actor, AssetCollection, ViewAssetsResponse } from "../types/api";
+import type { AssetCollection, ViewAssetsResponse, WorkflowSummary } from "../types/api";
 import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
 
 const DEFAULT_VIEW_ID = "default";
@@ -26,11 +24,9 @@ function CollectionDetailRoute() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [showAnalyzerSidebar, setShowAnalyzerSidebar] = useState(false);
-  const [analyzers, setAnalyzers] = useState<Actor[]>([]);
-  const [analyzersLoading, setAnalyzersLoading] = useState(false);
-  const [analyzersError, setAnalyzersError] = useState<string | null>(null);
-  const [runningAnalyzerId, setRunningAnalyzerId] = useState<number | null>(null);
+  const [runningWorkflowName, setRunningWorkflowName] = useState<string | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState<string>("");
   const [descDraft, setDescDraft] = useState<string | undefined>(undefined);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
@@ -61,28 +57,17 @@ function CollectionDetailRoute() {
     void load();
   }, [collectionId]);
 
-  const loadAnalyzers = useCallback(async () => {
-    setAnalyzersLoading(true);
-    setAnalyzersError(null);
-    try {
-      const response = await fetchActors();
-      const list = (response.actors ?? []).filter((actor) => actor.type === "ANALYZER");
-      setAnalyzers(list);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setAnalyzersError(message);
-      setAnalyzers([]);
-    } finally {
-      setAnalyzersLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (!showAnalyzerSidebar) {
-      return;
-    }
-    void loadAnalyzers();
-  }, [showAnalyzerSidebar, loadAnalyzers]);
+    const loadWorkflows = async () => {
+      try {
+        const response = await fetchWorkflows();
+        setWorkflows((response.workflows ?? []).filter((workflow) => workflow.status === "ready"));
+      } catch {
+        setWorkflows([]);
+      }
+    };
+    void loadWorkflows();
+  }, []);
 
   const handleSaveMeta = useCallback(async () => {
     if (!collection) {
@@ -165,25 +150,63 @@ function CollectionDetailRoute() {
     }
   }, [collection, navigate]);
 
-  const handleRunAnalyzer = useCallback(
-    async (actor: Actor) => {
-      if (!collection) {
+  const handleRunWorkflowForCollection = useCallback(async (workflowName: string) => {
+    if (!collection) {
+      return;
+    }
+    if (workflows.length === 0) {
+      window.alert("No ready workflows available.");
+      return;
+    }
+    const selectedWorkflow = workflows.find((workflow) => workflow.file_name === workflowName);
+    if (!selectedWorkflow) {
+      window.alert("Unknown workflow name.");
+      return;
+    }
+    setRunningWorkflowName(workflowName);
+    setWorkflowMenuOpen(false);
+    try {
+      const response = await startWorkflow(workflowName, {
+        input: {
+          kind: "collection",
+          collection_id: collection.id,
+        },
+      });
+      if (response.changeset) {
+        startTracking(response.changeset);
+        navigate(`/changesets/${response.changeset.id}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to run workflow: ${message}`);
+    } finally {
+      setRunningWorkflowName(null);
+    }
+  }, [collection, navigate, startTracking, workflows]);
+
+  useEffect(() => {
+    if (!workflowMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".workflow-run-dropdown")) {
         return;
       }
-      setRunningAnalyzerId(actor.id);
-      setAnalyzersError(null);
-      try {
-        const changeset = await runAnalyzer(actor.id, { collectionId: collection.id });
-        startTracking(changeset);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setAnalyzersError(message);
-      } finally {
-        setRunningAnalyzerId(null);
+      setWorkflowMenuOpen(false);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setWorkflowMenuOpen(false);
       }
-    },
-    [collection, startTracking],
-  );
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [workflowMenuOpen]);
 
   const fetchPage = useCallback(
     ({
@@ -291,13 +314,30 @@ function CollectionDetailRoute() {
                 : `Remove ${selectedAssetIds.size.toLocaleString()} assets`}
             </button>
           )}
-          <button
-            className="app-btn btn-action"
-            type="button"
-            onClick={() => setShowAnalyzerSidebar(true)}
-          >
-            Run analyzer
-          </button>
+          <div className="collection-dropdown workflow-run-dropdown">
+            <button
+              className="app-btn btn-action collection-dropdown-trigger"
+              type="button"
+              onClick={() => setWorkflowMenuOpen((open) => !open)}
+              disabled={runningWorkflowName !== null || workflows.length === 0}
+            >
+              {runningWorkflowName ? "Running workflow..." : "Run workflow on collection"}
+            </button>
+            {workflowMenuOpen ? (
+              <div className="collection-dropdown-menu">
+                {workflows.map((workflow) => (
+                  <button
+                    key={workflow.file_name}
+                    type="button"
+                    className="app-btn btn-action collection-dropdown-item"
+                    onClick={() => void handleRunWorkflowForCollection(workflow.file_name)}
+                  >
+                    {workflow.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button
             className="app-btn danger"
             type="button"
@@ -329,27 +369,6 @@ function CollectionDetailRoute() {
           </div>
         </section>
       </main>
-      <Sidebar
-        isOpen={showAnalyzerSidebar}
-        title="Run analyzer"
-        subtitle="Select an analyzer actor to run on this collection."
-        onClose={() => setShowAnalyzerSidebar(false)}
-      >
-        {analyzersError && <p className="error">{analyzersError}</p>}
-        <ActorList
-          actors={analyzers}
-          typeLabel="Analyzers"
-          runningId={runningAnalyzerId}
-          loading={analyzersLoading}
-          showEdit={false}
-          showToggle={false}
-          showRun={true}
-          runDisabled={runningAnalyzerId !== null}
-          runContextLabel={collection.name}
-          onRun={handleRunAnalyzer}
-          emptyLabel="No analyzers configured."
-        />
-      </Sidebar>
     </>
   );
 }

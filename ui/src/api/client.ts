@@ -24,6 +24,7 @@ import type {
   CollectionAddAssetsResponse,
   CollectionRemoveAssetsResponse,
   WorkflowActionResponse,
+  WorkflowInputPayload,
   WorkflowListResponse,
   WorkspaceStatsResponse,
 } from "../types/api";
@@ -577,26 +578,20 @@ export async function fetchWorkflows(): Promise<WorkflowListResponse> {
   return handleResponse(response);
 }
 
-export async function syncWorkflow(workflowName: string): Promise<WorkflowActionResponse> {
-  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/sync`, {
+export async function startWorkflow(
+  workflowName: string,
+  payload?: {
+    always_process?: boolean;
+    input?: WorkflowInputPayload;
+  },
+): Promise<WorkflowActionResponse> {
+  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/start`, {
     method: "POST",
-    headers: { Accept: "application/json" },
-  });
-  return handleResponse(response);
-}
-
-export async function runWorkflow(workflowName: string): Promise<WorkflowActionResponse> {
-  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/run`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
-  return handleResponse(response);
-}
-
-export async function applyWorkflow(workflowName: string): Promise<WorkflowActionResponse> {
-  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}/apply`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload ?? {}),
   });
   return handleResponse(response);
 }

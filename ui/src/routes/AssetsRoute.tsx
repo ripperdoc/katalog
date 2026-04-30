@@ -9,8 +9,11 @@ import {
   fetchCollections,
   fetchMetadataSearch,
   fetchViews,
+  fetchWorkflows,
+  startWorkflow,
 } from "../api/client";
-import type { AssetCollection, ViewAssetsResponse, ViewSpec } from "../types/api";
+import type { AssetCollection, ViewAssetsResponse, ViewSpec, WorkflowSummary } from "../types/api";
+import { useChangesetProgress } from "../contexts/ChangesetProgressContext";
 import { useStringSearchParamState } from "../utils/useStringSearchParamState";
 
 const DEFAULT_VIEW_ID = "default";
@@ -19,6 +22,7 @@ function AssetsRoute() {
   const navigate = useNavigate();
   const [views, setViews] = useState<ViewSpec[]>([]);
   const [collections, setCollections] = useState<AssetCollection[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [selectedViewId, setSelectedViewId] = useStringSearchParamState("view", DEFAULT_VIEW_ID);
   const [viewsLoaded, setViewsLoaded] = useState(false);
   const [lastResponse, setLastResponse] = useState<ViewAssetsResponse | null>(null);
@@ -36,7 +40,10 @@ function AssetsRoute() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
   const [resultType, setResultType] = useState<"assets" | "metadata">("assets");
   const [collectionMenuOpen, setCollectionMenuOpen] = useState(false);
+  const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false);
   const collectionMenuRef = useRef<HTMLDivElement | null>(null);
+  const workflowMenuRef = useRef<HTMLDivElement | null>(null);
+  const { startTracking } = useChangesetProgress();
 
   const fetchPage = useCallback(
     ({
@@ -269,26 +276,71 @@ function AssetsRoute() {
     }
   }, []);
 
-  useEffect(() => {
-    void loadViews();
-  }, [loadViews]);
+  const loadWorkflows = useCallback(async () => {
+    try {
+      const response = await fetchWorkflows();
+      setWorkflows((response.workflows ?? []).filter((workflow) => workflow.status === "ready"));
+    } catch {
+      setWorkflows([]);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!collectionMenuOpen) {
+    void loadViews();
+    void loadWorkflows();
+  }, [loadViews, loadWorkflows]);
+
+  const handleRunWorkflowForSelection = useCallback(async (workflowName: string) => {
+    const selectedIds = Array.from(selectedAssetIds);
+    if (selectedIds.length === 0) {
+      window.alert("Select one or more assets first.");
+      return;
+    }
+    if (workflows.length === 0) {
+      window.alert("No ready workflows available.");
+      return;
+    }
+    const selectedWorkflow = workflows.find((workflow) => workflow.file_name === workflowName);
+    if (!selectedWorkflow) {
+      window.alert("Unknown workflow name.");
+      return;
+    }
+    try {
+      setWorkflowMenuOpen(false);
+      const response = await startWorkflow(workflowName, {
+        input: {
+          kind: "asset_ids",
+          asset_ids: selectedIds,
+        },
+      });
+      if (response.changeset) {
+        startTracking(response.changeset);
+        navigate(`/changesets/${response.changeset.id}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to run workflow: ${message}`);
+    }
+  }, [navigate, selectedAssetIds, startTracking, workflows]);
+
+  useEffect(() => {
+    if (!collectionMenuOpen && !workflowMenuOpen) {
       return;
     }
     const handlePointerDown = (event: MouseEvent) => {
-      const menu = collectionMenuRef.current;
-      if (!menu) {
-        return;
-      }
-      if (!menu.contains(event.target as Node)) {
+      const collectionMenu = collectionMenuRef.current;
+      const workflowMenu = workflowMenuRef.current;
+      if (collectionMenu && !collectionMenu.contains(event.target as Node)) {
         setCollectionMenuOpen(false);
+      }
+      if (workflowMenu && !workflowMenu.contains(event.target as Node)) {
+        setWorkflowMenuOpen(false);
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setCollectionMenuOpen(false);
+        setWorkflowMenuOpen(false);
       }
     };
     window.addEventListener("mousedown", handlePointerDown);
@@ -297,7 +349,7 @@ function AssetsRoute() {
       window.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [collectionMenuOpen]);
+  }, [collectionMenuOpen, workflowMenuOpen]);
 
   const viewOptions = useMemo(
     () =>
@@ -324,6 +376,7 @@ function AssetsRoute() {
   useEffect(() => {
     if (!addSelectedEnabled) {
       setCollectionMenuOpen(false);
+      setWorkflowMenuOpen(false);
     }
   }, [addSelectedEnabled]);
 
@@ -378,6 +431,30 @@ function AssetsRoute() {
                     onClick={() => void handleCollectionMenuPick(collection.id)}
                   >
                     {collection.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="collection-dropdown" ref={workflowMenuRef}>
+            <button
+              className="app-btn btn-action collection-dropdown-trigger"
+              type="button"
+              onClick={() => setWorkflowMenuOpen((open) => !open)}
+              disabled={saving || selectedCount === 0 || workflows.length === 0}
+            >
+              Run workflow on selected
+            </button>
+            {workflowMenuOpen ? (
+              <div className="collection-dropdown-menu">
+                {workflows.map((workflow) => (
+                  <button
+                    key={workflow.file_name}
+                    type="button"
+                    className="app-btn btn-action collection-dropdown-item"
+                    onClick={() => void handleRunWorkflowForSelection(workflow.file_name)}
+                  >
+                    {workflow.name}
                   </button>
                 ))}
               </div>

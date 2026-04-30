@@ -154,6 +154,7 @@ export interface WorkflowSummary {
   status: "ready" | "not-synced" | "invalid";
   actor_names: string[];
   processor_stages: string[][];
+  input?: Record<string, unknown>;
   error?: string;
 }
 
@@ -177,6 +178,12 @@ export interface WorkflowActionResponse {
   result?: WorkflowRunResult;
   changeset?: Changeset;
 }
+
+export type WorkflowInputPayload =
+  | { kind: "source_actors"; actor_ids?: number[] }
+  | { kind: "all_assets" }
+  | { kind: "collection"; collection_id: number }
+  | { kind: "asset_ids"; asset_ids: number[] };
 
 export interface ActorResponse {
   actor: Actor;

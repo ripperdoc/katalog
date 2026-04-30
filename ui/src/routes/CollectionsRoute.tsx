@@ -50,7 +50,21 @@ function CollectionsRoute() {
           return <AppLink to={`/collections/${id}`}>{String(id)}</AppLink>;
         },
       },
-      { accessor: "name", label: "Name", width: "1.5fr", type: "string" },
+      {
+        accessor: "name",
+        label: "Name",
+        width: "1.5fr",
+        type: "string",
+        cellRenderer: (props: CellRendererProps) => {
+          const idValue = props.row?.id;
+          const id = typeof idValue === "number" ? idValue : Number(idValue);
+          const label = String(props.value ?? "");
+          if (!id || Number.isNaN(id)) {
+            return <span>{label}</span>;
+          }
+          return <AppLink to={`/collections/${id}`}>{label}</AppLink>;
+        },
+      },
       { accessor: "asset_count", label: "Assets", width: 110, type: "number" },
       { accessor: "refresh_mode", label: "Mode", width: 140, type: "string" },
       { accessor: "created_at", label: "Created", width: 200, type: "date" },

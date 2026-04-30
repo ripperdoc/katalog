@@ -22,7 +22,7 @@ const AppHeader = ({ children, breadcrumbLabel }: AppHeaderProps) => {
 
     const topLevel = segments[0];
     const topMap: Record<string, string> = {
-      actors: "Actors",
+      actors: "Workflows",
       assets: "Assets",
       collections: "Collections",
       changesets: "History",
@@ -79,7 +79,7 @@ const AppHeader = ({ children, breadcrumbLabel }: AppHeaderProps) => {
           )}
         </h1>
         <nav className="nav">
-          <Link to="/actors">Actors</Link>
+          <Link to="/actors">Workflows</Link>
           <Link to="/assets">Assets</Link>
           <Link to="/collections">Collections</Link>
           <Link to="/changesets">History</Link>

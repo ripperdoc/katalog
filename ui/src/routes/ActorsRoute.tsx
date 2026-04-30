@@ -4,17 +4,10 @@ import AppHeader from "../components/AppHeader";
 import ActorList from "../components/ActorList";
 import WorkflowList from "../components/WorkflowList";
 import {
-  applyWorkflow,
   fetchPlugins,
   fetchActors,
   fetchWorkflows,
-  runWorkflow,
-  runSources,
-  runProcessors,
-  runProcessor,
-  runAnalyzer,
-  runAllProcessors,
-  syncWorkflow,
+  startWorkflow,
   updateActor,
 } from "../api/client";
 import type { Actor, PluginSpec, WorkflowSummary } from "../types/api";
@@ -26,7 +19,6 @@ function ActorsRoute() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scanningId, setRunningId] = useState<number | null>(null);
   const [runningWorkflow, setRunningWorkflow] = useState<string | null>(null);
   const navigate = useNavigate();
   const didInit = useRef(false);
@@ -79,52 +71,6 @@ function ActorsRoute() {
     void loadWorkflows();
   }, [loadActors, loadPlugins, loadWorkflows]);
 
-  const triggerRun = async (
-    actor?: Actor,
-    groupKey?: "sources" | "processors" | "analyzers" | "editors",
-  ) => {
-    const runningId = actor?.id ?? 0;
-    setRunningId(runningId);
-    setError(null);
-    try {
-      if (groupKey === "sources") {
-        if (!actor) {
-          throw new Error("Select a source to run");
-        }
-        const changeset = await runSources(actor.id);
-        startTracking(changeset);
-        navigate(`/changesets/${changeset.id}`);
-        return;
-      }
-      if (groupKey === "processors") {
-        if (actor?.id) {
-          const changeset = await runProcessor(actor.id);
-          startTracking(changeset);
-          navigate(`/changesets/${changeset.id}`);
-          return;
-        }
-        const changeset = await runProcessors();
-        startTracking(changeset);
-        navigate(`/changesets/${changeset.id}`);
-        return;
-      }
-      if (groupKey === "analyzers") {
-        if (actor?.id) {
-          const changeset = await runAnalyzer(actor.id);
-          startTracking(changeset);
-        } else {
-          throw new Error("Select an analyzer to run");
-        }
-        return;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setRunningId(null);
-    }
-  };
-
   const filteredPlugins = useCallback(
     (ptype: "SOURCE" | "PROCESSOR" | "ANALYZER" | "EDITOR") =>
       plugins.filter((p) => p.actor_type === ptype),
@@ -149,19 +95,11 @@ function ActorsRoute() {
     }
   };
 
-  const triggerWorkflow = async (
-    workflow: WorkflowSummary,
-    action: "sync" | "run" | "apply",
-  ) => {
+  const triggerWorkflow = async (workflow: WorkflowSummary) => {
     setError(null);
     setRunningWorkflow(workflow.file_name);
     try {
-      const response =
-        action === "sync"
-          ? await syncWorkflow(workflow.file_name)
-          : action === "run"
-            ? await runWorkflow(workflow.file_name)
-            : await applyWorkflow(workflow.file_name);
+      const response = await startWorkflow(workflow.file_name);
 
       await Promise.all([loadActors(), loadWorkflows()]);
 
@@ -205,48 +143,11 @@ function ActorsRoute() {
             : "EDITOR";
     const list = grouped[groupKey];
     const availablePlugins = filteredPlugins(typeConst);
-    const runAllEnabled = groupKey === "processors" || groupKey === "analyzers";
-    const hasActors = list.length > 0;
-    const requiresActors =
-      groupKey === "sources" || groupKey === "processors" || groupKey === "analyzers";
-
     return (
       <div key={groupKey} className="subsection">
         <div className="panel-header">
           <h3>{typeLabel}</h3>
           <div className="panel-actions">
-            {runAllEnabled && (
-              <button
-                type="button"
-                className="app-btn btn-action"
-                onClick={async () => {
-                  setError(null);
-                  try {
-                    if (groupKey === "processors") {
-                      setRunningId(0);
-                      const snap = await runAllProcessors();
-                      startTracking(snap);
-                      navigate(`/changesets/${snap.id}`);
-                    }
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
-                    setError(message);
-                  } finally {
-                    setRunningId(null);
-                  }
-                }}
-                disabled={scanningId !== null || loading || (requiresActors && !hasActors)}
-                title={
-                  hasActors || !requiresActors
-                    ? groupKey === "processors"
-                      ? "Run all processors on assets"
-                      : "Run all analyzers"
-                    : "Add an actor to enable this action"
-                }
-              >
-                {scanningId !== null ? "Starting..." : "Run all"}
-              </button>
-            )}
             <button
               type="button"
               className="app-btn btn-save"
@@ -276,15 +177,12 @@ function ActorsRoute() {
           <ActorList
             actors={list}
             typeLabel={typeLabel}
-            runningId={scanningId}
             loading={loading}
             showEdit={true}
             showToggle={true}
-            showRun={groupKey !== "editors"}
+            showRun={false}
             showAuthorize={groupKey === "sources"}
-            runDisabled={scanningId !== null}
             onToggleDisabled={(actor) => void toggleDisabled(actor)}
-            onRun={(actor) => triggerRun(actor, groupKey)}
           />
         </div>
       </div>
@@ -297,7 +195,6 @@ function ActorsRoute() {
       <main className="app-main">
         <section className="panel">
           {error && <p className="error">{error}</p>}
-          {(["sources"] as const).map((groupKey) => renderActorGroup(groupKey))}
           <div className="subsection">
             <div className="panel-header">
               <h3>Workflows</h3>
@@ -307,12 +204,11 @@ function ActorsRoute() {
                 workflows={workflows}
                 loading={loading}
                 runningName={runningWorkflow}
-                onSync={(workflow) => void triggerWorkflow(workflow, "sync")}
-                onRun={(workflow) => void triggerWorkflow(workflow, "run")}
-                onApply={(workflow) => void triggerWorkflow(workflow, "apply")}
+                onRun={(workflow) => void triggerWorkflow(workflow)}
               />
             </div>
           </div>
+          {(["sources"] as const).map((groupKey) => renderActorGroup(groupKey))}
           {(["processors", "analyzers", "editors"] as const).map((groupKey) =>
             renderActorGroup(groupKey),
           )}
