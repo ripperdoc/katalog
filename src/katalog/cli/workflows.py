@@ -1,5 +1,6 @@
 import json
 import pathlib
+import shutil
 from typing import Any
 
 import typer
@@ -8,8 +9,12 @@ from . import workflows_app
 from .utils import changeset_summary, print_changeset_summary, run_cli, wants_json
 
 
+def _workspace_path(ctx: typer.Context) -> pathlib.Path:
+    return pathlib.Path(ctx.obj["workspace"]).resolve()
+
+
 def _resolve_workflow_path(ctx: typer.Context, workflow_file: str) -> pathlib.Path:
-    ws = pathlib.Path(ctx.obj["workspace"])
+    ws = _workspace_path(ctx)
     path = pathlib.Path(workflow_file)
     if path.is_absolute():
         return path.resolve()
@@ -19,6 +24,44 @@ def _resolve_workflow_path(ctx: typer.Context, workflow_file: str) -> pathlib.Pa
         return cwd_candidate
 
     return (ws / path).resolve()
+
+
+def _is_within_workspace(path: pathlib.Path, workspace: pathlib.Path) -> bool:
+    try:
+        path.relative_to(workspace)
+        return True
+    except ValueError:
+        return False
+
+
+def _workflow_name_from_file_arg(ctx: typer.Context, workflow_file: str) -> str:
+    workspace = _workspace_path(ctx)
+    source = _resolve_workflow_path(ctx, workflow_file)
+    if not source.exists():
+        raise typer.BadParameter(
+            f"Workflow file does not exist: {source}",
+            param_hint="--file/-f",
+        )
+
+    if _is_within_workspace(source, workspace):
+        return source.name
+
+    target = (workspace / source.name).resolve()
+    if not typer.confirm(
+        f"Workflow file '{source}' is outside workspace. Copy into workspace as '{target.name}'?",
+        default=True,
+    ):
+        raise typer.Abort()
+
+    if target.exists() and not typer.confirm(
+        f"'{target.name}' already exists in workspace. Overwrite?",
+        default=False,
+    ):
+        raise typer.Abort()
+
+    shutil.copy2(source, target)
+    typer.echo(f"Copied workflow into workspace: {target}")
+    return target.name
 
 
 async def _summaries_for_changesets(changeset_ids: list[int]) -> list[dict[str, Any]]:
@@ -45,11 +88,15 @@ def _extract_changeset_ids(result: dict[str, Any]) -> list[int]:
 @workflows_app.command("start", hidden=True)
 def start_workflow_command(
     ctx: typer.Context,
-    workflow_file: str = typer.Option(
-        "workflow.toml",
+    workflow_name: str | None = typer.Argument(
+        None,
+        help="Workflow file name in workspace (e.g. workflow.demo.toml)",
+    ),
+    workflow_file: str | None = typer.Option(
+        None,
         "--file",
         "-f",
-        help="Path to workflow TOML file (relative to workspace by default)",
+        help="Workflow file path. If outside workspace, CLI can copy it into workspace first.",
     ),
     always_process: bool | None = typer.Option(
         None,
@@ -58,17 +105,26 @@ def start_workflow_command(
     ),
 ) -> None:
     """Run workflow execution and wait for completion."""
-    _run_workflow_command(ctx, workflow_file, always_process=always_process)
+    _run_workflow_command(
+        ctx,
+        workflow_name=workflow_name,
+        workflow_file=workflow_file,
+        always_process=always_process,
+    )
 
 
 @workflows_app.command("run")
 def run_workflow_command(
     ctx: typer.Context,
-    workflow_file: str = typer.Option(
-        "workflow.toml",
+    workflow_name: str | None = typer.Argument(
+        None,
+        help="Workflow file name in workspace (e.g. workflow.demo.toml)",
+    ),
+    workflow_file: str | None = typer.Option(
+        None,
         "--file",
         "-f",
-        help="Path to workflow TOML file (relative to workspace by default)",
+        help="Workflow file path. If outside workspace, CLI can copy it into workspace first.",
     ),
     always_process: bool | None = typer.Option(
         None,
@@ -77,24 +133,41 @@ def run_workflow_command(
     ),
 ) -> None:
     """Run workflow execution and wait for completion."""
-    _run_workflow_command(ctx, workflow_file, always_process=always_process)
+    _run_workflow_command(
+        ctx,
+        workflow_name=workflow_name,
+        workflow_file=workflow_file,
+        always_process=always_process,
+    )
 
 
 def _run_workflow_command(
     ctx: typer.Context,
-    workflow_file: str,
     *,
+    workflow_name: str | None,
+    workflow_file: str | None,
     always_process: bool | None,
 ) -> None:
     """Shared implementation for synchronous workflow CLI commands."""
+    resolved_workflow_name = workflow_name
+    if workflow_file:
+        if workflow_name:
+            raise typer.BadParameter(
+                "Provide either workflow name argument or --file/-f, not both."
+            )
+        resolved_workflow_name = _workflow_name_from_file_arg(ctx, workflow_file)
+    if not resolved_workflow_name:
+        raise typer.BadParameter(
+            "Missing workflow name. Run 'katalog workflows run <workflow-name>' or pass --file."
+        )
 
     async def _run() -> dict[str, Any]:
         from katalog.api.workflows import run_workflow
-        from katalog.workflows import load_workflow_spec
 
-        path = _resolve_workflow_path(ctx, workflow_file)
-        spec = load_workflow_spec(path)
-        completed = await run_workflow(spec, always_process=always_process)
+        completed = await run_workflow(
+            resolved_workflow_name,
+            always_process=always_process,
+        )
         result_payload = completed.get("result") or {}
         changeset_ids = _extract_changeset_ids(result_payload)
         completed["changeset_summaries"] = await _summaries_for_changesets(changeset_ids)
@@ -106,7 +179,7 @@ def _run_workflow_command(
         return
     workflow = result.get("workflow", {})
     run_result = result.get("result", {})
-    typer.echo(f"Workflow: {workflow.get('file_path', workflow_file)}")
+    typer.echo(f"Workflow: {workflow.get('file_path', resolved_workflow_name)}")
     typer.echo(f"Sources run: {run_result.get('sources_run', 0)}")
     typer.echo(f"Processors run: {run_result.get('processors_run', 0)}")
     typer.echo(f"Analyzers run: {run_result.get('analyzers_run', 0)}")
