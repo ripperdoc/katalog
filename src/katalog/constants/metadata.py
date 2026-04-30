@@ -270,6 +270,12 @@ ASSET_CANONICAL_URI = define_metadata(
 ASSET_SEARCH_DOC = define_metadata(
     "asset/search_doc", MetadataType.STRING, "Search document"
 )
+INTERNAL_FTS_REINDEX = define_metadata(
+    "internal/fts_reindex",
+    MetadataType.INT,
+    "Internal FTS Reindex",
+    searchable=False,
+)
 
 # Built-in metadata
 FILE_ID_PATH = define_metadata("file/id_path", MetadataType.STRING)

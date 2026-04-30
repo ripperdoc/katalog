@@ -4,13 +4,13 @@ from typing import FrozenSet
 
 from katalog.constants.metadata import (
     ASSET_SEARCH_DOC,
+    INTERNAL_FTS_REINDEX,
     METADATA_REGISTRY,
     MetadataKey,
     MetadataType,
-    get_metadata_id,
 )
-from katalog.db.fts import FtsPoint, get_fts_repo
-from katalog.models import MetadataChanges, OpStatus
+from katalog.db.fts import get_fts_repo
+from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 
 
@@ -28,7 +28,7 @@ class FullTextSearchIndexProcessor(Processor):
 
     @property
     def outputs(self) -> FrozenSet[MetadataKey]:
-        return frozenset()
+        return frozenset({INTERNAL_FTS_REINDEX})
 
     async def is_ready(self) -> tuple[bool, str | None]:
         repo = get_fts_repo()
@@ -51,34 +51,16 @@ class FullTextSearchIndexProcessor(Processor):
             return ProcessorResult(status=OpStatus.ERROR, message="Asset id is missing")
         if self.actor.id is None:
             return ProcessorResult(status=OpStatus.ERROR, message="Actor id is missing")
-
-        current = changes.current()
-        points: list[FtsPoint] = []
-        indexed_key_ids: list[int] = []
-        for key in self._searchable_keys:
-            metadata_key_id = int(get_metadata_id(MetadataKey(key)))
-            indexed_key_ids.append(metadata_key_id)
-            entries = current.get(key) or []
-            for entry in entries:
-                if entry.id is None:
-                    continue
-                value = entry.value
-                if value is None:
-                    continue
-                text = value.isoformat() if hasattr(value, "isoformat") else str(value)
-                cleaned = text.strip()
-                if not cleaned:
-                    continue
-                points.append(FtsPoint(metadata_id=int(entry.id), text=cleaned))
-
-        repo = get_fts_repo()
-        indexed = await repo.upsert_asset_points(
-            asset_id=int(asset.id),
-            actor_id=int(self.actor.id),
-            metadata_key_ids=indexed_key_ids,
-            points=points,
+        return ProcessorResult(
+            metadata=[
+                make_metadata(
+                    INTERNAL_FTS_REINDEX,
+                    1,
+                    actor_id=int(self.actor.id),
+                )
+            ],
+            message="Queued FTS reindex",
         )
-        return ProcessorResult(message=f"Indexed {indexed} metadata values")
 
     def _resolve_searchable_keys(self) -> set[str]:
         keys: set[str] = set()

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from typing import Any, Sequence, TYPE_CHECKING
+from typing import Iterable
 
+from katalog.constants.metadata import (
+    ASSET_SEARCH_DOC,
+    INTERNAL_FTS_REINDEX,
+    METADATA_REGISTRY,
+    MetadataType,
+    get_metadata_id,
+)
+from katalog.db.fts import FtsPoint, get_fts_repo
 from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.tables import METADATA_TABLE
 from katalog.db.sqlspec.sql_helpers import select
 from katalog.models.metadata import _metadata_to_row, _normalize_metadata_row, Metadata
 from katalog.db.sqlspec.sql_helpers import execute
-from typing import Iterable
 
 if TYPE_CHECKING:
     from katalog.constants.metadata import MetadataKey
@@ -158,8 +166,10 @@ class SqlspecMetadataRepo:
     ) -> tuple[int, int, int]:
         async def _persist_batch(
             active_session: Any, *, commit: bool
-        ) -> tuple[int, int, int]:
+        ) -> tuple[int, int, int, set[tuple[int, int]]]:
             normal_rows: list[Metadata] = []
+            fts_reindex_requests: set[tuple[int, int]] = set()
+            fts_reindex_key_id = int(get_metadata_id(INTERNAL_FTS_REINDEX))
             for changes in changes_list:
                 asset = changes.asset
                 if asset is None:
@@ -171,25 +181,100 @@ class SqlspecMetadataRepo:
                     changeset=changeset,
                     existing_metadata=existing,
                 )
-                normal_rows.extend(to_create)
+                for entry in to_create:
+                    metadata_key_id = entry.metadata_key_id
+                    if metadata_key_id is None:
+                        continue
+                    if int(metadata_key_id) == fts_reindex_key_id:
+                        if entry.asset_id is None or entry.actor_id is None:
+                            continue
+                        fts_reindex_requests.add((int(entry.asset_id), int(entry.actor_id)))
+                        continue
+                    normal_rows.append(entry)
 
             if normal_rows:
                 await self.bulk_create(normal_rows, session=active_session)
             if commit:
                 await active_session.commit()
-            return len(normal_rows), 0, 0
+            return len(normal_rows), 0, 0, fts_reindex_requests
 
         if session is not None:
-            return await _persist_batch(session, commit=False)
+            normal_rows, search_rows, delete_rows, _requests = await _persist_batch(
+                session, commit=False
+            )
+            return normal_rows, search_rows, delete_rows
         async with session_scope() as active:
             await execute(active, "BEGIN")
             try:
-                result = await _persist_batch(active, commit=False)
+                normal_rows, _search_rows, _delete_rows, requests = await _persist_batch(
+                    active, commit=False
+                )
                 await execute(active, "COMMIT")
-                return result
+                indexed_count = await self._apply_fts_reindex_requests(requests=requests)
+                return normal_rows, indexed_count, 0
             except Exception:
                 await execute(active, "ROLLBACK")
                 raise
+
+    async def _apply_fts_reindex_requests(
+        self, *, requests: set[tuple[int, int]]
+    ) -> int:
+        if not requests:
+            return 0
+        searchable_key_ids = _searchable_metadata_key_ids()
+        if not searchable_key_ids:
+            return 0
+
+        total_indexed = 0
+        fts_repo = get_fts_repo()
+        for asset_id, actor_id in sorted(requests):
+            entries = await self.for_asset(asset_id, include_removed=False)
+            points = _to_fts_points(entries, searchable_key_ids=searchable_key_ids)
+            indexed = await fts_repo.upsert_asset_points(
+                asset_id=int(asset_id),
+                actor_id=int(actor_id),
+                metadata_key_ids=sorted(searchable_key_ids),
+                points=points,
+            )
+            total_indexed += int(indexed)
+        return total_indexed
+
+
+def _searchable_metadata_key_ids() -> set[int]:
+    key_ids: set[int] = set()
+    for key, definition in METADATA_REGISTRY.items():
+        key_str = str(key)
+        if key == ASSET_SEARCH_DOC or key_str.startswith("asset/") or key_str.startswith("internal/"):
+            continue
+        if definition.searchable is not None:
+            if not definition.searchable:
+                continue
+        elif definition.value_type not in {MetadataType.STRING, MetadataType.JSON}:
+            continue
+        key_ids.add(int(get_metadata_id(key)))
+    return key_ids
+
+
+def _to_fts_points(
+    entries: Sequence[Metadata], *, searchable_key_ids: set[int]
+) -> list[FtsPoint]:
+    points: list[FtsPoint] = []
+    for entry in entries:
+        metadata_id = entry.id
+        metadata_key_id = entry.metadata_key_id
+        if metadata_id is None or metadata_key_id is None:
+            continue
+        if int(metadata_key_id) not in searchable_key_ids:
+            continue
+        value = entry.value
+        if value is None:
+            continue
+        text = value.isoformat() if hasattr(value, "isoformat") else str(value)
+        cleaned = text.strip()
+        if not cleaned:
+            continue
+        points.append(FtsPoint(metadata_id=int(metadata_id), text=cleaned))
+    return points
 
     async def list_active_collection_asset_ids(
         self,
