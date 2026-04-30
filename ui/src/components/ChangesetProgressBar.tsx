@@ -23,6 +23,13 @@ function ChangesetProgressBar() {
   const [cancelling, setCancelling] = useState(false);
 
   const isManual = Boolean(current && current.data && current.data["manual"]);
+  const isWorkflow = Boolean(current && current.data && current.data["workflow"]);
+
+  const workflowProcessed = current?.workflowAssetsProcessed ?? null;
+  const workflowTotal = current?.workflowAssetsTotal ?? null;
+  const workflowMode = current?.workflowMode ?? null;
+  const workflowBatchesCompleted = current?.workflowBatchesCompleted ?? null;
+  const workflowBatchSize = current?.workflowBatchSize ?? null;
 
   const total =
     current &&
@@ -38,14 +45,21 @@ function ChangesetProgressBar() {
     current.finished !== null;
 
   const finishedCount = current?.finished ?? 0;
-  const percent =
+  const taskPercent =
     total !== null && total > 0
       ? Math.min(100, Math.max(0, Math.round((finishedCount / total) * 100)))
       : hasUnknownTotal
         ? 50
         : null;
+  const workflowPercent =
+    workflowProcessed !== null && workflowTotal !== null && workflowTotal > 0
+      ? Math.min(100, Math.max(0, Math.round((workflowProcessed / workflowTotal) * 100)))
+      : workflowMode === "indeterminate" && workflowProcessed !== null
+        ? 50
+        : null;
+  const percent = isWorkflow ? workflowPercent : taskPercent;
 
-  const kind = current?.kind ?? "tasks";
+  const kind = isWorkflow ? "assets" : (current?.kind ?? "tasks");
   const displayMessage =
     isManual && messageDraft.trim().length > 0
       ? messageDraft.trim()
@@ -56,8 +70,17 @@ function ChangesetProgressBar() {
     displayMessage ?? (current ? `Changeset ${formatRelativeTime(current.id)}` : "Changeset"),
     28,
   );
-  const progressLabel =
-    total !== null
+  const progressLabel = isWorkflow
+    ? workflowTotal !== null && workflowProcessed !== null
+      ? `${percent ?? 0}% (${workflowProcessed}/${workflowTotal} assets)${
+          workflowBatchesCompleted !== null ? ` · ${workflowBatchesCompleted} batches` : ""
+        }${workflowBatchSize !== null ? ` · batch ${workflowBatchSize}` : ""}`
+      : workflowProcessed !== null
+        ? `${percent ?? 50}% (${workflowProcessed}/unknown assets)${
+            workflowBatchesCompleted !== null ? ` · ${workflowBatchesCompleted} batches` : ""
+          }${workflowBatchSize !== null ? ` · batch ${workflowBatchSize}` : ""}`
+        : "working…"
+    : total !== null
       ? `${percent ?? 0}% (${current.finished}/${total} ${kind})`
       : hasUnknownTotal
         ? `50% (${current.finished}/unknown ${kind})`

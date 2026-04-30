@@ -85,6 +85,7 @@ async def get_workflow(workflow_name: str) -> dict:
         "description": spec.description,
         "version": spec.version,
         "always_process": spec.always_process,
+        "batch_size": spec.batch_size,
         "input": workflow_input_to_payload(spec.input),
         "actors": [
             {

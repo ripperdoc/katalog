@@ -20,6 +20,11 @@ export interface ChangesetProgress {
   running: number | null;
   finished: number | null;
   kind: string | null;
+  workflowMode: "determinate" | "indeterminate" | null;
+  workflowBatchSize: number | null;
+  workflowBatchesCompleted: number | null;
+  workflowAssetsProcessed: number | null;
+  workflowAssetsTotal: number | null;
 }
 
 type ProgressUpdate = Partial<ChangesetProgress> & { id: number };
@@ -67,6 +72,11 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
               running: null,
               finished: null,
               kind: null,
+              workflowMode: null,
+              workflowBatchSize: null,
+              workflowBatchesCompleted: null,
+              workflowAssetsProcessed: null,
+              workflowAssetsTotal: null,
             }
           : prev[idx];
       const merged: ChangesetProgress = { ...base };
@@ -102,6 +112,12 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
   const handleEvent = useCallback(
     (evt: ChangesetEvent) => {
       if (evt.event === "changeset_progress") {
+        // Workflow runs use batch-specific progress events; ignore task counters there.
+        const current = active.find((item) => item.id === evt.changeset_id);
+        const isWorkflow = Boolean(current?.data && current.data["workflow"]);
+        if (isWorkflow) {
+          return;
+        }
         const payload = evt.payload ?? {};
         upsertProgress({
           id: evt.changeset_id,
@@ -110,6 +126,31 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
           finished:
             typeof payload["finished"] === "number" ? (payload["finished"] as number) : null,
           kind: typeof payload["kind"] === "string" ? (payload["kind"] as string) : null,
+        });
+        return;
+      }
+      if (evt.event === "workflow_batch_progress") {
+        const payload = evt.payload ?? {};
+        upsertProgress({
+          id: evt.changeset_id,
+          workflowMode:
+            payload["mode"] === "determinate" || payload["mode"] === "indeterminate"
+              ? (payload["mode"] as "determinate" | "indeterminate")
+              : null,
+          workflowBatchSize:
+            typeof payload["batch_size"] === "number" ? (payload["batch_size"] as number) : null,
+          workflowBatchesCompleted:
+            typeof payload["batches_completed"] === "number"
+              ? (payload["batches_completed"] as number)
+              : null,
+          workflowAssetsProcessed:
+            typeof payload["assets_processed"] === "number"
+              ? (payload["assets_processed"] as number)
+              : null,
+          workflowAssetsTotal:
+            typeof payload["assets_total"] === "number"
+              ? (payload["assets_total"] as number)
+              : null,
         });
         return;
       }
@@ -128,7 +169,7 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
         handleStatusEvent(evt.payload as unknown as Changeset);
       }
     },
-    [handleStatusEvent, upsertProgress],
+    [active, handleStatusEvent, upsertProgress],
   );
 
   const startTracking = useCallback(
@@ -150,6 +191,11 @@ export const ChangesetProgressProvider: React.FC<{ children: React.ReactNode }> 
         running: null,
         finished: null,
         kind: null,
+        workflowMode: null,
+        workflowBatchSize: null,
+        workflowBatchesCompleted: null,
+        workflowAssetsProcessed: null,
+        workflowAssetsTotal: null,
       };
       upsertProgress(progress);
 

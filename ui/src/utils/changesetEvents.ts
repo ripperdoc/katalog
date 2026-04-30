@@ -3,6 +3,7 @@ import type { ChangesetEvent } from "../types/api";
 
 const EVENT_TYPES = [
   "changeset_progress",
+  "workflow_batch_progress",
   "changeset_status",
   "changeset_start",
   "log",

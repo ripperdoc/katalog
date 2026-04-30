@@ -159,7 +159,6 @@ async def _run_processor(
     asset = changes.asset
     asset_id = asset.id if asset is not None else None
     try:
-        logger.debug(f"Running processor {processor} for record {asset_id}")
         result = await processor.run(changes)
         return result
     except Exception as e:
@@ -187,7 +186,6 @@ def _run_processor_sync(
     asset = changes.asset
     asset_id = asset.id if asset is not None else None
     try:
-        logger.debug(f"Running processor {processor} for record {asset_id}")
         return asyncio.run(processor.run(changes))
     except Exception as e:
         msg = f"Processor {processor} failed for record {asset_id}: {e}"

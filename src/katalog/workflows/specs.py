@@ -38,6 +38,7 @@ class WorkflowSpec:
     input: WorkflowInputSpec
     missing_assets_policy: Literal["lost", "delete"] = "lost"
     always_process: bool = False
+    batch_size: int = 0
 
 
 def parse_workflow_file(workflow_file: pathlib.Path) -> WorkflowSpec:
@@ -153,6 +154,13 @@ def parse_workflow_payload(
             )
         always_process = raw_always_process
 
+    batch_size = 0
+    raw_batch_size = policy_block.get("batch_size")
+    if raw_batch_size is not None:
+        if not isinstance(raw_batch_size, int) or raw_batch_size <= 0:
+            raise ValueError(f"{file_name}: policy.batch_size must be a positive integer")
+        batch_size = int(raw_batch_size)
+
     parsed_input = parse_workflow_input_payload(input_block)
     if parsed_input is None:
         # Empty actor_ids means "all enabled source actors in this workflow" at runtime.
@@ -182,5 +190,6 @@ def parse_workflow_payload(
         input=parsed_input,
         missing_assets_policy=missing_assets_policy,
         always_process=always_process,
+        batch_size=batch_size,
         actors=actor_specs,
     )

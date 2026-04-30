@@ -11,15 +11,18 @@ from katalog.analyzers.base import AnalyzerScope
 from katalog.analyzers.runtime import do_run_analyzer
 from katalog.api.actors import ActorCreate, create_actor
 from katalog.api.helpers import actor_identity_key
+from katalog.constants.metadata import COLLECTION_MEMBER
 from katalog.db.actors import get_actor_repo
+from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import Actor, ActorType, OpStatus
+from katalog.models.query import AssetFilter, AssetQuery
 from katalog.plugins.registry import get_plugin_class
 from katalog.plugins.registry import get_actor_instance
 from katalog.processors.runtime import sort_processors
 from katalog.runtime.state import get_running_changesets
 from katalog.workflows.contracts import WorkflowInputSpec, workflow_input_to_payload
-from katalog.workflows.pipeline import WorkflowPipelineRunner
+from katalog.workflows.pipeline import WorkflowPipelineRunner, WorkflowPipelineSettings
 from katalog.workflows.results import WorkflowChangesetResult, WorkflowRunResult
 from katalog.workflows.specs import (
     WorkflowActorSpec,
@@ -162,6 +165,12 @@ async def _sync_workflow_actor_specs(
 
 def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec:
     if isinstance(workflow, WorkflowSpec):
+        policy_payload: dict[str, Any] = {
+            "missing_assets_policy": workflow.missing_assets_policy,
+            "always_process": workflow.always_process,
+        }
+        if int(workflow.batch_size) > 0:
+            policy_payload["batch_size"] = int(workflow.batch_size)
         payload = {
             "workflow": {
                 "id": workflow.workflow_id,
@@ -169,10 +178,7 @@ def _coerce_workflow_spec(workflow: pathlib.Path | WorkflowSpec) -> WorkflowSpec
                 "description": workflow.description,
                 "version": workflow.version,
             },
-            "policy": {
-                "missing_assets_policy": workflow.missing_assets_policy,
-                "always_process": workflow.always_process,
-            },
+            "policy": policy_payload,
             "input": workflow_input_to_payload(workflow.input),
             "actors": [
                 {
@@ -289,6 +295,44 @@ async def _ensure_workflow_actors_ready(
             )
 
 
+async def _estimate_total_assets(
+    *,
+    workflow_input: WorkflowInputSpec,
+    source_actors: list[Actor],
+) -> int | None:
+    """Best-effort total asset estimate for progress reporting."""
+    if hasattr(workflow_input, "asset_ids"):
+        values = list(getattr(workflow_input, "asset_ids") or [])
+        return len(set(int(v) for v in values))
+    if hasattr(workflow_input, "collection_id"):
+        collection_id = int(getattr(workflow_input, "collection_id"))
+        query = AssetQuery(
+            filters=[
+                AssetFilter(
+                    key=str(COLLECTION_MEMBER),
+                    op="in",
+                    values=[str(collection_id)],
+                )
+            ],
+            include_lost_assets=True,
+        )
+        return await get_asset_repo().count_assets_for_query(query=query)
+    if getattr(workflow_input, "kind", None) == "all_assets":
+        query = AssetQuery(include_lost_assets=True)
+        return await get_asset_repo().count_assets_for_query(query=query)
+    if hasattr(workflow_input, "actor_ids"):
+        selected = _selected_sources_for_input(source_actors, workflow_input)
+        totals: list[int] = []
+        for actor in selected:
+            config = actor.config or {}
+            raw_total = config.get("total_assets")
+            if not isinstance(raw_total, int) or raw_total < 0:
+                return None
+            totals.append(int(raw_total))
+        return sum(totals)
+    return None
+
+
 async def run_workflow_file(
     workflow_file: pathlib.Path | WorkflowSpec,
     *,
@@ -329,6 +373,10 @@ async def run_workflow_file(
         processor_actors=processor_actors,
         workflow_input=effective_workflow_input,
     )
+    expected_total_assets = await _estimate_total_assets(
+        workflow_input=effective_workflow_input,
+        source_actors=source_actors,
+    )
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -345,7 +393,12 @@ async def run_workflow_file(
             }
         },
     )
-    runner = WorkflowPipelineRunner()
+    settings = (
+        WorkflowPipelineSettings(batch_size=int(spec.batch_size))
+        if int(spec.batch_size) > 0
+        else WorkflowPipelineSettings()
+    )
+    runner = WorkflowPipelineRunner(settings=settings)
     status = await runner.run(
         changeset=changeset,
         workflow_input=effective_workflow_input,
@@ -353,6 +406,7 @@ async def run_workflow_file(
         processor_pipeline=pipeline,
         missing_assets_policy=spec.missing_assets_policy,
         always_process=effective_always_process,
+        expected_total_assets=expected_total_assets,
     )
     await changeset.finalize(status=status)
 
@@ -416,6 +470,10 @@ async def start_workflow_file(
         processor_actors=processor_actors,
         workflow_input=effective_workflow_input,
     )
+    expected_total_assets = await _estimate_total_assets(
+        workflow_input=effective_workflow_input,
+        source_actors=source_actors,
+    )
     changeset_db = get_changeset_repo()
     changeset_actors = [*source_actors, *pipeline_actors]
     changeset = await changeset_db.begin(
@@ -433,7 +491,12 @@ async def start_workflow_file(
         },
     )
 
-    runner = WorkflowPipelineRunner()
+    settings = (
+        WorkflowPipelineSettings(batch_size=int(spec.batch_size))
+        if int(spec.batch_size) > 0
+        else WorkflowPipelineSettings()
+    )
+    runner = WorkflowPipelineRunner(settings=settings)
     running_changesets = get_running_changesets()
     running_changesets[changeset.id] = changeset
 
@@ -445,6 +508,7 @@ async def start_workflow_file(
             processor_pipeline=pipeline,
             missing_assets_policy=spec.missing_assets_policy,
             always_process=effective_always_process,
+            expected_total_assets=expected_total_assets,
         )
 
     task = changeset.start_operation(_run_pipeline)
@@ -514,6 +578,7 @@ async def workflow_status(workflow_file: pathlib.Path | WorkflowSpec) -> dict[st
         "description": spec.description,
         "version": spec.version,
         "always_process": spec.always_process,
+        "batch_size": spec.batch_size,
         "input": workflow_input_to_payload(spec.input),
         "actor_count": total,
         "source_count": source_count,

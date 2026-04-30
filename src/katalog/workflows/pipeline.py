@@ -39,6 +39,7 @@ from katalog.workflows.contracts import (
     WorkflowInputSpec,
     WorkflowSourceActorsInput,
 )
+from katalog.runtime.state import get_event_manager
 
 ProcessorStage = Sequence[Processor]
 ProcessorPipeline = Sequence[ProcessorStage]
@@ -497,6 +498,7 @@ class WorkflowPipelineRunner:
         processor_pipeline: ProcessorPipeline,
         missing_assets_policy: str = "lost",
         always_process: bool = False,
+        expected_total_assets: int | None = None,
     ) -> OpStatus:
         """Execute `load -> process -> persist` with pluggable stage implementations."""
         load_stage: LoadStage = self._load_stage_factory(
@@ -515,10 +517,48 @@ class WorkflowPipelineRunner:
         )
 
         try:
+            batch_count = 0
+            processed_assets = 0
             async for loaded_batch in load_stage.produce(workflow_input=workflow_input):
+                batch_count += 1
+                batch_assets = len(loaded_batch.changes_list)
+                logger.info(
+                    "Workflow batch {batch_id} start index={index} assets={assets}",
+                    batch_id=loaded_batch.batch_id,
+                    index=batch_count,
+                    assets=batch_assets,
+                )
                 processed_batch = await process_stage.process(loaded_batch)
                 await persist_stage.persist(processed_batch)
+                processed_assets += batch_assets
+                progress_mode = (
+                    "determinate"
+                    if expected_total_assets is not None and expected_total_assets > 0
+                    else "indeterminate"
+                )
+                get_event_manager().emit(
+                    int(changeset.id),
+                    "workflow_batch_progress",
+                    payload={
+                        "mode": progress_mode,
+                        "batch_size": int(batch_assets),
+                        "batches_completed": int(batch_count),
+                        "assets_processed": int(processed_assets),
+                        "assets_total": (
+                            int(expected_total_assets)
+                            if expected_total_assets is not None and expected_total_assets >= 0
+                            else None
+                        ),
+                    },
+                )
+                logger.info(
+                    "Workflow batch {batch_id} done index={index} assets={assets}",
+                    batch_id=processed_batch.batch_id,
+                    index=batch_count,
+                    assets=batch_assets,
+                )
             await load_stage.finalize()
+            logger.info("Workflow pipeline completed batches={batches}", batches=batch_count)
             return OpStatus.COMPLETED
         except asyncio.CancelledError:
             logger.warning("Workflow pipeline was cancelled")
