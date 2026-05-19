@@ -48,9 +48,13 @@ const WorkflowList = ({
               type="button"
               className="app-btn btn-action"
               onClick={() => onRun?.(workflow)}
-              disabled={runningName !== null || workflow.status !== "ready"}
+              disabled={runningName !== null || workflow.status === "invalid"}
             >
-              {runningName === workflow.file_name ? "Working..." : "Run"}
+              {runningName === workflow.file_name
+                ? "Working..."
+                : workflow.status === "not-synced"
+                  ? "Sync and run"
+                  : "Run"}
             </button>
           </div>
         </div>

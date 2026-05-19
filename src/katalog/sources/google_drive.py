@@ -332,6 +332,21 @@ class GoogleDriveClient(SourcePlugin):
     async def close(self) -> None:
         await self.http.aclose()
 
+    async def is_ready(self) -> tuple[bool, str | None]:
+        """Preflight readiness check used by workflow run before changeset creation."""
+        try:
+            await self._load_credentials()
+            return True, None
+        except Exception as exc:  # noqa: BLE001
+            return (
+                False,
+                "Google Drive credentials are not ready: "
+                f"actor_id={self.actor.id} actor_name={self.actor.name!r} "
+                f"token_path={self.token_path} "
+                f"client_secret={self.client_secret_path} "
+                f"error={exc}",
+            )
+
     async def build_scan_result(
         self, file: Dict[str, Any], name_paths: list[str], id_paths: list[str]
     ) -> AssetScanResult:
@@ -652,14 +667,34 @@ class GoogleDriveClient(SourcePlugin):
         if self._credentials is not None:
             return self._credentials
         if not self.token_path.exists():
-            raise RuntimeError("Google Drive credentials are not valid")
-        creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
+            raise RuntimeError(
+                "Google Drive credentials are not valid: "
+                f"actor_id={self.actor.id} actor_name={self.actor.name!r} "
+                f"missing_token={self.token_path} "
+                f"client_secret={self.client_secret_path}"
+            )
+        try:
+            creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
+        except Exception as exc:
+            raise RuntimeError(
+                "Google Drive credentials could not be loaded: "
+                f"actor_id={self.actor.id} actor_name={self.actor.name!r} "
+                f"token_path={self.token_path} "
+                f"client_secret={self.client_secret_path} "
+                f"error={exc}"
+            ) from exc
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
                 self.token_path.write_text(creds.to_json())
             else:
-                raise RuntimeError("Google Drive credentials are not valid")
+                raise RuntimeError(
+                    "Google Drive credentials are not valid: "
+                    f"actor_id={self.actor.id} actor_name={self.actor.name!r} "
+                    f"token_path={self.token_path} "
+                    f"client_secret={self.client_secret_path} "
+                    "token missing refresh token or invalid payload"
+                )
         self._credentials = creds
         return creds
 

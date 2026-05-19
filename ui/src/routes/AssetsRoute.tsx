@@ -279,7 +279,7 @@ function AssetsRoute() {
   const loadWorkflows = useCallback(async () => {
     try {
       const response = await fetchWorkflows();
-      setWorkflows((response.workflows ?? []).filter((workflow) => workflow.status === "ready"));
+      setWorkflows((response.workflows ?? []).filter((workflow) => workflow.status !== "invalid"));
     } catch {
       setWorkflows([]);
     }
@@ -297,7 +297,7 @@ function AssetsRoute() {
       return;
     }
     if (workflows.length === 0) {
-      window.alert("No ready workflows available.");
+      window.alert("No runnable workflows available.");
       return;
     }
     const selectedWorkflow = workflows.find((workflow) => workflow.file_name === workflowName);
@@ -454,7 +454,9 @@ function AssetsRoute() {
                     className="app-btn btn-action collection-dropdown-item"
                     onClick={() => void handleRunWorkflowForSelection(workflow.file_name)}
                   >
-                    {workflow.name}
+                    {workflow.status === "not-synced"
+                      ? `Sync and run · ${workflow.name}`
+                      : `Run · ${workflow.name}`}
                   </button>
                 ))}
               </div>

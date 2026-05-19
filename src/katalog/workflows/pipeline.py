@@ -559,8 +559,12 @@ class WorkflowPipelineRunner:
         except asyncio.CancelledError:
             logger.warning("Workflow pipeline was cancelled")
             return OpStatus.CANCELED
-        except Exception:
-            logger.exception("Workflow pipeline failed")
+        except Exception as exc:
+            logger.error(
+                "Workflow pipeline failed: {error_type}: {error}",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             return OpStatus.ERROR
         finally:
             shutdown = getattr(process_stage, "shutdown", None)
