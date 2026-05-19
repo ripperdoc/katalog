@@ -37,6 +37,19 @@ def _resolve_workflow_ref(workflow: WorkflowRef):
     return _resolve_workflow_file(workflow)
 
 
+def _raise_workflow_runtime_error(exc: RuntimeError) -> None:
+    message = str(exc).strip() or "Workflow execution failed."
+    if "is not ready:" in message:
+        raise ApiError(
+            status_code=409,
+            detail={
+                "error": "workflow_actor_not_ready",
+                "message": message,
+            },
+        ) from exc
+    raise ApiError(status_code=400, detail={"message": message}) from exc
+
+
 async def list_workflows() -> list[dict]:
     """List discovered workflows with status details."""
     workspace = current_workspace()
@@ -110,12 +123,15 @@ async def start_workflow(
 ) -> dict:
     """Start workflow execution (always syncs actors first)."""
     workflow_ref = _resolve_workflow_ref(workflow)
-    result = await start_workflow_file(
-        workflow_ref,
-        sync_first=True,
-        always_process=always_process,
-        workflow_input=workflow_input,
-    )
+    try:
+        result = await start_workflow_file(
+            workflow_ref,
+            sync_first=True,
+            always_process=always_process,
+            workflow_input=workflow_input,
+        )
+    except RuntimeError as exc:
+        _raise_workflow_runtime_error(exc)
     status = await workflow_status(workflow_ref)
     return {
         "status": "started",
@@ -134,12 +150,15 @@ async def run_workflow(
 ) -> dict:
     """Run workflow execution to completion (always syncs actors first)."""
     workflow_ref = _resolve_workflow_ref(workflow)
-    result = await run_workflow_file(
-        workflow_ref,
-        sync_first=True,
-        always_process=always_process,
-        workflow_input=workflow_input,
-    )
+    try:
+        result = await run_workflow_file(
+            workflow_ref,
+            sync_first=True,
+            always_process=always_process,
+            workflow_input=workflow_input,
+        )
+    except RuntimeError as exc:
+        _raise_workflow_runtime_error(exc)
     status = await workflow_status(workflow_ref)
     result_payload = result.model_dump(mode="json")
     return {

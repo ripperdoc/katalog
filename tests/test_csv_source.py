@@ -42,7 +42,7 @@ async def test_csv_source_scans_local_file_with_header_row_and_mappings(
             "namespace": "products",
             "id_column": "product_id",
             "header_row": 2,
-            "column_mappings": [
+            "columns": [
                 {
                     "column": "name",
                     "key": str(FILE_TITLE),
@@ -111,7 +111,7 @@ async def test_csv_source_falls_back_to_row_number_when_id_column_is_missing(
         config={
             "csv_file": str(csv_file),
             "namespace": "products-row-number-id",
-            "column_mappings": [
+            "columns": [
                 {
                     "column": "name",
                     "key": str(FILE_TITLE),
@@ -175,7 +175,7 @@ async def test_csv_source_view_definitions_show_actor_id_column(
             "csv_file": str(csv_file),
             "namespace": "products-view",
             "id_column": "product_id",
-            "column_mappings": [
+            "columns": [
                 {
                     "column": "name",
                     "key": str(FILE_TITLE),

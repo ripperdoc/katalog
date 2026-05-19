@@ -17,7 +17,7 @@ class _DummyTabularPlugin:
 def test_validate_and_normalize_config_returns_json_safe_structured_errors() -> None:
     config = {
         "namespace": "products",
-        "column_mappings": [
+        "columns": [
             {"column": "Description", "key": "file/description", "value_type": "string"},
             {
                 "column": "Description",

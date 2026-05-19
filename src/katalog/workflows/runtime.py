@@ -15,8 +15,13 @@ from katalog.constants.metadata import COLLECTION_MEMBER
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
+from katalog.db.sqlspec.query_metadata_registry import sync_metadata_registry
 from katalog.models import Actor, ActorType, OpStatus
 from katalog.models.query import AssetFilter, AssetQuery
+from katalog.plugins.config_metadata import (
+    collect_config_metadata_definitions,
+    register_config_metadata_definitions,
+)
 from katalog.plugins.registry import get_plugin_class
 from katalog.plugins.registry import get_actor_instance
 from katalog.processors.runtime import sort_processors
@@ -111,6 +116,7 @@ async def _sync_workflow_actor_specs(
 ) -> list[Actor]:
     synced: list[Actor] = []
     db = get_actor_repo()
+    metadata_defs_changed = False
     for spec in specs:
         identity = actor_identity_key(
             actor_type=spec.actor_type,
@@ -145,7 +151,8 @@ async def _sync_workflow_actor_specs(
         if actor.identity_key != identity:
             actor.identity_key = identity
             changed = True
-        if (actor.config or {}) != (spec.config or {}):
+        config_changed = (actor.config or {}) != (spec.config or {})
+        if config_changed:
             actor.config = spec.config or {}
             changed = True
         if actor.disabled != spec.disabled:
@@ -153,7 +160,21 @@ async def _sync_workflow_actor_specs(
             changed = True
         if changed:
             await db.save(actor)
+        if config_changed and actor.plugin_id:
+            plugin_cls = get_plugin_class(actor.plugin_id)
+            definitions = collect_config_metadata_definitions(
+                plugin_cls=plugin_cls,
+                plugin_id=actor.plugin_id,
+                config=actor.config or {},
+            )
+            metadata_defs_changed = (
+                register_config_metadata_definitions(definitions)
+                or metadata_defs_changed
+            )
         synced.append(actor)
+
+    if metadata_defs_changed:
+        await sync_metadata_registry()
 
     logger.info(
         "Loaded workflow file={file} actors={count}",

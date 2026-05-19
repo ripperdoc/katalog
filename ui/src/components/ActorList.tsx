@@ -50,6 +50,16 @@ const ActorList = ({
           <div className="meta-grid">
             <div>Created: {actor.created_at ?? "—"}</div>
             <div>Updated: {actor.updated_at ?? "—"}</div>
+            {actor.type === "SOURCE" && (
+              <div>
+                Ready:{" "}
+                {actor.ready === true
+                  ? "yes"
+                  : actor.ready === false
+                    ? `no${actor.ready_reason ? ` (${actor.ready_reason})` : ""}`
+                    : "unknown"}
+              </div>
+            )}
           </div>
           <div className="button-row">
             {showToggle && (

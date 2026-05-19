@@ -66,7 +66,7 @@ async def test_runtime_views_use_url_safe_ids(db_session, tmp_path) -> None:
             "csv_file": str(csv_file),
             "namespace": "products-view-id",
             "id_column": "product_id",
-            "column_mappings": [
+            "columns": [
                 {
                     "column": "name",
                     "key": str(FILE_TITLE),

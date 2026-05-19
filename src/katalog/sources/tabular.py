@@ -143,7 +143,7 @@ class TabularSourceConfig(BaseModel):
         ge=0,
         description="Maximum number of emitted data rows (0 means no limit).",
     )
-    column_mappings: list[TabularColumnMapping] = Field(
+    columns: list[TabularColumnMapping] = Field(
         default_factory=list,
         description="Column-to-metadata mappings.",
     )
@@ -168,7 +168,7 @@ class TabularSourceConfig(BaseModel):
     def _validate_uniqueness(self) -> "TabularSourceConfig":
         seen_columns: set[str] = set()
         seen_keys: set[str] = set()
-        for mapping in self.column_mappings:
+        for mapping in self.columns:
             column_key = _normalize_column_name(mapping.column)
             if column_key in seen_columns:
                 raise ValueError(f"Duplicate column mapping for '{mapping.column}'")
@@ -219,7 +219,7 @@ class TabularSource(SourcePlugin):
         self.id_column = cfg.id_column
         self.header_row = int(cfg.header_row)
         self.max_rows = int(cfg.max_rows)
-        self.column_mappings = list(cfg.column_mappings)
+        self.columns = list(cfg.columns)
 
     @classmethod
     def metadata_definitions_from_config(
@@ -227,7 +227,7 @@ class TabularSource(SourcePlugin):
     ) -> list[dict[str, Any]]:
         cfg = cls.config_model.model_validate(config or {})
         definitions: list[dict[str, Any]] = []
-        for mapping in cfg.column_mappings:
+        for mapping in cfg.columns:
             metadata_key = cls.metadata_key_for_mapping(mapping)
             definitions.append(
                 {
@@ -265,7 +265,7 @@ class TabularSource(SourcePlugin):
 
         mapped_keys: list[MetadataKey] = []
         seen: set[str] = set()
-        for mapping in self.column_mappings:
+        for mapping in self.columns:
             key = self.metadata_key_for_mapping(mapping)
             key_str = str(key)
             if key_str in seen:
@@ -451,7 +451,7 @@ class TabularSource(SourcePlugin):
     ) -> list[_ResolvedColumnMapping]:
         resolved: list[_ResolvedColumnMapping] = []
         missing_columns: list[str] = []
-        for mapping in self.column_mappings:
+        for mapping in self.columns:
             index = column_index_by_name.get(_normalize_column_name(mapping.column))
             if index is None:
                 missing_columns.append(mapping.column)
