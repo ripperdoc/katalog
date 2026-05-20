@@ -51,6 +51,18 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncclick"
+version = "8.3.0.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f9/ca/25e426d16bd0e91c1c9259112cecd17b2c2c239bdd8e5dba430f3bd5e3ef/asyncclick-8.3.0.7.tar.gz", hash = "sha256:8a80d8ac613098ee6a9a8f0248f60c66c273e22402cf3f115ed7f071acfc71d3", size = 277634 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/d9/782ffcb4c97b889bc12d8276637d2739b99520390ee8fec77c07416c5d12/asyncclick-8.3.0.7-py3-none-any.whl", hash = "sha256:7607046de39a3f315867cad818849f973e29d350c10d92f251db3ff7600c6c7d", size = 109925 },
+]
+
+[[package]]
 name = "attrs"
 version = "25.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -779,6 +791,7 @@ name = "katalog"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "asyncclick" },
     { name = "diskcache" },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -787,7 +800,6 @@ dependencies = [
     { name = "rich" },
     { name = "sqlite-vec" },
     { name = "sqlspec", extra = ["aiosqlite"] },
-    { name = "typer" },
     { name = "uvicorn" },
 ]
 
@@ -819,6 +831,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asyncclick", specifier = ">=8.3.0.7" },
     { name = "crawlee", marker = "extra == 'write'", specifier = ">=1.2.1" },
     { name = "diskcache", specifier = ">=5.6.3" },
     { name = "fastapi", specifier = "==0.127.1" },
@@ -839,7 +852,6 @@ requires-dist = [
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "sqlspec", extras = ["aiosqlite"] },
     { name = "tenacity", marker = "extra == 'write'", specifier = ">=9.1.2" },
-    { name = "typer", specifier = ">=0.21.1" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
 provides-extras = ["write"]
@@ -1968,15 +1980,6 @@ wheels = [
 ]
 
 [[package]]
-name = "shellingham"
-version = "1.5.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755 },
-]
-
-[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2119,21 +2122,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/09/a9/6ba95a270c6f1fbcd8dac228323f2777d886cb206987444e4bce66338dd4/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb", size = 169598 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/16/e1/3079a9ff9b8e11b846c6ac5c8b5bfb7ff225eee721825310c91b3b50304f/tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf", size = 78374 },
-]
-
-[[package]]
-name = "typer"
-version = "0.24.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "annotated-doc" },
-    { name = "click" },
-    { name = "rich" },
-    { name = "shellingham" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5a/b6/3e681d3b6bb22647509bdbfdd18055d5adc0dce5c5585359fa46ff805fdc/typer-0.24.0.tar.gz", hash = "sha256:f9373dc4eff901350694f519f783c29b6d7a110fc0dcc11b1d7e353b85ca6504", size = 118380 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/d0/4da85c2a45054bb661993c93524138ace4956cb075a7ae0c9d1deadc331b/typer-0.24.0-py3-none-any.whl", hash = "sha256:5fc435a9c8356f6160ed6e85a6301fdd6e3d8b2851da502050d1f92c5e9eddc8", size = 56441 },
 ]
 
 [[package]]

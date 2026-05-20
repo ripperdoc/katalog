@@ -1,24 +1,20 @@
 import json
-from typing import Any
 
-import typer
+import asyncclick as click
 
 from . import collections_app
-from .utils import render_table, run_cli, wants_json
+from .utils import render_table, wants_json, with_lifespan
 
 
 @collections_app.command("list")
-def list_collections(ctx: typer.Context) -> None:
+@with_lifespan(runtime_mode="fast_read")
+async def list_collections(ctx: click.Context) -> None:
     """List asset collections in the workspace."""
+    from katalog.api.collections import list_collections as list_collections_api
 
-    async def _run() -> list[Any]:
-        from katalog.api.collections import list_collections as list_collections_api
-
-        return await list_collections_api()
-
-    collections = run_cli(_run, runtime_mode="fast_read")
+    collections = await list_collections_api()
     if wants_json(ctx):
-        typer.echo(
+        click.echo(
             json.dumps(
                 {"collections": [collection.model_dump() for collection in collections]},
                 default=str,
@@ -27,7 +23,7 @@ def list_collections(ctx: typer.Context) -> None:
         return
 
     if not collections:
-        typer.echo("No collections found")
+        click.echo("No collections found")
         return
 
     rows = [
@@ -47,17 +43,15 @@ def list_collections(ctx: typer.Context) -> None:
 
 
 @collections_app.command("show")
-def show_collection(collection_id: int, ctx: typer.Context) -> None:
+@click.argument("collection_id", type=int)
+@with_lifespan(runtime_mode="fast_read")
+async def show_collection(ctx: click.Context, collection_id: int) -> None:
     """Show details for a single collection."""
+    from katalog.api.collections import get_collection as get_collection_api
 
-    async def _run() -> Any:
-        from katalog.api.collections import get_collection as get_collection_api
-
-        return await get_collection_api(collection_id)
-
-    collection = run_cli(_run, runtime_mode="fast_read")
+    collection = await get_collection_api(collection_id)
     if wants_json(ctx):
-        typer.echo(
+        click.echo(
             json.dumps(
                 {"collection": collection.model_dump()},
                 default=str,
@@ -65,10 +59,10 @@ def show_collection(collection_id: int, ctx: typer.Context) -> None:
         )
         return
 
-    typer.echo(f"ID: {collection.id}")
-    typer.echo(f"Name: {collection.name}")
-    typer.echo(f"Description: {collection.description or '-'}")
-    typer.echo(
+    click.echo(f"ID: {collection.id}")
+    click.echo(f"Name: {collection.name}")
+    click.echo(f"Description: {collection.description or '-'}")
+    click.echo(
         "Refresh mode: "
         + (
             collection.refresh_mode.value
@@ -76,5 +70,5 @@ def show_collection(collection_id: int, ctx: typer.Context) -> None:
             else str(collection.refresh_mode)
         )
     )
-    typer.echo(f"Assets: {collection.asset_count}")
-    typer.echo("Source: yes" if collection.source else "Source: no")
+    click.echo(f"Assets: {collection.asset_count}")
+    click.echo("Source: yes" if collection.source else "Source: no")

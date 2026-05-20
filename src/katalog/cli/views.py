@@ -1,28 +1,24 @@
 import json
-from typing import Any
 
-import typer
+import asyncclick as click
 
 from . import views_app
-from .utils import render_table, run_cli, wants_json
+from .utils import render_table, wants_json, with_lifespan
 
 
 @views_app.command("list")
-def list_views(ctx: typer.Context) -> None:
+@with_lifespan(runtime_mode="fast_read")
+async def list_views(ctx: click.Context) -> None:
     """List available asset views."""
+    from katalog.api.views import list_views_api
 
-    async def _run() -> list[Any]:
-        from katalog.api.views import list_views_api
-
-        return await list_views_api()
-
-    views = run_cli(_run, runtime_mode="fast_read")
+    views = await list_views_api()
     if wants_json(ctx):
-        typer.echo(json.dumps({"views": [view.model_dump() for view in views]}, default=str))
+        click.echo(json.dumps({"views": [view.model_dump() for view in views]}, default=str))
         return
 
     if not views:
-        typer.echo("No views found")
+        click.echo("No views found")
         return
 
     rows = [
@@ -38,20 +34,18 @@ def list_views(ctx: typer.Context) -> None:
 
 
 @views_app.command("get")
-def get_view(view_id: str, ctx: typer.Context) -> None:
+@click.argument("view_id", type=str)
+@with_lifespan(runtime_mode="fast_read")
+async def get_view(ctx: click.Context, view_id: str) -> None:
     """Show one asset view by id."""
+    from katalog.api.views import get_view_api
 
-    async def _run() -> Any:
-        from katalog.api.views import get_view_api
-
-        return await get_view_api(view_id)
-
-    view = run_cli(_run, runtime_mode="fast_read")
+    view = await get_view_api(view_id)
     if wants_json(ctx):
-        typer.echo(json.dumps({"view": view.model_dump()}, default=str))
+        click.echo(json.dumps({"view": view.model_dump()}, default=str))
         return
 
-    typer.echo(f"ID: {view.id}")
-    typer.echo(f"Name: {view.name}")
-    typer.echo(f"Columns: {len(view.columns or [])}")
-    typer.echo(f"Default columns: {', '.join(view.default_columns) if view.default_columns else '-'}")
+    click.echo(f"ID: {view.id}")
+    click.echo(f"Name: {view.name}")
+    click.echo(f"Columns: {len(view.columns or [])}")
+    click.echo(f"Default columns: {', '.join(view.default_columns) if view.default_columns else '-'}")

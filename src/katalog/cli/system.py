@@ -1,48 +1,45 @@
 import json
 from typing import Any
 
-import typer
+import asyncclick as click
 
 from . import app
 from .utils import (
     format_bytes,
     render_mapping,
     render_table,
-    run_cli,
     wants_json,
+    with_lifespan,
 )
 
 
 @app.command("stats")
-def workspace_stats(ctx: typer.Context) -> None:
+@with_lifespan(runtime_mode="fast_read")
+async def workspace_stats(ctx: click.Context) -> None:
     """Show workspace and database size statistics."""
+    from katalog.api.system import workspace_size_stats as workspace_size_stats_api
 
-    async def _run() -> dict[str, Any]:
-        from katalog.api.system import workspace_size_stats as workspace_size_stats_api
-
-        return await workspace_size_stats_api()
-
-    stats = run_cli(_run, runtime_mode="fast_read")
+    stats: dict[str, Any] = await workspace_size_stats_api()
     if wants_json(ctx):
-        typer.echo(json.dumps(stats, default=str))
+        click.echo(json.dumps(stats, default=str))
         return
 
     summary = stats.get("summary") if isinstance(stats, dict) else None
     if isinstance(summary, dict):
         render_mapping(summary, title="Summary")
-        typer.echo("")
+        click.echo("")
 
     workspace = stats.get("workspace") if isinstance(stats, dict) else None
     if isinstance(workspace, dict):
         workspace_meta = {k: v for k, v in workspace.items() if k != "entries"}
         render_mapping(workspace_meta, title="Workspace")
-        typer.echo("")
+        click.echo("")
 
     database = stats.get("database") if isinstance(stats, dict) else None
     if isinstance(database, dict):
         database_meta = {k: v for k, v in database.items() if k not in {"tables", "indexes"}}
         render_mapping(database_meta, title="Database")
-        typer.echo("")
+        click.echo("")
 
         tables = database.get("tables")
         if isinstance(tables, list) and tables:
@@ -62,9 +59,9 @@ def workspace_stats(ctx: typer.Context) -> None:
                     }
                 )
             if rows:
-                typer.echo("Tables")
+                click.echo("Tables")
                 render_table(rows, ["Table", "Rows", "Size"], ["name", "rows", "size"])
-                typer.echo("")
+                click.echo("")
 
         indexes = database.get("indexes")
         if isinstance(indexes, list) and indexes:
@@ -79,5 +76,5 @@ def workspace_stats(ctx: typer.Context) -> None:
                     }
                 )
             if rows:
-                typer.echo("Indexes")
+                click.echo("Indexes")
                 render_table(rows, ["Index", "Size"], ["name", "size"])

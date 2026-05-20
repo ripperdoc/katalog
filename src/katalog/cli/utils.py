@@ -1,33 +1,36 @@
-import asyncio
-from typing import Any, Awaitable, Callable, Mapping, Sequence, TypeVar
+import functools
+from typing import Any, Awaitable, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
-import typer
+import asyncclick as click
 
 from katalog.config import RuntimeMode
-from katalog.lifespan import InitMode, app_lifespan
+from katalog.lifespan import app_lifespan
 
-T = TypeVar("T")
-
-
-def run_cli(
-    task: Callable[[], Awaitable[T]],
-    *,
-    runtime_mode: RuntimeMode = "read_write",
-    init_mode: InitMode | None = None,
-    read_only_requested: bool | None = None,
-) -> T:
-    async def _run() -> T:
-        async with app_lifespan(
-            runtime_mode=runtime_mode,
-            init_mode=init_mode,
-            read_only_requested=read_only_requested,
-        ):
-            return await task()
-
-    return asyncio.run(_run())
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
-def wants_json(ctx: typer.Context) -> bool:
+def with_lifespan(*, runtime_mode: RuntimeMode = "read_write") -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
+    """Wrap an async CLI command in one app lifespan for the whole command."""
+
+    def _decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+        @click.pass_context
+        @functools.wraps(func)
+        async def _wrapped(ctx: click.Context, *args: P.args, **kwargs: P.kwargs) -> R:
+            ctx_obj = ctx.obj or {}
+            async with app_lifespan(
+                runtime_mode=runtime_mode,
+                workspace=ctx_obj.get("workspace"),
+                read_only_requested=bool(ctx_obj.get("read_only")),
+            ):
+                return await func(ctx, *args, **kwargs)
+
+        return _wrapped
+
+    return _decorator
+
+
+def wants_json(ctx: click.Context) -> bool:
     return bool(ctx.obj and ctx.obj.get("json"))
 
 
@@ -37,10 +40,10 @@ def render_table(rows: Sequence[dict], headers: Sequence[str], keys: Sequence[st
         for i in range(len(headers))
     ]
     header_line = "  ".join(headers[i].ljust(widths[i]) for i in range(len(headers)))
-    typer.echo(header_line)
-    typer.echo("  ".join("-" * width for width in widths))
+    click.echo(header_line)
+    click.echo("  ".join("-" * width for width in widths))
     for row in rows:
-        typer.echo(
+        click.echo(
             "  ".join(row[keys[i]].ljust(widths[i]) for i in range(len(headers)))
         )
 
@@ -88,9 +91,9 @@ def mapping_to_rows(
 def render_mapping(mapping: Mapping[str, Any], *, title: str | None = None) -> None:
     rows = mapping_to_rows(mapping)
     if title:
-        typer.echo(title)
+        click.echo(title)
     if not rows:
-        typer.echo("(empty)")
+        click.echo("(empty)")
         return
     render_table(rows, ["Key", "Value"], ["key", "value"])
 
@@ -116,17 +119,17 @@ def print_changeset_summary(
     *,
     label: str = "Changeset",
 ) -> None:
-    typer.echo(f"{label}: {summary['id']}")
+    click.echo(f"{label}: {summary['id']}")
     if summary.get("started_at"):
-        typer.echo(f"Started: {summary['started_at']}")
-    typer.echo(f"Status: {summary['status']}")
+        click.echo(f"Started: {summary['started_at']}")
+    click.echo(f"Status: {summary['status']}")
     if summary.get("elapsed_seconds") is not None:
-        typer.echo(f"Elapsed: {summary['elapsed_seconds']:.2f}s")
+        click.echo(f"Elapsed: {summary['elapsed_seconds']:.2f}s")
     scan_metrics = summary.get("scan_metrics")
     if scan_metrics:
         scan_seconds = scan_metrics.get("scan_seconds")
         if scan_seconds is not None:
-            typer.echo(f"Scan time: {scan_seconds:.2f}s")
+            click.echo(f"Scan time: {scan_seconds:.2f}s")
         for key, title in [
             ("assets_seen", "Assets seen"),
             ("assets_saved", "Assets saved"),
@@ -137,4 +140,4 @@ def print_changeset_summary(
         ]:
             value = scan_metrics.get(key)
             if value is not None:
-                typer.echo(f"{title}: {value}")
+                click.echo(f"{title}: {value}")

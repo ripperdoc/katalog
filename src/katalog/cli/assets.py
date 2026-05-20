@@ -1,50 +1,54 @@
 import json
-from typing import Any
 
-import typer
+import asyncclick as click
 
 from katalog.models.query import AssetQuery
 
 from . import assets_app
-from .utils import render_table, run_cli, wants_json
+from .utils import render_table, wants_json, with_lifespan
 
 
 @assets_app.command("list")
-def list_assets(
-    ctx: typer.Context,
-    limit: int = typer.Option(100, "--limit", "-l", help="Max assets to list"),
-    offset: int = typer.Option(0, "--offset", "-o", help="Offset into result set"),
-    view_id: str = typer.Option(
-        "default",
-        "--view-id",
-        help="Asset view id to query (run `katalog views list` to discover ids).",
-    ),
-    include_linked_sidecars: bool = typer.Option(
-        False,
-        "--include-linked-sidecars",
-        help="Project linked sidecar metadata onto target assets.",
-    ),
+@click.option("--limit", "-l", type=int, default=100, show_default=True, help="Max assets to list")
+@click.option("--offset", "-o", type=int, default=0, show_default=True, help="Offset into result set")
+@click.option(
+    "--view-id",
+    type=str,
+    default="default",
+    show_default=True,
+    help="Asset view id to query (run `katalog views list` to discover ids).",
+)
+@click.option(
+    "--include-linked-sidecars",
+    is_flag=True,
+    default=False,
+    help="Project linked sidecar metadata onto target assets.",
+)
+@with_lifespan(runtime_mode="fast_read")
+async def list_assets(
+    ctx: click.Context,
+    limit: int,
+    offset: int,
+    view_id: str,
+    include_linked_sidecars: bool,
 ) -> None:
     """List assets in the workspace."""
+    from katalog.api.assets import list_assets as list_assets_api
 
-    async def _run() -> Any:
-        from katalog.api.assets import list_assets as list_assets_api
+    query = AssetQuery(
+        view_id=view_id,
+        limit=limit,
+        offset=offset,
+        metadata_include_linked_sidecars=include_linked_sidecars,
+    )
+    response = await list_assets_api(query=query)
 
-        query = AssetQuery(
-            view_id=view_id,
-            limit=limit,
-            offset=offset,
-            metadata_include_linked_sidecars=include_linked_sidecars,
-        )
-        return await list_assets_api(query=query)
-
-    response = run_cli(_run, runtime_mode="fast_read")
     if wants_json(ctx):
-        typer.echo(json.dumps(response.model_dump(), default=str))
+        click.echo(json.dumps(response.model_dump(), default=str))
         return
 
     if not response.items:
-        typer.echo("No assets found")
+        click.echo("No assets found")
         return
 
     rows = [
@@ -59,21 +63,19 @@ def list_assets(
     headers = ["ID", "Namespace", "External ID", "Actor"]
     keys = ["id", "namespace", "external_id", "actor_id"]
     render_table(rows, headers, keys)
-    typer.echo(f"Total returned: {response.stats.returned}")
+    click.echo(f"Total returned: {response.stats.returned}")
 
 
 @assets_app.command("show")
-def show_asset(asset_id: int, ctx: typer.Context) -> None:
+@click.argument("asset_id", type=int)
+@with_lifespan(runtime_mode="fast_read")
+async def show_asset(ctx: click.Context, asset_id: int) -> None:
     """Show details for a single asset."""
+    from katalog.api.assets import get_asset as get_asset_api
 
-    async def _run() -> tuple[Any, list[Any]]:
-        from katalog.api.assets import get_asset as get_asset_api
-
-        return await get_asset_api(asset_id)
-
-    asset, metadata = run_cli(_run, runtime_mode="fast_read")
+    asset, metadata = await get_asset_api(asset_id)
     if wants_json(ctx):
-        typer.echo(
+        click.echo(
             json.dumps(
                 {
                     "asset": asset.model_dump(),
@@ -84,9 +86,9 @@ def show_asset(asset_id: int, ctx: typer.Context) -> None:
         )
         return
 
-    typer.echo(f"ID: {asset.id}")
-    typer.echo(f"Namespace: {asset.namespace}")
-    typer.echo(f"External ID: {asset.external_id}")
-    typer.echo(f"Canonical URI: {asset.canonical_uri}")
-    typer.echo(f"Actor ID: {asset.actor_id if asset.actor_id else '-'}")
-    typer.echo(f"Metadata entries: {len(metadata)}")
+    click.echo(f"ID: {asset.id}")
+    click.echo(f"Namespace: {asset.namespace}")
+    click.echo(f"External ID: {asset.external_id}")
+    click.echo(f"Canonical URI: {asset.canonical_uri}")
+    click.echo(f"Actor ID: {asset.actor_id if asset.actor_id else '-'}")
+    click.echo(f"Metadata entries: {len(metadata)}")

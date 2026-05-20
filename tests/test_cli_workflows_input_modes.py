@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-import typer
+import asyncclick as click
 
 from katalog.cli.workflows import _build_cli_workflow_input
 from katalog.workflows.contracts import (
@@ -84,7 +84,7 @@ def test_cli_input_override_rejects_mixed_selector_kinds(
     input_collection: int | None,
     input_asset: list[int],
 ) -> None:
-    with pytest.raises(typer.BadParameter):
+    with pytest.raises(click.BadParameter):
         _build_cli_workflow_input(
             input_all=input_all,
             input_actor=input_actor,

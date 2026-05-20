@@ -4,7 +4,7 @@ import pathlib
 import shutil
 import sys
 
-import typer
+import asyncclick as click
 from loguru import logger
 
 from katalog.help_texts import (
@@ -23,23 +23,91 @@ from katalog.help_texts import (
     WORKSPACE_OPTION_HELP,
 )
 
-app = typer.Typer(help=CLI_APP_HELP)
-actors_app = typer.Typer(help=ACTORS_GROUP_HELP)
-assets_app = typer.Typer(help=ASSETS_GROUP_HELP)
-collections_app = typer.Typer(help=COLLECTIONS_GROUP_HELP)
-changesets_app = typer.Typer(help=CHANGESETS_GROUP_HELP)
-processors_app = typer.Typer(help=PROCESSORS_GROUP_HELP)
-workflows_app = typer.Typer(help=WORKFLOWS_GROUP_HELP)
-metadata_app = typer.Typer(help=METADATA_GROUP_HELP)
-views_app = typer.Typer(help=VIEWS_GROUP_HELP)
-app.add_typer(actors_app, name="actors")
-app.add_typer(assets_app, name="assets")
-app.add_typer(collections_app, name="collections")
-app.add_typer(changesets_app, name="changesets")
-app.add_typer(processors_app, name="processors")
-app.add_typer(workflows_app, name="workflows")
-app.add_typer(metadata_app, name="metadata")
-app.add_typer(views_app, name="views")
+
+@click.group(help=CLI_APP_HELP, invoke_without_command=True)
+@click.option(
+    "--workspace",
+    "workspace_opt",
+    "-w",
+    default=None,
+    help=WORKSPACE_OPTION_HELP,
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help=JSON_OPTION_HELP,
+)
+@click.option(
+    "--read-only",
+    "read_only_opt",
+    is_flag=True,
+    default=False,
+    help=READ_ONLY_OPTION_HELP,
+)
+@click.pass_context
+async def app(
+    ctx: click.Context,
+    workspace_opt: str | None,
+    json_output: bool,
+    read_only_opt: bool,
+) -> None:
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        raise click.exceptions.Exit()
+
+    # Allow help output without requiring workspace to resolve.
+    if "--help" in sys.argv or "-h" in sys.argv:
+        return
+
+    ws = _resolve_workspace(workspace_opt)
+    _set_workspace_env(ws)
+    if read_only_opt:
+        os.environ["KATALOG_READ_ONLY"] = "1"
+    else:
+        os.environ.pop("KATALOG_READ_ONLY", None)
+    ctx.obj = {"workspace": ws, "json": json_output, "read_only": read_only_opt}
+
+
+@app.group("actors", help=ACTORS_GROUP_HELP)
+async def actors_app() -> None:
+    """Actors command group."""
+
+
+@app.group("assets", help=ASSETS_GROUP_HELP)
+async def assets_app() -> None:
+    """Assets command group."""
+
+
+@app.group("collections", help=COLLECTIONS_GROUP_HELP)
+async def collections_app() -> None:
+    """Collections command group."""
+
+
+@app.group("changesets", help=CHANGESETS_GROUP_HELP)
+async def changesets_app() -> None:
+    """Changesets command group."""
+
+
+@app.group("processors", help=PROCESSORS_GROUP_HELP)
+async def processors_app() -> None:
+    """Processors command group."""
+
+
+@app.group("workflows", help=WORKFLOWS_GROUP_HELP)
+async def workflows_app() -> None:
+    """Workflows command group."""
+
+
+@app.group("metadata", help=METADATA_GROUP_HELP)
+async def metadata_app() -> None:
+    """Metadata command group."""
+
+
+@app.group("views", help=VIEWS_GROUP_HELP)
+async def views_app() -> None:
+    """Views command group."""
 
 
 def _reset_workspace(ws: pathlib.Path) -> None:
@@ -72,11 +140,11 @@ def _repo_root() -> pathlib.Path:
 def _resolve_workspace(workspace: str | None) -> pathlib.Path:
     workspace_input = workspace or os.environ.get("KATALOG_WORKSPACE")
     if not workspace_input:
-        raise typer.BadParameter("provide a workspace path or set KATALOG_WORKSPACE")
+        raise click.BadParameter("provide a workspace path or set KATALOG_WORKSPACE")
 
     ws = pathlib.Path(workspace_input).expanduser().resolve()
     if not ws.exists() or not ws.is_dir():
-        raise typer.BadParameter(f"workspace '{ws}' does not exist or is not a directory")
+        raise click.BadParameter(f"workspace '{ws}' does not exist or is not a directory")
     return ws
 
 
@@ -123,7 +191,7 @@ def _run_server(
     seed_assets: int,
     workflow_file: str | None,
     reload: bool,
-    reload_dir: list[str],
+    reload_dir: tuple[str, ...],
 ) -> None:
     repo_root = _repo_root()
 
@@ -213,89 +281,71 @@ def _run_server(
         sys.exit(1)
 
 
-@app.callback(invoke_without_command=True)
-def cli(
-    ctx: typer.Context,
-    workspace_opt: str | None = typer.Option(
-        None,
-        "--workspace",
-        "-w",
-        help=WORKSPACE_OPTION_HELP,
-    ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        help=JSON_OPTION_HELP,
-    ),
-    read_only_opt: bool = typer.Option(
-        False,
-        "--read-only",
-        help=READ_ONLY_OPTION_HELP,
-    ),
-) -> None:
-    if ctx.invoked_subcommand is None:
-        typer.echo(ctx.get_help())
-        raise typer.Exit()
-
-    if "--help" in sys.argv or "-h" in sys.argv:
-        return
-
-    ws = _resolve_workspace(workspace_opt)
-    _set_workspace_env(ws)
-    if read_only_opt:
-        os.environ["KATALOG_READ_ONLY"] = "1"
-    else:
-        os.environ.pop("KATALOG_READ_ONLY", None)
-    ctx.obj = {"workspace": ws, "json": json_output, "read_only": read_only_opt}
-
-
 @app.command("server", help=SERVER_COMMAND_HELP)
-def server(
-    ctx: typer.Context,
-    port: int | None = typer.Option(
-        None,
-        "--port",
-        help="Port to bind the server to (default: config PORT)",
-    ),
-    read_only: bool = typer.Option(
-        False,
-        "--read-only",
-        help="Run server startup/runtime context in read-only mode",
-    ),
-    with_mcp: bool = typer.Option(
-        False,
-        "--with-mcp",
-        help="Enable MCP endpoint at /mcp in the same server process",
-    ),
-    test_workspace: bool = typer.Option(
-        False,
-        "--test-workspace",
-        help="Reset the workspace database and actor cache before starting the server",
-    ),
-    seed_assets: int = typer.Option(
-        0,
-        "--seed-assets",
-        help="Seed the test workspace with this many fake assets (requires --test-workspace)",
-    ),
-    workflow_file: str | None = typer.Option(
-        None,
-        "--workflow",
-        help="Sync actors from this workflow TOML before startup if no database exists",
-    ),
-    reload: bool = typer.Option(
-        False,
-        "--reload",
-        help="Enable auto-reload for the server (uvicorn reload)",
-    ),
-    reload_dir: list[str] = typer.Option(
-        [],
-        "--reload-dir",
-        help="Directory to watch for reloads (repeatable, relative to repo root unless absolute)",
-    ),
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help="Port to bind the server to (default: config PORT)",
+)
+@click.option(
+    "--read-only",
+    "server_read_only",
+    is_flag=True,
+    default=False,
+    help="Run server startup/runtime context in read-only mode",
+)
+@click.option(
+    "--with-mcp",
+    is_flag=True,
+    default=False,
+    help="Enable MCP endpoint at /mcp in the same server process",
+)
+@click.option(
+    "--test-workspace",
+    is_flag=True,
+    default=False,
+    help="Reset the workspace database and actor cache before starting the server",
+)
+@click.option(
+    "--seed-assets",
+    default=0,
+    type=int,
+    help="Seed the test workspace with this many fake assets (requires --test-workspace)",
+)
+@click.option(
+    "--workflow",
+    "workflow_file",
+    default=None,
+    help="Sync actors from this workflow TOML before startup if no database exists",
+)
+@click.option(
+    "--reload",
+    is_flag=True,
+    default=False,
+    help="Enable auto-reload for the server (uvicorn reload)",
+)
+@click.option(
+    "--reload-dir",
+    "reload_dir",
+    multiple=True,
+    help="Directory to watch for reloads (repeatable, relative to repo root unless absolute)",
+)
+@click.pass_context
+async def server(
+    ctx: click.Context,
+    port: int | None,
+    server_read_only: bool,
+    with_mcp: bool,
+    test_workspace: bool,
+    seed_assets: int,
+    workflow_file: str | None,
+    reload: bool,
+    reload_dir: tuple[str, ...],
 ) -> None:
     ws = ctx.obj["workspace"]
     _ensure_src_on_path()
-    requested_read_only = bool(ctx.obj.get("read_only")) or bool(read_only)
+    requested_read_only = bool(ctx.obj.get("read_only")) or bool(server_read_only)
     _run_server(
         ws,
         port=port,
