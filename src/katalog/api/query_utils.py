@@ -37,6 +37,7 @@ def build_asset_query(
     metadata_include_counts: bool | None = None,
     metadata_include_linked_sidecars: bool | None = None,
     columns: list[str] | None = None,
+    include_schema: bool | None = None,
     include_lost_assets: bool | None = None,
     search_mode: Literal["fts", "semantic", "hybrid"] | None = None,
     search_index: int | None = None,
@@ -70,6 +71,8 @@ def build_asset_query(
         payload["metadata_include_linked_sidecars"] = metadata_include_linked_sidecars
     if columns is not None:
         payload["columns"] = columns
+    if include_schema is not None:
+        payload["include_schema"] = include_schema
     if include_lost_assets is not None:
         payload["include_lost_assets"] = include_lost_assets
     if search_mode is not None:

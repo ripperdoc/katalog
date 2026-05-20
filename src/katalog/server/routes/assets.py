@@ -39,6 +39,7 @@ async def list_assets_rest(
     metadata_include_counts: bool = Query(True),
     metadata_include_linked_sidecars: bool = Query(False),
     columns: list[str] | None = Query(None),
+    include_schema: bool = Query(False),
     include_lost_assets: bool = Query(False),
 ):
     try:
@@ -64,6 +65,7 @@ async def list_assets_rest(
             metadata_include_counts=metadata_include_counts,
             metadata_include_linked_sidecars=metadata_include_linked_sidecars,
             columns=columns,
+            include_schema=include_schema,
             include_lost_assets=include_lost_assets,
         )
     except Exception as exc:

@@ -54,6 +54,9 @@
 - [ ] Icons for UI
 - [ ] Use Google Drive Changes API to more efficiently (or is it?) fetch changes
 - [ ] Path and filename Unicode normalization
+- [ ] Add identifier normalization for search (e.g. ISBN/SKU): store raw + normalized metadata,
+      normalize both indexed values and query terms with the same rules (example ISBN: strip
+      dashes/spaces).
 - [ ] Read permissions for files in Google Shared Drives
 - [ ] Search through some basic archive files e.g. zip files, and create virtual File Records
 - [ ] Save more filesystem metadata, like extended attributes, if we can get to that

@@ -274,7 +274,7 @@ class TabularSource(SourcePlugin):
             mapped_keys.append(key)
 
         columns: list[ColumnSpec] = [
-            ColumnSpec.from_metadata(ASSET_ID, hidden=True, sortable=True, width=80),
+            ColumnSpec.from_metadata(ASSET_ID, sortable=True, width=80),
             ColumnSpec.from_metadata(
                 ASSET_ACTOR_ID, sortable=True, filterable=True, width=120
             ),

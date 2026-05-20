@@ -158,6 +158,7 @@ export async function fetchAssets(
   const params = new URLSearchParams();
   params.set("offset", String(offset));
   params.set("limit", String(limit));
+  params.set("include_schema", "true");
   if (sort && sort.length > 0) {
     sort.forEach(([key, direction]) => {
       params.append("sort", `${key}:${direction}`);
@@ -488,6 +489,7 @@ export async function fetchCollectionAssets(
   params.set("offset", String(offset));
   params.set("limit", String(limit));
   params.set("view_id", viewId);
+  params.set("include_schema", "true");
   if (sort && sort.length > 0) {
     sort.forEach(([key, direction]) => {
       params.append("sort", `${key}:${direction}`);

@@ -118,6 +118,7 @@ def create_mcp_server() -> FastMCP:
         metadata_include_counts: bool = True,
         metadata_include_linked_sidecars: bool = False,
         columns: list[str] | None = None,
+        include_schema: bool = False,
         include_lost_assets: bool = False,
     ) -> dict[str, Any]:
         """Use `sort` as `key:asc|desc` and `filters` as `<key> <op> <value>` strings."""
@@ -145,6 +146,7 @@ def create_mcp_server() -> FastMCP:
                 metadata_include_counts=metadata_include_counts,
                 metadata_include_linked_sidecars=metadata_include_linked_sidecars,
                 columns=columns,
+                include_schema=include_schema,
                 include_lost_assets=include_lost_assets,
             )
             response = await assets.list_assets(query=query)
@@ -253,6 +255,7 @@ def create_mcp_server() -> FastMCP:
         metadata_include_removed: bool = False,
         metadata_aggregation: Literal["latest", "current", "object"] | None = None,
         metadata_include_counts: bool = True,
+        include_schema: bool = False,
     ) -> dict[str, Any]:
         """Use `sort` as `key:asc|desc` and `filters` as `<key> <op> <value>` strings."""
         _validate_pagination(offset=offset, limit=limit)
@@ -268,6 +271,7 @@ def create_mcp_server() -> FastMCP:
                 metadata_include_removed=metadata_include_removed,
                 metadata_aggregation=metadata_aggregation,
                 metadata_include_counts=metadata_include_counts,
+                include_schema=include_schema,
             )
             response = await collections.list_collection_assets(
                 collection_id=collection_id,

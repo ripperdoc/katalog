@@ -145,6 +145,7 @@ class AssetQuery(BaseModel):
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=100, gt=0)
     columns: list[str] | None = None
+    include_schema: bool = False
 
     # Metadata projection controls.
     metadata_actor_ids: list[int] | None = None

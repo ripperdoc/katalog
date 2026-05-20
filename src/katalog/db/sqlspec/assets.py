@@ -558,28 +558,29 @@ class SqlspecAssetRepo:
 
             assets: dict[int, dict[str, Any]] = {}
             ordered_columns: list[Mapping[str, Any]] = []
-            for column_id in requested_columns:
-                spec = column_map.get(column_id)
-                if spec is not None:
-                    ordered_columns.append(spec.model_dump(mode="json"))
-                    continue
-                definition = get_metadata_def_by_key(MetadataKey(column_id))
-                ordered_columns.append(
-                    {
-                        "key": str(definition.key),
-                        "id": str(definition.key),
-                        "value_type": int(definition.value_type),
-                        "registry_id": definition.registry_id,
-                        "title": definition.title or str(definition.key),
-                        "description": definition.description,
-                        "width": definition.width,
-                        "hidden": False,
-                        "sortable": False,
-                        "filterable": False,
-                        "searchable": False,
-                        "plugin_id": definition.plugin_id,
-                    }
-                )
+            if query.include_schema:
+                for column_id in requested_columns:
+                    spec = column_map.get(column_id)
+                    if spec is not None:
+                        ordered_columns.append(spec.model_dump(mode="json"))
+                        continue
+                    definition = get_metadata_def_by_key(MetadataKey(column_id))
+                    ordered_columns.append(
+                        {
+                            "key": str(definition.key),
+                            "id": str(definition.key),
+                            "value_type": int(definition.value_type),
+                            "registry_id": definition.registry_id,
+                            "title": definition.title or str(definition.key),
+                            "description": definition.description,
+                            "width": definition.width,
+                            "hidden": False,
+                            "sortable": False,
+                            "filterable": False,
+                            "searchable": False,
+                            "plugin_id": definition.plugin_id,
+                        }
+                    )
 
             page_asset_ids: list[int] = []
             for row in asset_rows:

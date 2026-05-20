@@ -26,6 +26,7 @@ async def test_list_assets_allows_dynamic_columns(seeded_assets):
                     "document/lang",
                     "asset/lost",
                 ],
+                "include_schema": True,
             }
         )
     )
@@ -59,6 +60,25 @@ async def test_list_assets_allows_dynamic_sort_key(seeded_assets):
     assert response.items
     first = response.items[0].model_dump(mode="json", by_alias=True)
     assert "document/lang" in first
+
+
+@pytest.mark.asyncio
+async def test_list_assets_can_skip_schema(seeded_assets):
+    _ = seeded_assets
+
+    response = await list_assets(
+        AssetQuery.model_validate(
+            {
+                "view_id": "default",
+                "offset": 0,
+                "limit": 10,
+                "include_schema": False,
+            }
+        )
+    )
+
+    assert response.items
+    assert response.schema_ == []
 
 
 @pytest.mark.asyncio
