@@ -114,7 +114,7 @@ def create_mcp_server() -> FastMCP:
         search_embedding_backend: Literal["preset", "fastembed"] | None = None,
         metadata_actor_ids: list[int] | None = None,
         metadata_include_removed: bool = False,
-        metadata_aggregation: Literal["latest", "array", "objects"] | None = None,
+        metadata_aggregation: Literal["latest", "current", "object"] | None = None,
         metadata_include_counts: bool = True,
         metadata_include_linked_sidecars: bool = False,
         columns: list[str] | None = None,
@@ -167,7 +167,7 @@ def create_mcp_server() -> FastMCP:
         search: str | None = None,
         metadata_actor_ids: list[int] | None = None,
         metadata_include_removed: bool = False,
-        metadata_aggregation: Literal["latest", "array", "objects"] | None = None,
+        metadata_aggregation: Literal["latest", "current", "object"] | None = None,
         metadata_include_counts: bool = True,
         include_lost_assets: bool = False,
     ) -> dict[str, Any]:
@@ -199,12 +199,24 @@ def create_mcp_server() -> FastMCP:
         name="assets.get",
         description=MCP_ASSETS_GET_DESC,
     )
-    async def get_asset(asset_id: int) -> dict[str, Any]:
+    async def get_asset(
+        asset_id: int,
+        metadata_actor_ids: list[int] | None = None,
+        metadata_include_removed: bool = False,
+        metadata_aggregation: Literal["latest", "current", "object"] = "latest",
+    ) -> dict[str, Any]:
         try:
-            asset, metadata_items = await assets.get_asset(asset_id)
+            row = await assets.get_asset_serialized(
+                asset_id,
+                metadata_actor_ids=metadata_actor_ids,
+                metadata_include_removed=metadata_include_removed,
+                metadata_aggregation=metadata_aggregation,
+            )
         except ApiError as exc:
             raise _tool_error(exc) from exc
-        return {"asset": _jsonable(asset), "metadata": _jsonable(metadata_items)}
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return _jsonable(row)
 
     @mcp.tool(
         name="collections.list",
@@ -239,7 +251,7 @@ def create_mcp_server() -> FastMCP:
         search: str | None = None,
         metadata_actor_ids: list[int] | None = None,
         metadata_include_removed: bool = False,
-        metadata_aggregation: Literal["latest", "array", "objects"] | None = None,
+        metadata_aggregation: Literal["latest", "current", "object"] | None = None,
         metadata_include_counts: bool = True,
     ) -> dict[str, Any]:
         """Use `sort` as `key:asc|desc` and `filters` as `<key> <op> <value>` strings."""
@@ -392,7 +404,7 @@ def create_mcp_server() -> FastMCP:
         metadata_keys: list[str] | None = None,
         actor_ids: list[int] | None = None,
         include_removed: bool = False,
-        aggregation: Literal["latest", "array", "objects"] = "latest",
+        aggregation: Literal["latest", "current", "object"] = "latest",
         search_index: int | None = None,
         top_k: int = 100,
         min_score: float | None = None,

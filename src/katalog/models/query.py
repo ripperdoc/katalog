@@ -4,7 +4,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from katalog.constants.metadata import MetadataKey, MetadataType, get_metadata_def_by_key
+from katalog.constants.metadata import (
+    MetadataKey,
+    MetadataType,
+    get_metadata_def_by_key,
+)
 from katalog.models.views import get_view
 
 
@@ -145,7 +149,7 @@ class AssetQuery(BaseModel):
     # Metadata projection controls.
     metadata_actor_ids: list[int] | None = None
     metadata_include_removed: bool = False
-    metadata_aggregation: Literal["latest", "array", "objects"] = "latest"
+    metadata_aggregation: Literal["latest", "current", "object"] = "latest"
     metadata_include_counts: bool = True
     metadata_include_linked_sidecars: bool = False
     include_lost_assets: bool = False
@@ -169,7 +173,9 @@ class AssetQuery(BaseModel):
 
     @field_validator("search_metadata_keys")
     @classmethod
-    def _validate_search_metadata_keys(cls, value: list[str] | None) -> list[str] | None:
+    def _validate_search_metadata_keys(
+        cls, value: list[str] | None
+    ) -> list[str] | None:
         if value is None:
             return value
         cleaned = [item.strip() for item in value if item and item.strip()]
@@ -214,15 +220,23 @@ class AssetQuery(BaseModel):
                     elif operator in {"isEmpty", "isNotEmpty"}:
                         parsed.append(AssetFilter(key=key, op=operator))
                     else:
-                        parsed.append(AssetFilter(key=key, op=operator, value=raw_value))
+                        parsed.append(
+                            AssetFilter(key=key, op=operator, value=raw_value)
+                        )
                 else:
                     parsed.append(AssetFilter.model_validate(item))
             return parsed
         return [AssetFilter.model_validate(value)]
 
-
     @model_validator(mode="after")
     def _validate_query(self) -> "AssetQuery":
+        if self.metadata_include_removed and self.metadata_aggregation in {
+            "latest",
+            "current",
+        }:
+            raise ValueError(
+                "metadata_include_removed=true is only supported with metadata_aggregation=object"
+            )
         if self.view_id is None:
             self.view_id = "default"
         try:

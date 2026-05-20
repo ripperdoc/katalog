@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query, Request
 
 from katalog.api.assets import (
     create_asset,
-    get_asset,
+    get_asset_serialized,
     list_assets,
     list_grouped_assets,
     manual_edit_asset,
@@ -114,9 +114,21 @@ async def create_asset_rest(request: Request):
 
 
 @router.get("/assets/{asset_id}")
-async def get_asset_rest(asset_id: int):
-    asset, metadata = await get_asset(asset_id)
-    return {"asset": asset, "metadata": metadata}
+async def get_asset_rest(
+    asset_id: int,
+    metadata_actor_ids: list[int] | None = Query(None),
+    metadata_include_removed: bool = Query(False),
+    metadata_aggregation: Literal["latest", "current", "object"] = Query("latest"),
+):
+    try:
+        return await get_asset_serialized(
+            asset_id,
+            metadata_actor_ids=metadata_actor_ids,
+            metadata_include_removed=metadata_include_removed,
+            metadata_aggregation=metadata_aggregation,
+        )
+    except ValueError as exc:
+        raise ApiError(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/assets/{asset_id}/manual-edit")

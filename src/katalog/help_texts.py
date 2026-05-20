@@ -41,7 +41,7 @@ MCP_ASSETS_LIST_DESC = (
 )
 MCP_ASSETS_GROUPED_DESC = "List grouped assets by a group_by column key."
 MCP_ASSETS_GET_DESC = (
-    "Get one tracked file (asset) with all metadata entries, including removed rows."
+    "Get one tracked file (asset) with projected metadata (latest, current, or object)."
 )
 MCP_COLLECTIONS_LIST_DESC = "List saved asset groups (collections)."
 MCP_COLLECTIONS_GET_DESC = "Get collection details by id."

@@ -1,4 +1,4 @@
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import MetadataKey
@@ -62,6 +62,23 @@ async def get_asset(asset_id: int) -> tuple[Asset, Sequence[Metadata]]:
 
     metadata = await db.load_metadata(asset, include_removed=True)
     return asset, metadata
+
+
+async def get_asset_serialized(
+    asset_id: int,
+    *,
+    metadata_include_removed: bool = False,
+    metadata_actor_ids: Sequence[int] | None = None,
+    metadata_aggregation: Literal["latest", "current", "object"] = "latest",
+) -> dict[str, Any]:
+    """Return one asset serialized with projected metadata."""
+    result = await get_asset(asset_id)
+    return MetadataChanges.serialize_get_asset_result(
+        result,
+        include_removed=metadata_include_removed,
+        actor_ids=metadata_actor_ids,
+        aggregation=metadata_aggregation,
+    )
 
 
 @requires_write_access()

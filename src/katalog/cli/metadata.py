@@ -59,7 +59,7 @@ def _text_preview(value: str, *, max_len: int = 90) -> str:
     type=str,
     default="latest",
     show_default=True,
-    help="Metadata aggregation: latest, array, objects.",
+    help="Metadata aggregation: latest, current, object.",
 )
 @click.option(
     "--top-k",
@@ -123,8 +123,8 @@ async def list_metadata(
     if mode in {"semantic", "hybrid"} and not (query or "").strip():
         raise click.BadParameter("--query is required for semantic/hybrid mode")
     agg = aggregation.strip().lower()
-    if agg not in {"latest", "array", "objects"}:
-        raise click.BadParameter("--aggregation must be one of: latest, array, objects")
+    if agg not in {"latest", "current", "object"}:
+        raise click.BadParameter("--aggregation must be one of: latest, current, object")
 
     keys = list(metadata_keys or ())
     if mode in {"semantic", "hybrid"} and not keys:

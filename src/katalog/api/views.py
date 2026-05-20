@@ -9,7 +9,13 @@ from loguru import logger
 from katalog.api.helpers import ApiError
 from katalog.db.actors import get_actor_repo
 from katalog.models import Actor, ActorType
-from katalog.models.views import ViewSpec, ensure_actor_column, get_view, list_views
+from katalog.models.views import (
+    ViewSpec,
+    ensure_actor_column,
+    ensure_asset_id_column,
+    get_view,
+    list_views,
+)
 from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_actor_instance
 
@@ -26,8 +32,8 @@ def _runtime_view_id(actor_id: int, local_id: str) -> str:
 
 def _normalize_view(raw: ViewSpec | dict[str, Any]) -> ViewSpec:
     if isinstance(raw, ViewSpec):
-        return ensure_actor_column(raw)
-    return ensure_actor_column(ViewSpec.model_validate(raw))
+        return ensure_actor_column(ensure_asset_id_column(raw))
+    return ensure_actor_column(ensure_asset_id_column(ViewSpec.model_validate(raw)))
 
 
 async def _plugin_views_for_actor(actor: Actor) -> list[ViewSpec]:

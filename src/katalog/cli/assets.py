@@ -66,29 +66,60 @@ async def list_assets(
     click.echo(f"Total returned: {response.stats.returned}")
 
 
-@assets_app.command("show")
+@assets_app.command("get")
 @click.argument("asset_id", type=int)
+@click.option(
+    "--actor-id",
+    "metadata_actor_ids",
+    type=int,
+    multiple=True,
+    help="Filter metadata to actor id (repeatable).",
+)
+@click.option(
+    "--include-removed",
+    is_flag=True,
+    default=False,
+    help="Include removed metadata rows (only valid with --aggregation object).",
+)
+@click.option(
+    "--aggregation",
+    type=str,
+    default="latest",
+    show_default=True,
+    help="Metadata aggregation: latest, current, object.",
+)
 @with_lifespan(runtime_mode="fast_read")
-async def show_asset(ctx: click.Context, asset_id: int) -> None:
-    """Show details for a single asset."""
-    from katalog.api.assets import get_asset as get_asset_api
+async def get_asset_cli(
+    ctx: click.Context,
+    asset_id: int,
+    metadata_actor_ids: tuple[int, ...],
+    include_removed: bool,
+    aggregation: str,
+) -> None:
+    """Get one asset with projected metadata."""
+    from katalog.api.assets import get_asset_serialized as get_asset_api
 
-    asset, metadata = await get_asset_api(asset_id)
-    if wants_json(ctx):
-        click.echo(
-            json.dumps(
-                {
-                    "asset": asset.model_dump(),
-                    "metadata": [entry.model_dump() for entry in metadata],
-                },
-                default=str,
-            )
+    agg = aggregation.strip().lower()
+    if agg not in {"latest", "current", "object"}:
+        raise click.BadParameter("--aggregation must be one of: latest, current, object")
+
+    try:
+        row = await get_asset_api(
+            asset_id,
+            metadata_actor_ids=list(metadata_actor_ids) or None,
+            metadata_include_removed=include_removed,
+            metadata_aggregation=agg,
         )
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
+    if wants_json(ctx):
+        click.echo(json.dumps(row, default=str))
         return
 
-    click.echo(f"ID: {asset.id}")
-    click.echo(f"Namespace: {asset.namespace}")
-    click.echo(f"External ID: {asset.external_id}")
-    click.echo(f"Canonical URI: {asset.canonical_uri}")
-    click.echo(f"Actor ID: {asset.actor_id if asset.actor_id else '-'}")
-    click.echo(f"Metadata entries: {len(metadata)}")
+    click.echo(f"ID: {row.get('asset/id')}")
+    click.echo(f"Namespace: {row.get('asset/namespace')}")
+    click.echo(f"External ID: {row.get('asset/external_id')}")
+    click.echo(f"Canonical URI: {row.get('asset/canonical_uri')}")
+    click.echo(f"Actor ID: {row.get('asset/actor_id') or '-'}")
+    metadata_keys = [key for key in row.keys() if not key.startswith("asset/")]
+    click.echo(f"Metadata keys: {len(metadata_keys)}")

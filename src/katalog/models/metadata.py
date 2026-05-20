@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-from typing import Any, Iterable, Protocol, Sequence, TYPE_CHECKING, TypeVar, overload
+from typing import Any, Iterable, Literal, Protocol, Sequence, TYPE_CHECKING, TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field, field_serializer
 
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from katalog.models.core import Changeset
 
 T = TypeVar("T")
+MetadataAggregation = Literal["latest", "current", "object"]
 
 
 class MetadataRegistry(BaseModel):
@@ -382,6 +383,193 @@ class MetadataChanges(BaseModel):
                 continue
             result.setdefault(key, []).append(entry)
         return result
+
+    @staticmethod
+    def metadata_sort_key(entry: Metadata) -> tuple[int, int]:
+        return (
+            int(entry.changeset_id or 0),
+            int(entry.id or 0),
+        )
+
+    @staticmethod
+    def metadata_key_for_entry(entry: Metadata) -> str:
+        try:
+            return str(entry.key)
+        except (KeyError, RuntimeError):
+            metadata_key_id = entry.metadata_key_id
+            if metadata_key_id is None:
+                return ""
+            return f"id:{int(metadata_key_id)}"
+
+    @staticmethod
+    def metadata_object_payload(entry: Metadata, key: str) -> dict[str, Any]:
+        payload = entry.model_dump(mode="json")
+        payload["key"] = key
+        payload["value"] = entry.value
+        return payload
+
+    @staticmethod
+    def validate_serialization_options(
+        *,
+        include_removed: bool,
+        aggregation: MetadataAggregation,
+    ) -> None:
+        if include_removed and aggregation in {"latest", "current"}:
+            raise ValueError(
+                "metadata_include_removed=true is not supported for metadata_aggregation="
+                f"{aggregation}; use metadata_aggregation=object"
+            )
+
+    @staticmethod
+    def filter_entries(
+        metadata: Sequence[Metadata],
+        *,
+        include_removed: bool = False,
+        actor_ids: Sequence[int] | None = None,
+    ) -> list[Metadata]:
+        actor_filter = {int(actor_id) for actor_id in (actor_ids or [])}
+        filtered: list[Metadata] = []
+        for entry in metadata:
+            if not include_removed and entry.removed:
+                continue
+            if actor_filter:
+                entry_actor_id = entry.actor_id
+                if entry_actor_id is None or int(entry_actor_id) not in actor_filter:
+                    continue
+            filtered.append(entry)
+        return filtered
+
+    @staticmethod
+    def serialize_entries(
+        metadata: Sequence[Metadata],
+        *,
+        aggregation: MetadataAggregation = "latest",
+        metadata_keys: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        key_filter = {str(key) for key in (metadata_keys or [])}
+
+        if aggregation == "latest":
+            current = MetadataChanges._current_metadata(metadata)
+            projected: dict[str, Any] = {}
+            for key, entries in current.items():
+                key_str = str(key)
+                if key_filter and key_str not in key_filter:
+                    continue
+                projected[key_str] = entries[0].value if entries else None
+            if metadata_keys:
+                for key in metadata_keys:
+                    projected.setdefault(str(key), None)
+            return projected
+
+        if aggregation == "current":
+            current = MetadataChanges._current_metadata(metadata)
+            projected: dict[str, list[Any]] = {}
+            for key, entries in current.items():
+                key_str = str(key)
+                if key_filter and key_str not in key_filter:
+                    continue
+                projected[key_str] = [entry.value for entry in entries]
+            if metadata_keys:
+                for key in metadata_keys:
+                    projected.setdefault(str(key), [])
+            return projected
+
+        if aggregation == "object":
+            projected: dict[str, list[dict[str, Any]]] = {}
+            for entry in sorted(
+                metadata,
+                key=MetadataChanges.metadata_sort_key,
+                reverse=True,
+            ):
+                key = MetadataChanges.metadata_key_for_entry(entry)
+                if not key:
+                    continue
+                if key_filter and key not in key_filter:
+                    continue
+                projected.setdefault(key, []).append(
+                    MetadataChanges.metadata_object_payload(entry, key)
+                )
+            if metadata_keys:
+                for key in metadata_keys:
+                    projected.setdefault(str(key), [])
+            return projected
+
+        raise ValueError(f"Unsupported metadata aggregation: {aggregation}")
+
+    @staticmethod
+    def serialize_filtered_entries(
+        metadata: Sequence[Metadata],
+        *,
+        include_removed: bool = False,
+        actor_ids: Sequence[int] | None = None,
+        aggregation: MetadataAggregation = "latest",
+        metadata_keys: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        MetadataChanges.validate_serialization_options(
+            include_removed=include_removed,
+            aggregation=aggregation,
+        )
+        filtered = MetadataChanges.filter_entries(
+            metadata,
+            include_removed=include_removed,
+            actor_ids=actor_ids,
+        )
+        return MetadataChanges.serialize_entries(
+            filtered,
+            aggregation=aggregation,
+            metadata_keys=metadata_keys,
+        )
+
+    @staticmethod
+    def serialize_asset_row_base(asset: Asset) -> dict[str, Any]:
+        return {
+            "asset/id": asset.id,
+            "asset/actor_id": asset.actor_id,
+            "asset/namespace": asset.namespace,
+            "asset/external_id": asset.external_id,
+            "asset/canonical_uri": asset.canonical_uri,
+        }
+
+    @staticmethod
+    def serialize_asset_with_metadata(
+        asset: Asset,
+        metadata: Sequence[Metadata],
+        *,
+        include_removed: bool = False,
+        actor_ids: Sequence[int] | None = None,
+        aggregation: MetadataAggregation = "latest",
+        metadata_keys: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        row = MetadataChanges.serialize_asset_row_base(asset)
+        row.update(
+            MetadataChanges.serialize_filtered_entries(
+                metadata,
+                include_removed=include_removed,
+                actor_ids=actor_ids,
+                aggregation=aggregation,
+                metadata_keys=metadata_keys,
+            )
+        )
+        return row
+
+    @staticmethod
+    def serialize_get_asset_result(
+        result: tuple[Asset, Sequence[Metadata]],
+        *,
+        include_removed: bool = False,
+        actor_ids: Sequence[int] | None = None,
+        aggregation: MetadataAggregation = "latest",
+        metadata_keys: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        asset, metadata = result
+        return MetadataChanges.serialize_asset_with_metadata(
+            asset,
+            metadata,
+            include_removed=include_removed,
+            actor_ids=actor_ids,
+            aggregation=aggregation,
+            metadata_keys=metadata_keys,
+        )
 
     @staticmethod
     def _current_metadata_by_actor(

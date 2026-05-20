@@ -32,12 +32,105 @@ import type {
 const rawBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
 const API_BASE = rawBase && rawBase.length > 0 ? rawBase : "/api";
 
+type AssetDetailProjectedRow = Record<string, unknown>;
+
 async function handleResponse(response: Response) {
   if (!response.ok) {
     const payload = await response.text();
     throw new Error(`Request failed (${response.status}): ${payload}`);
   }
   return response.json();
+}
+
+function toNumberOr(value: unknown, fallback: number): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function toStringOr(value: unknown, fallback: string): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  return String(value);
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeAssetDetail(payload: unknown, fallbackAssetId: number): AssetDetailResponse {
+  if (isObjectRecord(payload) && Array.isArray(payload.metadata) && isObjectRecord(payload.asset)) {
+    const legacy = payload as { asset: Record<string, unknown>; metadata: unknown[] };
+    return {
+      asset: {
+        id: toNumberOr(legacy.asset.id, fallbackAssetId),
+        actor_id: toNumberOr(legacy.asset.actor_id, 0),
+        external_id: toStringOr(legacy.asset.external_id, String(fallbackAssetId)),
+        canonical_uri: toStringOr(legacy.asset.canonical_uri, ""),
+      },
+      metadata: legacy.metadata
+        .filter(isObjectRecord)
+        .map((entry: Record<string, unknown>, index: number) => ({
+          id: toNumberOr(entry.id, index),
+          asset_id: toNumberOr(entry.asset_id, fallbackAssetId),
+          actor_id: toNumberOr(entry.actor_id, 0),
+          changeset_id: toNumberOr(entry.changeset_id, 0),
+          metadata_key_id: toNumberOr(entry.metadata_key_id, 0),
+          key: toStringOr(entry.key, ""),
+          value_type: toStringOr(entry.value_type, "STRING"),
+          value: (entry.value ?? null) as AssetDetailResponse["metadata"][number]["value"],
+          removed: Boolean(entry.removed),
+          confidence: typeof entry.confidence === "number" ? entry.confidence : null,
+        })),
+    };
+  }
+
+  const row = isObjectRecord(payload) ? (payload as AssetDetailProjectedRow) : {};
+  const assetId = toNumberOr(row["asset/id"], fallbackAssetId);
+  const metadataRows: AssetDetailResponse["metadata"] = [];
+
+  Object.entries(row).forEach(([key, value]) => {
+    if (key.startsWith("asset/") || !Array.isArray(value)) {
+      return;
+    }
+    value.forEach((entry, index) => {
+      if (!isObjectRecord(entry)) {
+        return;
+      }
+      metadataRows.push({
+        id: toNumberOr(entry.id, index),
+        asset_id: toNumberOr(entry.asset_id, assetId),
+        actor_id: toNumberOr(entry.actor_id, 0),
+        changeset_id: toNumberOr(entry.changeset_id, 0),
+        metadata_key_id: toNumberOr(entry.metadata_key_id, 0),
+        key: toStringOr(entry.key, key),
+        value_type: toStringOr(entry.value_type, "STRING"),
+        value: (entry.value ?? null) as AssetDetailResponse["metadata"][number]["value"],
+        removed: Boolean(entry.removed),
+        confidence: typeof entry.confidence === "number" ? entry.confidence : null,
+      });
+    });
+  });
+
+  metadataRows.sort((a, b) => {
+    if (a.changeset_id !== b.changeset_id) {
+      return b.changeset_id - a.changeset_id;
+    }
+    return b.id - a.id;
+  });
+
+  return {
+    asset: {
+      id: assetId,
+      actor_id: toNumberOr(row["asset/actor_id"], 0),
+      external_id: toStringOr(row["asset/external_id"], String(assetId)),
+      canonical_uri: toStringOr(row["asset/canonical_uri"], ""),
+    },
+    metadata: metadataRows,
+  };
 }
 
 export async function fetchAssets(
@@ -313,10 +406,13 @@ export async function fetchChangesetChanges(
 }
 
 export async function fetchAssetDetail(assetId: number): Promise<AssetDetailResponse> {
-  const response = await fetch(`${API_BASE}/assets/${assetId}`, {
+  const params = new URLSearchParams();
+  params.set("metadata_aggregation", "object");
+  const response = await fetch(`${API_BASE}/assets/${assetId}?${params.toString()}`, {
     headers: { Accept: "application/json" },
   });
-  return handleResponse(response);
+  const payload = await handleResponse(response);
+  return normalizeAssetDetail(payload, assetId);
 }
 
 export async function fetchCollections(): Promise<CollectionListResponse> {

@@ -132,6 +132,34 @@ def ensure_actor_column(view: ViewSpec) -> ViewSpec:
     )
 
 
+def ensure_asset_id_column(view: ViewSpec) -> ViewSpec:
+    asset_id_column_id = str(ASSET_ID)
+    if any(column.id == asset_id_column_id for column in view.columns):
+        if view.default_columns is None or asset_id_column_id in view.default_columns:
+            return view
+        return view.model_copy(
+            update={"default_columns": [asset_id_column_id, *view.default_columns]}
+        )
+
+    asset_id_column = ColumnSpec.from_metadata(
+        ASSET_ID,
+        sortable=True,
+        width=80,
+    )
+    columns = [asset_id_column, *view.columns]
+
+    default_columns = view.default_columns
+    if default_columns is not None:
+        default_columns = [asset_id_column_id, *default_columns]
+
+    return view.model_copy(
+        update={
+            "columns": columns,
+            "default_columns": default_columns,
+        }
+    )
+
+
 def default_view() -> ViewSpec:
     """Default view: mirrors the previous list_assets_with_metadata output."""
     columns: list[ColumnSpec] = [

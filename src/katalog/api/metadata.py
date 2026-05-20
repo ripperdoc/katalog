@@ -200,39 +200,41 @@ async def _list_metadata_direct(query: AssetQuery) -> dict:
         asset_ids,
         include_removed=bool(query.metadata_include_removed),
     )
-    actor_filter = set(query.metadata_actor_ids or [])
+    actor_ids = list(query.metadata_actor_ids or [])
     key_filter = {str(key) for key in (query.search_metadata_keys or [])}
     aggregated_rows: list[dict] = []
     for asset_id in asset_ids:
-        entries = list(metadata_by_asset.get(int(asset_id), []))
-        if actor_filter:
-            entries = [
-                entry
-                for entry in entries
-                if entry.actor_id is not None and int(entry.actor_id) in actor_filter
-            ]
+        entries = MetadataChanges.filter_entries(
+            list(metadata_by_asset.get(int(asset_id), [])),
+            include_removed=bool(query.metadata_include_removed),
+            actor_ids=actor_ids or None,
+        )
         if query.metadata_aggregation == "latest":
             current = MetadataChanges(loaded=entries).current()
-            latest_entries = [entry for values in current.values() for entry in values]
+            selected_entries = [values[0] for values in current.values() if values]
             entries = sorted(
-                latest_entries,
-                key=lambda item: (
-                    int(item.changeset_id or 0),
-                    int(item.id or 0),
-                ),
+                selected_entries,
+                key=MetadataChanges.metadata_sort_key,
+                reverse=True,
+            )
+        elif query.metadata_aggregation == "current":
+            current = MetadataChanges(loaded=entries).current()
+            selected_entries = [entry for values in current.values() for entry in values]
+            entries = sorted(
+                selected_entries,
+                key=MetadataChanges.metadata_sort_key,
                 reverse=True,
             )
         else:
             entries = sorted(
                 entries,
-                key=lambda item: (
-                    int(item.changeset_id or 0),
-                    int(item.id or 0),
-                ),
+                key=MetadataChanges.metadata_sort_key,
                 reverse=True,
             )
         for entry in entries:
-            key = str(entry.key)
+            key = MetadataChanges.metadata_key_for_entry(entry)
+            if not key:
+                continue
             if key_filter and key not in key_filter:
                 continue
             value = entry.value
