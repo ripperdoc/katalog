@@ -19,7 +19,8 @@ dependencies = [
     "pyyaml>=6.0.2",
     "sqlite-vec>=0.1.6",
     "diskcache>=5.6.3",
-    "rich>=14.3.2",
+    # Downstream katalog consumers still require rich < 14.
+    "rich>=13.0.0,<14",
 ]
 
 [project.optional-dependencies]
