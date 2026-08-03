@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from katalog.api.helpers import ApiError
 from katalog.lifespan import app_lifespan
@@ -60,27 +61,33 @@ def _resolve_ui_dist() -> Path | None:
 
 class SPAStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        is_frontend_route = not (
-            path.startswith("api/")
+        # Starlette raises HTTPException(404) for missing files (it does not
+        # return a 404 response), so the SPA fallback must catch it.
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if (
+                exc.status_code == 404
+                and scope.get("method") == "GET"
+                and self._is_frontend_route(path)
+            ):
+                return await super().get_response("index.html", scope)
+            raise
+        return response
+
+    @staticmethod
+    def _is_frontend_route(path: str) -> bool:
+        return not (
+            path.startswith(("api/", "docs", "openapi", "redoc", "mcp/"))
             or path == "api"
-            or path.startswith("docs")
-            or path.startswith("openapi")
-            or path.startswith("redoc")
-            or path.startswith("mcp/")
             or path == "mcp"
         )
-        if (
-            response.status_code == 404
-            and scope.get("method") == "GET"
-            and is_frontend_route
-        ):
-            return await super().get_response("index.html", scope)
-        return response
 
 
 app = FastAPI(
-    lifespan=partial(app_lifespan, runtime_mode="read_write", log_discovered_plugins=True)
+    lifespan=partial(
+        app_lifespan, runtime_mode="read_write", log_discovered_plugins=True
+    )
 )
 
 
