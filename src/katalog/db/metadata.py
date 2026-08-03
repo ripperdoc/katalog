@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, Sequence
 
 from katalog.db.sqlspec.metadata import SqlspecMetadataRepo
-from katalog.db.sqlspec.query_metadata_registry import (
-    setup_db,
-    sync_config_db,
-    sync_metadata_registry,
-)
+
+# Re-exported facade API; the `as` alias keeps import organizers from removing it.
+from katalog.db.sqlspec.query_metadata_registry import sync_config_db as sync_config_db
 from katalog.models.metadata import Metadata
 
 

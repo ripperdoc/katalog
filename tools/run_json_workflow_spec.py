@@ -5,8 +5,8 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def _ensure_src_on_path() -> None:

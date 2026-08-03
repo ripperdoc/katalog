@@ -11,7 +11,14 @@ from katalog.constants.metadata import (
     EVAL_TRUTH_TEXT,
     EVAL_UNIQUE_WORD_RATIO,
 )
-from katalog.models import Actor, ActorType, Asset, MetadataChanges, OpStatus, make_metadata
+from katalog.models import (
+    Actor,
+    ActorType,
+    Asset,
+    MetadataChanges,
+    OpStatus,
+    make_metadata,
+)
 from katalog.processors.eval_text_quality import EvalTextQualityProcessor
 from katalog.processors.eval_truth_compare import EvalTruthCompareProcessor
 

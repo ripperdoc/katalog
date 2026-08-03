@@ -56,6 +56,7 @@ async def test_update_actor_config_keeps_identity_key_stable(db_session) -> None
             config={"namespace": "identity_stable_before", "total_assets": 0},
         )
     )
+    assert actor.id is not None
     updated = await update_actor(
         int(actor.id),
         ActorUpdate(config={"namespace": "identity_stable_after", "total_assets": 0}),

@@ -47,7 +47,7 @@ cache-dir = ".uv_cache"
 
 [dependency-groups]
 #dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "line_profiler", "pyright"]
-dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "pyright", "pdoc>=16.0.0"]
+dev = ["pip", "pytest", "pytest-asyncio", "py-spy", "ty", "ruff", "pdoc>=16.0.0"]
 
 [project.scripts]
 # Installable console script: runs katalog.cli:main as `katalog`

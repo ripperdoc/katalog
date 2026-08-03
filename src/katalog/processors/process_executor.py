@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import nullcontext
 import logging
+from contextlib import nullcontext
 from typing import Any
 
 from katalog.config import build_app_context, use_app_context
 from katalog.db.sqlspec import forbid_db_access
+from katalog.models import Actor, ActorType, MetadataChanges, OpStatus
+from katalog.plugins.registry import get_actor_instance
+from katalog.processors.base import Processor, ProcessorResult
 from katalog.processors.serialization import (
     normalize_metadata_changes_payload,
     seed_registry,
 )
-from katalog.models import Actor, ActorType, MetadataChanges, OpStatus
-from katalog.processors.base import ProcessorResult
-from katalog.plugins.registry import get_actor_instance
-
 
 _REGISTRY_READY = False
 
@@ -26,6 +25,10 @@ async def _run_processor(
 ) -> ProcessorResult:
     with forbid_db_access():
         processor = await get_actor_instance(actor)
+        if not isinstance(processor, Processor):
+            raise TypeError(
+                f"Actor '{actor.name}' ({actor.plugin_id}) is not a processor plugin"
+            )
         return await processor.run(changes)
 
 

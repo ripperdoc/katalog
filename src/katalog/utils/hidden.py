@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
-
 _HIDDEN_BASENAMES = {
     "thumbs.db",
     "ehthumbs.db",

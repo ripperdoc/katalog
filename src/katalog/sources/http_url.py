@@ -3,10 +3,10 @@ from __future__ import annotations
 import email.utils as email_utils
 import hashlib
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import timedelta, timezone
 from typing import Any, Literal
-import secrets
 
 from crawlee import Request
 from crawlee.crawlers import HttpCrawler, HttpCrawlingContext
@@ -22,8 +22,14 @@ from katalog.constants.metadata import (
     FILE_URI,
     TIME_MODIFIED,
 )
-from katalog.models import Asset, Actor, DataReader, MetadataChanges, OpStatus
-from katalog.models import MetadataKey
+from katalog.models import (
+    Actor,
+    Asset,
+    DataReader,
+    MetadataChanges,
+    MetadataKey,
+    OpStatus,
+)
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.blob_cache import get_cached_blob, put_cached_blob
 from katalog.utils.url import canonicalize_web_url
@@ -201,11 +207,10 @@ class HttpUrlSource(SourcePlugin):
             alias=f"http-url-{secrets.token_hex(4)}",
             storage_client=storage_client,
         )
-        crawler_logger: logging.Logger | None = None
+        crawler_logger = logging.getLogger(
+            f"katalog.sources.http_url.crawler.{self.actor.id or 'unknown'}"
+        )
         if not self.verbose_crawler_logs:
-            crawler_logger = logging.getLogger(
-                f"katalog.sources.http_url.crawler.{self.actor.id or 'unknown'}"
-            )
             crawler_logger.disabled = False
             crawler_logger.setLevel(logging.CRITICAL + 1)
             crawler_logger.propagate = False

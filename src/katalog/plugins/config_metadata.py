@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from pydantic import BaseModel, ConfigDict
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 
 from katalog.constants.metadata import (
     METADATA_REGISTRY,
@@ -82,10 +82,7 @@ def collect_config_metadata_definitions(
         return []
     if not isinstance(raw_defs, list):
         raise ValueError("metadata_definitions_from_config must return a list")
-    return [
-        _build_metadata_def(plugin_id=plugin_id, entry=entry)
-        for entry in raw_defs
-    ]
+    return [_build_metadata_def(plugin_id=plugin_id, entry=entry) for entry in raw_defs]
 
 
 def register_config_metadata_definitions(definitions: Sequence[MetadataDef]) -> bool:

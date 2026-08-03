@@ -3,37 +3,37 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import UTC, datetime
-from typing import Awaitable, Sequence, cast
+from typing import Any, Awaitable, Sequence, cast
 
 from loguru import logger
 
+from katalog.config import current_db_url, current_workspace
 from katalog.constants.metadata import MetadataKey
+from katalog.db.actors import get_actor_repo
+from katalog.db.assets import get_asset_repo
+from katalog.db.metadata import get_metadata_repo
+from katalog.db.sqlspec import forbid_db_access
 from katalog.models import (
-    Asset,
-    Metadata,
-    OpStatus,
     Actor,
     ActorType,
+    Asset,
     Changeset,
-    MetadataChanges,
     ChangesetStats,
+    Metadata,
+    MetadataChanges,
+    OpStatus,
 )
-from katalog.processors.executors import ProcessorExecutorBundle
+from katalog.plugins.registry import get_actor_instance
 from katalog.processors.base import Processor, ProcessorResult
+from katalog.processors.executors import ProcessorExecutorBundle
 from katalog.processors.process_executor import run_processor_in_process
 from katalog.processors.serialization import (
     dump_registry,
     normalize_processor_result_payload,
 )
-from katalog.plugins.registry import get_actor_instance
-from katalog.db.assets import get_asset_repo
-from katalog.db.metadata import get_metadata_repo
-from katalog.db.actors import get_actor_repo
-from katalog.db.sqlspec import forbid_db_access
 from katalog.runtime.batch import get_batch_size, iter_batches
-from katalog.config import current_db_url, current_workspace
 
-ProcessorStage = list[Processor]
+ProcessorStage = Sequence[Processor]
 
 
 def _coerce_utc(dt: datetime) -> datetime:
@@ -93,7 +93,7 @@ async def sort_processors(
 ) -> tuple[list[ProcessorStage], list[Actor]]:
     """Return processors layered via Kahn topological sorting, plus actor records."""
 
-    filters = {"type": ActorType.PROCESSOR, "disabled": False}
+    filters: dict[str, Any] = {"type": ActorType.PROCESSOR, "disabled": False}
     if actor_ids:
         filters["id__in"] = sorted(set(actor_ids))
     db = get_actor_repo()

@@ -4,18 +4,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from katalog.constants.metadata import MetadataKey
-from katalog.models import (
-    Asset,
-    Metadata,
-    OpStatus,
-    Actor,
-    ActorType,
-    make_metadata,
-)
-from katalog.db.metadata import sync_config_db
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
+from katalog.db.metadata import sync_config_db
+from katalog.models import (
+    Actor,
+    ActorType,
+    Asset,
+    Metadata,
+    OpStatus,
+    make_metadata,
+)
 
 
 async def init_db() -> None:

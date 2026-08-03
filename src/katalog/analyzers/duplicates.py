@@ -4,6 +4,7 @@ from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+
 from katalog.analyzers.base import (
     Analyzer,
     AnalyzerIssue,
@@ -12,11 +13,11 @@ from katalog.analyzers.base import (
     FileGroupFinding,
 )
 from katalog.analyzers.utils import build_scoped_assets_cte
-from katalog.db.sqlspec.sql_helpers import select
-from katalog.db.sqlspec import session_scope
-from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
-from katalog.models import Metadata, Actor, Changeset
 from katalog.constants.metadata import HASH_MD5, get_metadata_id
+from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.sql_helpers import select
+from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
+from katalog.models import Actor, Changeset, Metadata
 
 
 class ExactDuplicateAnalyzer(Analyzer):

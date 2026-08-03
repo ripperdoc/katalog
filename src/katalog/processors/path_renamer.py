@@ -63,7 +63,7 @@ class PathRenamerProcessor(Processor):
         return changes.changed_since_actor(
             self.dependencies,
             actor_id=int(self.actor.id or 0),
-            actor_outputs=set(self.outputs),
+            actor_outputs=self.outputs,
         )
 
     async def run(self, changes: MetadataChanges) -> ProcessorResult:

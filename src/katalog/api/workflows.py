@@ -14,7 +14,6 @@ from katalog.workflows import (
 )
 from katalog.workflows.contracts import WorkflowInputSpec, workflow_input_to_payload
 
-
 WorkflowRef = Union[str, WorkflowSpec]
 
 

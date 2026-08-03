@@ -6,9 +6,8 @@ from katalog.constants.metadata import (
     get_metadata_def_by_key,
     get_metadata_id,
 )
-from katalog.models.views import ViewSpec
-
 from katalog.db.sqlspec.query_fields import asset_sort_fields
+from katalog.models.views import ViewSpec
 
 
 def _metadata_sort_expr(sort_col: str, view: ViewSpec) -> str:

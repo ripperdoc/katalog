@@ -1,22 +1,7 @@
-from typing import Any
 import tomllib
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-from katalog.models import Actor, Changeset
-from katalog.db.actors import get_actor_repo
-from katalog.db.changesets import get_changeset_repo
-from katalog.plugins.registry import (
-    PluginSpec,
-    get_plugin_class,
-    get_plugin_spec,
-    refresh_plugins,
-)
-from katalog.plugins.config_metadata import (
-    collect_config_metadata_definitions,
-    register_config_metadata_definitions,
-)
-from katalog.db.sqlspec.query_metadata_registry import sync_metadata_registry
 
 from katalog.api.helpers import (
     ApiError,
@@ -24,6 +9,20 @@ from katalog.api.helpers import (
     config_schema_for_plugin,
     requires_write_access,
     validate_and_normalize_config,
+)
+from katalog.db.actors import get_actor_repo
+from katalog.db.changesets import get_changeset_repo
+from katalog.db.sqlspec.query_metadata_registry import sync_metadata_registry
+from katalog.models import Actor, Changeset
+from katalog.plugins.config_metadata import (
+    collect_config_metadata_definitions,
+    register_config_metadata_definitions,
+)
+from katalog.plugins.registry import (
+    PluginSpec,
+    get_plugin_class,
+    get_plugin_spec,
+    refresh_plugins,
 )
 
 

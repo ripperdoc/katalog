@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import math
-from typing import Literal
-
 
 DEFAULT_EMBEDDING_MODEL = "fast"
-EmbeddingBackend = Literal["preset", "fastembed"]
+# Only "preset" is supported; "fastembed" is recognized to raise a helpful
+# migration error. Kept as plain `str` since callers pass config values.
+EmbeddingBackend = str
 
 
 class EmbeddingError(RuntimeError):
@@ -32,10 +32,11 @@ async def embed_text_xberg(
         ChunkingConfig,
         EmbeddingConfig,
         EmbeddingModelType,
-        ExtractInput,
         ExtractionConfig,
         extract,
     )
+
+    from katalog.utils.xberg import BytesExtractInput
 
     if backend == "fastembed":
         # The fastembed backend was removed when kreuzberg became xberg; the
@@ -44,10 +45,12 @@ async def embed_text_xberg(
             "The 'fastembed' embedding backend was removed in xberg. "
             "Use backend='preset' with a preset name such as 'fast'."
         )
+    if backend != "preset":
+        raise EmbeddingError(f"Unknown embedding backend {backend!r}; only 'preset' is supported.")
     embedding_model = EmbeddingModelType.preset(model)
 
     result = await extract(
-        input=ExtractInput(
+        input=BytesExtractInput(
             kind="bytes",
             bytes=text.encode("utf-8"),
             mime_type="text/plain",

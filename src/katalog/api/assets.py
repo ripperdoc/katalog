@@ -1,21 +1,21 @@
 from typing import Any, Literal, Sequence
 
-from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
-from katalog.constants.metadata import MetadataKey
-from katalog.db.assets import get_asset_repo
-from katalog.editors.user_editor import ensure_user_editor
-from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
-from katalog.models.query import AssetQuery
+from loguru import logger
+
 from katalog.api.helpers import ApiError, requires_write_access
-from katalog.api.views import get_view_api
 from katalog.api.schemas import (
     AssetsListResponse,
     GroupedAssetsResponse,
     ManualEditResult,
 )
+from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
+from katalog.api.views import get_view_api
+from katalog.constants.metadata import MetadataKey
+from katalog.db.assets import get_asset_repo
 from katalog.db.metadata import get_metadata_repo
-from loguru import logger
-
+from katalog.editors.user_editor import ensure_user_editor
+from katalog.models import Asset, Metadata, MetadataChanges, make_metadata
+from katalog.models.query import AssetFilter, AssetQuery
 
 
 async def list_assets(query: AssetQuery) -> AssetsListResponse:
@@ -182,12 +182,12 @@ async def _list_assets_semantic(query: AssetQuery) -> AssetsListResponse:
     if page_asset_ids:
         scoped_query.filters = [
             *(scoped_query.filters or []),
-            {"key": "asset/id", "op": "in", "values": [str(asset_id) for asset_id in page_asset_ids]},
+            AssetFilter(key="asset/id", op="in", values=[str(asset_id) for asset_id in page_asset_ids]),
         ]
     else:
         scoped_query.filters = [
             *(scoped_query.filters or []),
-            {"key": "asset/id", "op": "equals", "value": "-1"},
+            AssetFilter(key="asset/id", op="equals", value="-1"),
         ]
 
     view = await get_view_api(scoped_query.view_id or "default")

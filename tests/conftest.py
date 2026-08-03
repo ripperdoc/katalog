@@ -7,13 +7,13 @@ import pytest
 import pytest_asyncio
 
 from katalog.config import build_app_context, use_app_context
-from katalog.db.sqlspec import close_db, test_session
-from katalog.db.metadata import sync_config_db
-from katalog.models import ActorType, OpStatus
 from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
-from katalog.sources.runtime import run_sources
+from katalog.db.metadata import sync_config_db
+from katalog.db.sqlspec import close_db, test_session
+from katalog.models import ActorType, OpStatus
 from katalog.plugins import registry as plugin_registry
+from katalog.sources.runtime import run_sources
 
 
 @pytest.fixture(autouse=True)

@@ -11,14 +11,13 @@ from katalog.constants.metadata import (
     FILE_NAME,
     FILE_TITLE,
     INTERNAL_VECTOR_REINDEX,
-    MetadataKey,
     VECTOR_INDEXED_COUNT,
+    MetadataKey,
 )
 from katalog.db.vectors import get_vector_repo
 from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.vectors.embedding import DEFAULT_EMBEDDING_MODEL, embed_text_xberg
-
 
 # Plugin id written by katalog versions before the kreuzberg → xberg rename.
 # Workspaces created back then still store it in their actors table, so read

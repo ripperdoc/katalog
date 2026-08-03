@@ -125,6 +125,8 @@ async def list_metadata(
     agg = aggregation.strip().lower()
     if agg not in {"latest", "current", "object"}:
         raise click.BadParameter("--aggregation must be one of: latest, current, object")
+    if embedding_backend not in ("preset", "fastembed"):
+        raise click.BadParameter("--embedding-backend must be one of: preset, fastembed")
 
     keys = list(metadata_keys or ())
     if mode in {"semantic", "hybrid"} and not keys:

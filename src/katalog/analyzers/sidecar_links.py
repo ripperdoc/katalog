@@ -4,7 +4,12 @@ from typing import Any
 
 from loguru import logger
 
-from katalog.analyzers.base import Analyzer, AnalyzerIssue, AnalyzerResult, AnalyzerScope
+from katalog.analyzers.base import (
+    Analyzer,
+    AnalyzerIssue,
+    AnalyzerResult,
+    AnalyzerScope,
+)
 from katalog.constants.metadata import (
     FILE_NAME,
     FILE_PATH,

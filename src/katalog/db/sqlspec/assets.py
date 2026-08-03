@@ -19,23 +19,21 @@ from katalog.constants.metadata import (
     get_metadata_id,
     metadata_key_for_id_or_fallback,
 )
-from katalog.db.sqlspec.sql_helpers import execute, scalar, select, select_one_or_none
-from katalog.db.sqlspec import session_scope
-from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
-from katalog.db.utils import build_where
-
-from katalog.models.assets import Asset
-from katalog.models.metadata import Metadata
-from katalog.models.query import AssetQuery
-from katalog.models.query import AssetsListResponse, GroupedAssetsResponse
-from katalog.models.views import ViewSpec
 from katalog.db.metadata import get_metadata_repo
+from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.fts import fts_table_name
 from katalog.db.sqlspec.query_fields import asset_filter_fields, asset_sort_fields
 from katalog.db.sqlspec.query_filters import filter_conditions
 from katalog.db.sqlspec.query_search import fts5_query_from_user_text
-from katalog.db.sqlspec.fts import fts_table_name
 from katalog.db.sqlspec.query_sort import sort_conditions
 from katalog.db.sqlspec.query_values import decode_metadata_value
+from katalog.db.sqlspec.sql_helpers import execute, scalar, select, select_one_or_none
+from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
+from katalog.db.utils import build_where
+from katalog.models.assets import Asset
+from katalog.models.metadata import Metadata
+from katalog.models.query import AssetQuery, AssetsListResponse, GroupedAssetsResponse
+from katalog.models.views import ViewSpec
 
 
 def _build_assets_where(
@@ -784,7 +782,7 @@ class SqlspecAssetRepo:
         session: Any,
         target_asset_ids: list[int],
         metadata_key_ids: list[int],
-    ) -> list[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if not target_asset_ids or not metadata_key_ids:
             return []
         target_placeholders = ", ".join("?" for _ in target_asset_ids)

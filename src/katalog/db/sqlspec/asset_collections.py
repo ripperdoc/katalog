@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
-from datetime import datetime, timezone
-
 import json
+from datetime import datetime, timezone
+from typing import Any
 
-from katalog.db.sqlspec.sql_helpers import execute, scalar, select
-from katalog.db.sqlspec import session_scope
-from katalog.db.sqlspec.tables import ASSET_COLLECTION_TABLE, ASSET_TABLE, METADATA_TABLE
-from katalog.db.utils import build_where, datetime_to_iso, to_utc_datetime
 from katalog.constants.metadata import MetadataType
+from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.assets import _build_assets_where
+from katalog.db.sqlspec.sql_helpers import execute, scalar, select
+from katalog.db.sqlspec.tables import (
+    ASSET_COLLECTION_TABLE,
+    ASSET_TABLE,
+    METADATA_TABLE,
+)
+from katalog.db.utils import build_where, datetime_to_iso, to_utc_datetime
 from katalog.models.assets import AssetCollection, CollectionRefreshMode
 from katalog.models.query import AssetQuery
 
@@ -142,6 +145,9 @@ class SqlspecAssetCollectionRepo:
             actor_id=None,
             filters=query.filters,
             search=query.search,
+            search_mode=query.search_mode,
+            search_index=query.search_index,
+            include_lost_assets=query.include_lost_assets,
         )
         insert_sql = f"""
         INSERT INTO {METADATA_TABLE} (

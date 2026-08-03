@@ -4,6 +4,7 @@ from typing import Any, AsyncIterator, Collection, cast
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from katalog.models import (
+    Actor,
     Asset,
     DataReader,
     Metadata,
@@ -11,7 +12,6 @@ from katalog.models import (
     MetadataKey,
     MetadataScalar,
     OpStatus,
-    Actor,
     make_metadata,
 )
 from katalog.plugins.base import PluginBase
@@ -87,10 +87,6 @@ class SourcePlugin(PluginBase):
         self._scan_sessions: dict[str, _ScanSession] = {}
         self._next_recursive_cursor = 0
         self._recursive_scan_sessions: dict[str, _ScanSession] = {}
-
-    async def is_ready(self) -> tuple[bool, str | None]:
-        """Return whether the source can execute in the current environment."""
-        return True, None
 
     def get_info(self) -> dict[str, Any]:
         """Returns metadata about the plugin."""

@@ -3,8 +3,8 @@ from enum import IntEnum
 from typing import Any, Mapping, NewType
 
 from pydantic import BaseModel, ConfigDict, field_serializer
-from katalog.config import current_app_context
 
+from katalog.config import current_app_context
 
 MetadataScalar = (
     str | int | float | bool | datetime | Mapping[str, Any] | list[Any] | None

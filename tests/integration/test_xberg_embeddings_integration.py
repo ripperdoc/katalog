@@ -6,7 +6,6 @@ import pytest
 
 from katalog.vectors.embedding import embed_text_xberg
 
-
 if os.getenv("KATALOG_RUN_XBERG_EMBEDDING_IT") != "1":
     pytest.skip(
         "Set KATALOG_RUN_XBERG_EMBEDDING_IT=1 to run Xberg embedding integration tests.",

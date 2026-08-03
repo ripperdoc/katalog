@@ -6,15 +6,13 @@ from importlib.metadata import EntryPoint, entry_points
 from typing import Iterable, TypeVar, cast, overload
 
 from loguru import logger
-
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from katalog.models import Actor, ActorType
-from katalog.db.actors import get_actor_repo
-from katalog.plugins.base import PluginBase
 from katalog.config import current_app_context
+from katalog.db.actors import get_actor_repo
+from katalog.models import Actor, ActorType
+from katalog.plugins.base import PluginBase
 from katalog.utils.utils import import_plugin_class
-
 
 ENTRYPOINT_GROUP_BY_TYPE: dict[ActorType, str] = {
     ActorType.SOURCE: "katalog.source",

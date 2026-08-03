@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping, Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Protocol
 
 from katalog.db.sqlspec.changesets import SqlspecChangesetRepo
-from katalog.db.errors import ChangesetInProgressError
 from katalog.models.core import Actor, Changeset, OpStatus
 
 
@@ -41,7 +40,9 @@ class ChangesetRepo(Protocol):
         message: str | None = None,
         data: dict[str, Any] | None = None,
     ) -> Changeset: ...
-    async def add_actors(self, changeset: Changeset, actors: Iterable[Actor]) -> None: ...
+    async def add_actors(
+        self, changeset: Changeset, actors: Iterable[Actor]
+    ) -> None: ...
     async def load_actor_ids(self, changeset: Changeset) -> list[int]: ...
     async def save(
         self, changeset: Changeset, *, update_data: dict[str, Any] | None = None

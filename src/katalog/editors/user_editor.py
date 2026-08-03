@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from katalog.models import Actor
 from katalog.db.actors import get_actor_repo
 from katalog.editors.base import EditorPlugin
+from katalog.models import Actor
 from katalog.models.core import ActorType
 
 

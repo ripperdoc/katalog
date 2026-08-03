@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import hashlib
+from datetime import UTC, datetime
 
 import pytest
 
 from katalog.constants.metadata import (
     FILE_SIZE,
     HASH_MD5,
+    METADATA_REGISTRY,
+    METADATA_REGISTRY_BY_ID,
     TIME_MODIFIED,
     MetadataDef,
-    METADATA_REGISTRY_BY_ID,
-    METADATA_REGISTRY,
 )
 from katalog.models import (
-    Asset,
     Actor,
     ActorType,
+    Asset,
     MetadataChanges,
     make_metadata,
 )

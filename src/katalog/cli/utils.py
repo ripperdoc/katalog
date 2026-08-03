@@ -1,5 +1,14 @@
 import functools
-from typing import Any, Awaitable, Callable, Mapping, ParamSpec, Sequence, TypeVar
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Concatenate,
+    Mapping,
+    ParamSpec,
+    Sequence,
+    TypeVar,
+)
 
 import asyncclick as click
 
@@ -10,10 +19,21 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def with_lifespan(*, runtime_mode: RuntimeMode = "read_write") -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
-    """Wrap an async CLI command in one app lifespan for the whole command."""
+def with_lifespan(
+    *, runtime_mode: RuntimeMode = "read_write"
+) -> Callable[
+    [Callable[Concatenate[click.Context, P], Awaitable[R]]],
+    Callable[P, Awaitable[R]],
+]:
+    """Wrap an async CLI command in one app lifespan for the whole command.
 
-    def _decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    The wrapped command must take `ctx` first; `@click.pass_context` supplies it,
+    so the returned callable no longer expects it.
+    """
+
+    def _decorator(
+        func: Callable[Concatenate[click.Context, P], Awaitable[R]],
+    ) -> Callable[P, Awaitable[R]]:
         @click.pass_context
         @functools.wraps(func)
         async def _wrapped(ctx: click.Context, *args: P.args, **kwargs: P.kwargs) -> R:

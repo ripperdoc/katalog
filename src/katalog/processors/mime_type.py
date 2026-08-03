@@ -3,15 +3,14 @@ from __future__ import annotations
 import magic
 from pydantic import BaseModel, ConfigDict, Field
 
-from katalog.constants.metadata import FILE_TYPE, DATA_FILE_READER
+from katalog.constants.metadata import DATA_FILE_READER, FILE_TYPE
+from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import (
     Processor,
     ProcessorResult,
-    file_data_changed,
     file_data_change_dependencies,
+    file_data_changed,
 )
-from katalog.models import MetadataChanges, make_metadata
-from katalog.models import OpStatus
 
 # NOTE, useful info about magic detection and licensing:
 # https://github.com/withzombies/tika-magic

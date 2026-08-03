@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
+
 from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
 from katalog.analyzers.utils import build_scoped_assets_cte
+from katalog.config import current_workspace
 from katalog.constants.metadata import (
     FILE_EXTENSION,
     FILE_SIZE,
@@ -13,12 +15,11 @@ from katalog.constants.metadata import (
     TIME_MODIFIED,
     get_metadata_id,
 )
-from katalog.db.sqlspec.sql_helpers import select
 from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.sql_helpers import select
 from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
 from katalog.models import Changeset
 from katalog.utils.exports import build_tables_from_stats, write_csv_tables
-from katalog.config import current_workspace
 
 
 class StatsAnalyzer(Analyzer):

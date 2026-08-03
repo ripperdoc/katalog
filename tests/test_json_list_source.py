@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from katalog.constants.metadata import DATA_FILE_READER, FILE_TYPE, FILE_URI, SOURCE_JSON_RECORD
+from katalog.constants.metadata import (
+    DATA_FILE_READER,
+    FILE_TYPE,
+    FILE_URI,
+    SOURCE_JSON_RECORD,
+)
 from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo

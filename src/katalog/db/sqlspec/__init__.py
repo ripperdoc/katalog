@@ -3,15 +3,15 @@ from __future__ import annotations
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from contextvars import ContextVar, Token
 from pathlib import Path
-from urllib.parse import parse_qsl, quote, urlencode
 from typing import Any, AsyncIterator
+from urllib.parse import parse_qsl, quote, urlencode
 
-from loguru import logger
 import sqlite_vec
-from sqlspec import SQLSpec
-from sqlspec.adapters.aiosqlite import AiosqliteConfig
+from loguru import logger
 
 from katalog import config as app_config
+from sqlspec import SQLSpec
+from sqlspec.adapters.aiosqlite import AiosqliteConfig
 
 SQL_DIR = Path(__file__).resolve().parents[2] / "sql"
 SCHEMA_PATH = SQL_DIR / "schema.sql"

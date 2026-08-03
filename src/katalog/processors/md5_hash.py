@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from katalog.constants.metadata import (
     DATA_FILE_READER,
     DATA_KEY,
@@ -11,9 +13,8 @@ from katalog.constants.metadata import (
     HASH_MD5,
     TIME_MODIFIED,
 )
+from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.models import make_metadata, MetadataChanges, OpStatus
-from pydantic import BaseModel, ConfigDict, Field
 
 
 class MD5HashProcessor(Processor):

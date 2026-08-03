@@ -70,8 +70,8 @@ def _parse_yaml_or_json(text: str) -> Any | None:
     try:
         import yaml
     except Exception:
-        yaml = None
-    if yaml is not None:
+        pass
+    else:
         try:
             return yaml.safe_load(text)
         except Exception:

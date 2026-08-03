@@ -26,7 +26,6 @@ from katalog.server.routes import (
     workflows,
 )
 
-
 logging.getLogger("uvicorn.access").disabled = True
 logger.remove()
 logger.add(

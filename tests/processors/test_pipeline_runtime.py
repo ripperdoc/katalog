@@ -6,11 +6,11 @@ from typing import Any, Callable, Iterable, Sequence
 import pytest
 
 from katalog.constants.metadata import FILE_NAME, FILE_SIZE, HASH_MD5
+from katalog.db.metadata import get_metadata_repo
 from katalog.models import Asset, Metadata, MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.processors.runtime import process_asset, ProcessorStage
 from katalog.processors.md5_hash import MD5HashProcessor
-from katalog.db.metadata import get_metadata_repo
+from katalog.processors.runtime import ProcessorStage, process_asset
 from tests.utils.pipeline_helpers import PipelineFixture
 
 

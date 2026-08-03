@@ -21,13 +21,14 @@ from katalog.models import (
     MetadataChanges,
     make_metadata,
 )
-from katalog.models.query import AssetFilter, AssetQuery
 from katalog.models.core import OpStatus
+from katalog.models.query import AssetFilter, AssetQuery
 from katalog.plugins.registry import get_actor_instance
 from katalog.processors.base import Processor
 from katalog.processors.executors import ProcessorExecutorBundle
-from katalog.processors.runtime import process_batch_collect
+from katalog.processors.runtime import ProcessorStage, process_batch_collect
 from katalog.runtime.batch import get_batch_size
+from katalog.runtime.state import get_event_manager
 from katalog.sources.base import SourcePlugin
 from katalog.workflows.contracts import (
     RecursionSeed,
@@ -39,9 +40,7 @@ from katalog.workflows.contracts import (
     WorkflowInputSpec,
     WorkflowSourceActorsInput,
 )
-from katalog.runtime.state import get_event_manager
 
-ProcessorStage = Sequence[Processor]
 ProcessorPipeline = Sequence[ProcessorStage]
 
 
@@ -78,7 +77,9 @@ class LoadedBatch:
 class LoadStage(Protocol):
     """Stage protocol for producing hydrated workflow batches."""
 
-    async def produce(self, *, workflow_input: WorkflowInputSpec) -> AsyncIterator[LoadedBatch]: ...
+    # Sync `def` returning AsyncIterator: async-generator implementations
+    # type-check as overrides, an `async def` stub here would not.
+    def produce(self, *, workflow_input: WorkflowInputSpec) -> AsyncIterator[LoadedBatch]: ...
     async def finalize(self) -> None: ...
 
 

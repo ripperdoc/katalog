@@ -4,11 +4,11 @@ import pytest
 
 from katalog.constants.metadata import (
     FILE_PATH,
+    METADATA_REGISTRY,
+    METADATA_REGISTRY_BY_ID,
     MetadataDef,
     MetadataKey,
     MetadataType,
-    METADATA_REGISTRY_BY_ID,
-    METADATA_REGISTRY,
     get_metadata_id,
 )
 from katalog.models import Metadata

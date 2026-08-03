@@ -1,6 +1,6 @@
 from katalog.constants.metadata import (
-    ASSET_CANONICAL_URI,
     ASSET_ACTOR_ID,
+    ASSET_CANONICAL_URI,
     ASSET_EXTERNAL_ID,
     ASSET_ID,
     ASSET_NAMESPACE,

@@ -4,9 +4,9 @@ import pytest
 
 from katalog.constants.metadata import FILE_NAME, FILE_PATH
 from katalog.models import (
+    Changeset,
     MetadataChanges,
     OpStatus,
-    Changeset,
     make_metadata,
 )
 from katalog.models.assets import Asset

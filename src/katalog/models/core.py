@@ -12,14 +12,15 @@ On the other hand, users will be encouraged to purge changesets regularly.
 from __future__ import annotations
 
 import asyncio
+import traceback
+from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from time import monotonic, time
-from datetime import UTC, datetime
-import traceback
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
 from katalog.config import task_concurrency
 
 
@@ -282,10 +283,10 @@ class Changeset(BaseModel):
                 try:
                     if self.cancel_event and self.cancel_event.is_set():
                         raise asyncio.CancelledError()
-                    if callable(coro_or_factory):
-                        coro = coro_or_factory()
-                    else:
+                    if isinstance(coro_or_factory, Awaitable):
                         coro = coro_or_factory
+                    else:
+                        coro = coro_or_factory()
                     return await coro
                 finally:
                     self._tasks_running -= 1

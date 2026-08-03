@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 
 from loguru import logger
+
 from katalog.config import (
     RuntimeMode,
     build_app_context,

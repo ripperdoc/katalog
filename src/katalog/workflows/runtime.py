@@ -22,8 +22,7 @@ from katalog.plugins.config_metadata import (
     collect_config_metadata_definitions,
     register_config_metadata_definitions,
 )
-from katalog.plugins.registry import get_plugin_class
-from katalog.plugins.registry import get_actor_instance
+from katalog.plugins.registry import get_actor_instance, get_plugin_class
 from katalog.processors.runtime import sort_processors
 from katalog.runtime.state import get_running_changesets
 from katalog.workflows.contracts import WorkflowInputSpec, workflow_input_to_payload

@@ -14,6 +14,7 @@ from katalog.constants.metadata import (
     ASSET_EXTERNAL_ID,
     ASSET_ID,
     FILE_PATH,
+    MetadataDef,
     MetadataKey,
     MetadataType,
     define_metadata,
@@ -224,9 +225,9 @@ class TabularSource(SourcePlugin):
     @classmethod
     def metadata_definitions_from_config(
         cls, config: dict[str, Any]
-    ) -> list[dict[str, Any]]:
+    ) -> list[MetadataDef | dict[str, Any]]:
         cfg = cls.config_model.model_validate(config or {})
-        definitions: list[dict[str, Any]] = []
+        definitions: list[MetadataDef | dict[str, Any]] = []
         for mapping in cfg.columns:
             metadata_key = cls.metadata_key_for_mapping(mapping)
             definitions.append(
@@ -317,7 +318,8 @@ class TabularSource(SourcePlugin):
     def get_namespace(self) -> str:
         return self.namespace
 
-    async def iter_raw_rows(self) -> AsyncIterator[TabularRawRow]:
+    # Sync `def` returning AsyncIterator so async-generator overrides type-check.
+    def iter_raw_rows(self) -> AsyncIterator[TabularRawRow]:
         raise NotImplementedError()
 
     def source_uri(self) -> str:

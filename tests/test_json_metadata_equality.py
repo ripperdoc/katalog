@@ -6,10 +6,10 @@ import pytest
 
 from katalog.constants.metadata import FILE_TAGS, MetadataType, get_metadata_id
 from katalog.models import (
-    MetadataChanges,
-    OpStatus,
     Changeset,
     Metadata,
+    MetadataChanges,
+    OpStatus,
     make_metadata,
 )
 from katalog.models.assets import Asset

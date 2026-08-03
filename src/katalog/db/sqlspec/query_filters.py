@@ -1,11 +1,10 @@
 from typing import Any, Mapping
 
 from katalog.constants.metadata import METADATA_REGISTRY, MetadataKey, get_metadata_id
+from katalog.db.sqlspec.query_fields import asset_filter_fields
 from katalog.db.sqlspec.tables import METADATA_TABLE
 from katalog.models import MetadataType
 from katalog.models.query import AssetFilter
-
-from katalog.db.sqlspec.query_fields import asset_filter_fields
 
 
 def _metadata_filter_condition(filt: Mapping[str, Any]) -> tuple[str, list[Any]]:

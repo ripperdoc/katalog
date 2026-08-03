@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 
 from katalog.constants.metadata import (
-    HASH_MD5,
     FILE_TYPE,
-    MetadataDef,
+    HASH_MD5,
     METADATA_REGISTRY,
     METADATA_REGISTRY_BY_ID,
+    MetadataDef,
 )
 from katalog.models import Actor, ActorType, Asset, MetadataChanges, make_metadata
 from katalog.processors.mime_type import MimeTypeProcessor

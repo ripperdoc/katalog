@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Awaitable, Callable, ParamSpec, TypeVar
+from typing import Any, Awaitable, Callable, ParamSpec, Protocol, TypeVar
 
 from pydantic import ValidationError
 
@@ -66,13 +66,21 @@ def enforce_write_access(action: str) -> None:
     )
 
 
+class _NamedAsyncCallable(Protocol[_P, _T]):
+    """An async callable that also carries `__name__` (i.e. a plain function)."""
+
+    __name__: str
+
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> Awaitable[_T]: ...
+
+
 def requires_write_access(
     action: str | None = None,
-) -> Callable[[Callable[_P, Awaitable[_T]]], Callable[_P, Awaitable[_T]]]:
+) -> Callable[[_NamedAsyncCallable[_P, _T]], Callable[_P, Awaitable[_T]]]:
     """Decorator that enforces write capability for mutating async API functions."""
 
     def _decorator(
-        func: Callable[_P, Awaitable[_T]],
+        func: _NamedAsyncCallable[_P, _T],
     ) -> Callable[_P, Awaitable[_T]]:
         resolved_action = action or func.__name__
 

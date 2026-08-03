@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import pathlib
 import tomllib
-from typing import Any, Mapping
-from typing import Literal
+from dataclasses import dataclass
+from typing import Any, Literal, Mapping
 
 from katalog.api.helpers import validate_and_normalize_config
 from katalog.models import ActorType
@@ -173,8 +172,8 @@ def parse_workflow_payload(
         if isinstance(workflow_block.get("id"), str)
         else None,
         name=(
-            workflow_block.get("name")
-            if isinstance(workflow_block.get("name"), str)
+            raw_name
+            if isinstance(raw_name := workflow_block.get("name"), str)
             else fallback_name
         ),
         description=(

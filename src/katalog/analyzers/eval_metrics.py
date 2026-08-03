@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from collections import defaultdict
 
 from loguru import logger
 
@@ -143,7 +143,7 @@ class EvalMetricsAnalyzer(Analyzer):
             "avg_sentence_words": avg_sentence_words,
         }
 
-        mime_breakdown: dict[str, dict[str, float | int]] = {}
+        mime_breakdown: dict[str, dict[str, str | float | int]] = {}
         for row in rows:
             mime = str(row.get("mime") or "unknown")
             bucket = mime_breakdown.setdefault(

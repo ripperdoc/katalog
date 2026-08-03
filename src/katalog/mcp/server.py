@@ -18,8 +18,8 @@ from katalog.api import (
 from katalog.api.helpers import ApiError
 from katalog.api.query_utils import build_asset_query
 from katalog.help_texts import (
-    MCP_ACTORS_GET_DESC,
     MCP_ACTORS_GET_CONFIG_SCHEMA_DESC,
+    MCP_ACTORS_GET_DESC,
     MCP_ACTORS_LIST_DESC,
     MCP_ASSETS_GET_DESC,
     MCP_ASSETS_GROUPED_DESC,
@@ -31,9 +31,9 @@ from katalog.help_texts import (
     MCP_COLLECTIONS_LIST_ASSETS_DESC,
     MCP_COLLECTIONS_LIST_DESC,
     MCP_INSTRUCTIONS,
-    MCP_METADATA_SEARCH_DESC,
     MCP_METADATA_REGISTRY_DESC,
     MCP_METADATA_SCHEMA_EDITABLE_DESC,
+    MCP_METADATA_SEARCH_DESC,
     MCP_PLUGINS_GET_CONFIG_SCHEMA_DESC,
     MCP_PLUGINS_LIST_DESC,
     MCP_SYSTEM_STATS_DESC,

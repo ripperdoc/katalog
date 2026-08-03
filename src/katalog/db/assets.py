@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, Sequence
 
 from katalog.db.sqlspec.assets import SqlspecAssetRepo
 from katalog.models.assets import Asset

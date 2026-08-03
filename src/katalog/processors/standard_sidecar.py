@@ -9,10 +9,10 @@ from katalog.constants.metadata import (
     EVAL_TRUTH_TEXT,
     FILE_NAME,
     FILE_PATH,
-    MetadataKey,
     REL_LINK_TO,
     SIDECAR_TARGET_NAME,
     SIDECAR_TYPE,
+    MetadataKey,
 )
 from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult

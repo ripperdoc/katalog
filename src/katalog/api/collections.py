@@ -1,8 +1,22 @@
 from typing import Any
-from pydantic import BaseModel, Field, ValidationError
-from loguru import logger
 
+from loguru import logger
+from pydantic import BaseModel, Field, ValidationError
+
+from katalog.api.helpers import ApiError, requires_write_access
+from katalog.api.schemas import (
+    AddAssetsResponse,
+    AssetsListResponse,
+    RemoveAssetsResponse,
+)
+from katalog.api.search import ensure_fts_index_ready
+from katalog.api.views import get_view_api
 from katalog.constants.metadata import COLLECTION_MEMBER, get_metadata_id
+from katalog.db.asset_collections import get_asset_collection_repo
+from katalog.db.assets import get_asset_repo
+from katalog.db.changesets import get_changeset_repo
+from katalog.db.metadata import get_metadata_repo
+from katalog.editors.user_editor import ensure_user_editor
 from katalog.models import (
     AssetCollection,
     CollectionRefreshMode,
@@ -10,15 +24,6 @@ from katalog.models import (
     make_metadata,
 )
 from katalog.models.query import AssetFilter, AssetQuery
-from katalog.editors.user_editor import ensure_user_editor
-from katalog.api.helpers import ApiError, requires_write_access
-from katalog.api.search import ensure_fts_index_ready
-from katalog.api.schemas import AddAssetsResponse, AssetsListResponse, RemoveAssetsResponse
-from katalog.api.views import get_view_api
-from katalog.db.asset_collections import get_asset_collection_repo
-from katalog.db.assets import get_asset_repo
-from katalog.db.changesets import get_changeset_repo
-from katalog.db.metadata import get_metadata_repo
 
 
 class CollectionCreate(BaseModel):

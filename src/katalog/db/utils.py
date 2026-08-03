@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 
 def build_where(filters: dict[str, Any]) -> tuple[str, dict[str, Any]]:

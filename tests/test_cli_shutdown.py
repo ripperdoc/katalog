@@ -4,8 +4,8 @@ import json
 import os
 import subprocess
 import sys
-from textwrap import dedent
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 

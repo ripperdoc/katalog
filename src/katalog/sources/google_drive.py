@@ -1,21 +1,22 @@
 import asyncio
-from datetime import UTC, datetime, timedelta
 import json
 import os
-from pathlib import Path
 import secrets
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
+
+import httpx
 from crawlee import Request
 from crawlee.crawlers import HttpCrawler, HttpCrawlingContext
 from crawlee.storage_clients import MemoryStorageClient
 from crawlee.storages import RequestQueue
-
-import httpx
+from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request as GoogleRequest
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 from katalog.config import PORT, actor_path
 from katalog.constants.metadata import (
     ACCESS_LAST_MODIFIED_BY,
@@ -27,11 +28,11 @@ from katalog.constants.metadata import (
     FILE_ID_PATH,
     FILE_NAME,
     FILE_PATH,
-    FILE_VIEW_URI,
-    FILE_THUMBNAIL_URI,
     FILE_SIZE,
+    FILE_THUMBNAIL_URI,
     FILE_TYPE,
     FILE_VERSION,
+    FILE_VIEW_URI,
     FLAG_FAVORITE,
     FLAG_SHARED,
     HASH_MD5,
@@ -45,12 +46,12 @@ from katalog.constants.metadata import (
     define_metadata,
 )
 from katalog.models import (
+    Actor,
     Asset,
     DataReader,
     MetadataChanges,
     MetadataKey,
     OpStatus,
-    Actor,
 )
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.blob_cache import get_cached_blob, put_cached_blob

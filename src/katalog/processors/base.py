@@ -4,19 +4,18 @@ from typing import Collection, FrozenSet, cast
 
 from pydantic import BaseModel, Field, field_serializer
 
+from katalog.constants.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.models import (
+    Actor,
     Asset,
-    MetadataKey,
     Metadata,
+    MetadataChanges,
+    MetadataKey,
     MetadataScalar,
     OpStatus,
-    Actor,
-    MetadataChanges,
     make_metadata,
 )
-from katalog.constants.metadata import DATA_KEY, HASH_MD5, TIME_MODIFIED
 from katalog.plugins.base import PluginBase
-
 from katalog.plugins.registry import get_actor_instance
 
 
@@ -64,13 +63,6 @@ class Processor(PluginBase, ABC):
     def outputs(self) -> FrozenSet[MetadataKey]:
         """Return outputs for this processor instance."""
         raise NotImplementedError()
-
-    async def is_ready(self) -> tuple[bool, str | None]:
-        """Return whether the processor can execute in the current environment.
-
-        This check is run once per processor per run, not per asset.
-        """
-        return True, None
 
     @abstractmethod
     def should_run(

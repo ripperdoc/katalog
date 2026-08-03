@@ -11,8 +11,8 @@ from katalog.constants.metadata import (
     MetadataType,
     set_metadata_registry_cache,
 )
-from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec import init_db, session_scope
+from katalog.db.sqlspec.sql_helpers import execute, select
 
 METADATA_REGISTRY_TABLE = "metadata_registry"
 

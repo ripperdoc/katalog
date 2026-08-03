@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Literal
-from typing import cast
+from typing import Literal, cast
 
 from loguru import logger
 

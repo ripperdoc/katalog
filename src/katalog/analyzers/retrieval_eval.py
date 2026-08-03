@@ -8,14 +8,15 @@ from typing import Any
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
+from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
 from katalog.api.assets import list_assets as list_assets_api
 from katalog.api.metadata import list_metadata as list_metadata_api
 from katalog.api.search import l2_distance_to_cosine_similarity
-from katalog.analyzers.base import Analyzer, AnalyzerResult, AnalyzerScope
 from katalog.constants.metadata import (
     DOC_CHUNK_TEXT,
     EVAL_QUERIES,
     SIDECAR_TYPE,
+    MetadataKey,
     get_metadata_def_by_id,
     get_metadata_id,
 )
@@ -106,7 +107,7 @@ class RetrievalEvalAnalyzer(Analyzer):
         if not ready:
             raise RuntimeError(f"Vector search is not ready: {reason or 'unknown reason'}")
 
-        key_ids = [int(get_metadata_id(key)) for key in self.config.metadata_keys]
+        key_ids = [int(get_metadata_id(MetadataKey(key))) for key in self.config.metadata_keys]
         max_k = max(self._k_values())
         search_limit = max(int(self.config.top_k), max_k)
         metrics_acc = {k: {"hit": 0.0, "mrr": 0.0, "recall": 0.0} for k in self._k_values()}

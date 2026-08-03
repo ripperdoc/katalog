@@ -2,24 +2,15 @@ import fnmatch
 import os
 from pathlib import Path
 from typing import Any, Dict
+from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel, Field
-from urllib.parse import unquote, urlparse
 
 if os.name == "nt":
     import ctypes
 
 from loguru import logger
 
-from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
-from katalog.models import (
-    DataReader,
-    Asset,
-    Actor,
-    MetadataChanges,
-    MetadataKey,
-)
-from katalog.models import OpStatus
 from katalog.constants.metadata import (
     DATA_FILE_READER,
     FILE_NAME,
@@ -29,6 +20,15 @@ from katalog.constants.metadata import (
     TIME_CREATED,
     TIME_MODIFIED,
 )
+from katalog.models import (
+    Actor,
+    Asset,
+    DataReader,
+    MetadataChanges,
+    MetadataKey,
+    OpStatus,
+)
+from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.utils import timestamp_to_utc
 
 

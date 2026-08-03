@@ -5,16 +5,16 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
+from katalog.constants.metadata import FILE_URI
 from katalog.models import (
-    Asset,
     Actor,
+    Asset,
     DataReader,
     MetadataChanges,
     MetadataKey,
     OpStatus,
 )
-from katalog.constants.metadata import FILE_URI
+from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.url import canonicalize_web_url
 
 

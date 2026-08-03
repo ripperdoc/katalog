@@ -1,32 +1,31 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, TYPE_CHECKING
-from typing import Iterable
+import datetime as _dt
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 from katalog.constants.metadata import (
     ASSET_SEARCH_DOC,
     INTERNAL_FTS_REINDEX,
     INTERNAL_VECTOR_REINDEX,
     METADATA_REGISTRY,
-    MetadataType,
-    MetadataKey,
     VECTOR_INDEXED_COUNT,
+    MetadataKey,
+    MetadataType,
     get_metadata_def_by_key,
     get_metadata_id,
 )
-from katalog.db.fts import FtsPoint, get_fts_repo
-from katalog.db.vectors import VectorPoint, get_vector_repo
-from katalog.db.sqlspec import session_scope
-from katalog.db.sqlspec.tables import METADATA_TABLE
-from katalog.db.sqlspec.sql_helpers import select
-from katalog.models.metadata import _metadata_to_row, _normalize_metadata_row, Metadata
-from katalog.db.sqlspec.sql_helpers import execute
 from katalog.db.actors import get_actor_repo
+from katalog.db.fts import FtsPoint, get_fts_repo
+from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.sql_helpers import execute, select
+from katalog.db.sqlspec.tables import METADATA_TABLE
+from katalog.db.vectors import VectorPoint, get_vector_repo
+from katalog.models import make_metadata
+from katalog.models.metadata import Metadata, _metadata_to_row, _normalize_metadata_row
 from katalog.processors.vector_index import (
     VECTOR_INDEX_PLUGIN_IDS,
     XbergVectorIndexProcessor,
 )
-from katalog.models import make_metadata
 from katalog.vectors.embedding import embed_text_xberg
 
 if TYPE_CHECKING:
@@ -435,7 +434,7 @@ def _to_fts_points(
         value = entry.value
         if value is None:
             continue
-        text = value.isoformat() if hasattr(value, "isoformat") else str(value)
+        text = value.isoformat() if isinstance(value, (_dt.date, _dt.time)) else str(value)
         cleaned = text.strip()
         if not cleaned:
             continue

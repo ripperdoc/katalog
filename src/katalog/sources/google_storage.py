@@ -21,7 +21,14 @@ from katalog.constants.metadata import (
     HASH_MD5,
     TIME_MODIFIED,
 )
-from katalog.models import Asset, Actor, DataReader, MetadataChanges, MetadataKey, OpStatus
+from katalog.models import (
+    Actor,
+    Asset,
+    DataReader,
+    MetadataChanges,
+    MetadataKey,
+    OpStatus,
+)
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
 from katalog.utils.blob_cache import get_cached_blob, put_cached_blob
 from katalog.utils.utils import match_paths, normalize_glob_patterns

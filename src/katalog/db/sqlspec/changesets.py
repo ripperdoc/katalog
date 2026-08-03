@@ -6,15 +6,15 @@ from typing import Any, Iterable, Mapping
 
 from katalog.constants.metadata import get_metadata_def_by_id
 from katalog.db.errors import ChangesetInProgressError
-from katalog.db.utils import build_where
-from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.query_values import decode_metadata_value
+from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec.tables import (
     CHANGESET_ACTOR_TABLE,
     CHANGESET_TABLE,
     METADATA_TABLE,
 )
-from katalog.db.sqlspec.query_values import decode_metadata_value
+from katalog.db.utils import build_where
 from katalog.models.core import Actor, Changeset, OpStatus
 from katalog.models.query import ChangesetChangesResponse
 

@@ -4,6 +4,7 @@ from katalog.api.helpers import ApiError
 from katalog.api.search import ensure_fts_index_ready, semantic_hits_for_query
 from katalog.constants.metadata import (
     MetadataDef,
+    MetadataKey,
     editable_metadata_schema,
     get_metadata_id,
     metadata_key_for_id_or_fallback,
@@ -13,7 +14,12 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.fts import get_fts_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.models import MetadataChanges
-from katalog.models.query import EditableMetadataSchemaResponse, AssetQuery, Pagination, QueryStats
+from katalog.models.query import (
+    AssetQuery,
+    EditableMetadataSchemaResponse,
+    Pagination,
+    QueryStats,
+)
 
 
 async def metadata_schema_editable() -> EditableMetadataSchemaResponse:
@@ -82,7 +88,7 @@ async def _list_metadata_fts(query: AssetQuery) -> dict:
             }
 
     metadata_key_ids = (
-        [int(get_metadata_id(key)) for key in (query.search_metadata_keys or [])]
+        [int(get_metadata_id(MetadataKey(key))) for key in (query.search_metadata_keys or [])]
         or None
     )
     fts_db = get_fts_repo()

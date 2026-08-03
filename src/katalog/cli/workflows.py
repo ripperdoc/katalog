@@ -5,8 +5,6 @@ from typing import Any
 
 import asyncclick as click
 
-from . import workflows_app
-from .utils import changeset_summary, print_changeset_summary, wants_json, with_lifespan
 from katalog.workflows.contracts import (
     WorkflowAllAssetsInput,
     WorkflowAssetIdsInput,
@@ -14,6 +12,9 @@ from katalog.workflows.contracts import (
     WorkflowInputSpec,
     WorkflowSourceActorsInput,
 )
+
+from . import workflows_app
+from .utils import changeset_summary, print_changeset_summary, wants_json, with_lifespan
 
 
 def _workspace_path(ctx: click.Context) -> pathlib.Path:
@@ -53,14 +54,14 @@ async def _workflow_name_from_file_arg(ctx: click.Context, workflow_file: str) -
     if _is_within_workspace(source, workspace):
         return source.name
 
-    if not await click.confirm(
+    if not click.confirm(
         f"Workflow file '{source}' is outside workspace. Copy into workspace as '{source.name}'?",
         default=True,
     ):
         raise click.Abort()
 
     target = (workspace / source.name).resolve()
-    if target.exists() and not await click.confirm(
+    if target.exists() and not click.confirm(
         f"'{target.name}' already exists in workspace. Overwrite?",
         default=False,
     ):

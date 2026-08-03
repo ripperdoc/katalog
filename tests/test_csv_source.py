@@ -10,6 +10,7 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.db.metadata import get_metadata_repo
 from katalog.models import ActorType, MetadataChanges, OpStatus
+from katalog.models.views import ViewSpec
 from katalog.plugins.registry import get_actor_instance
 from katalog.sources.runtime import run_sources
 from katalog.sources.tabular import TABULAR_ROW_NUMBER
@@ -189,5 +190,6 @@ async def test_csv_source_view_definitions_show_actor_id_column(
     views = source.view_definitions()
 
     assert len(views) == 1
+    assert isinstance(views[0], ViewSpec)
     actor_column = views[0].column_map()[str(ASSET_ACTOR_ID)]
     assert actor_column.hidden is False

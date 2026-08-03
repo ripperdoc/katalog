@@ -9,12 +9,6 @@ from katalog.db.assets import get_asset_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.models import ActorType, Changeset, OpStatus
 from katalog.plugins.base import PluginBase
-from katalog.workflows.contracts import (
-    WorkflowAllAssetsInput,
-    WorkflowAssetIdsInput,
-    WorkflowCollectionInput,
-    WorkflowSourceActorsInput,
-)
 from katalog.workflows import (
     WorkflowActorSpec,
     WorkflowSpec,
@@ -22,6 +16,12 @@ from katalog.workflows import (
     start_workflow_file,
 )
 from katalog.workflows import runtime as workflow_runtime
+from katalog.workflows.contracts import (
+    WorkflowAllAssetsInput,
+    WorkflowAssetIdsInput,
+    WorkflowCollectionInput,
+    WorkflowSourceActorsInput,
+)
 
 
 def _workflow_spec(
@@ -305,7 +305,8 @@ async def test_input_asset_ids_limits_processing_to_selected_assets(db_session) 
     )
     await _run_and_load_changeset(source_spec)
     assets = await get_asset_repo().list_rows(namespace=namespace, order_by="id")
-    selected_ids = [int(assets[0].id), int(assets[1].id)]
+    selected_ids = [int(a.id) for a in assets[:2] if a.id is not None]
+    assert len(selected_ids) == 2
 
     processor_spec = _processor_only_workflow_spec(
         workflow_name="wf-input-asset-ids",
@@ -329,7 +330,8 @@ async def test_input_collection_limits_processing_to_collection_members(db_sessi
     )
     await _run_and_load_changeset(source_spec)
     assets = await get_asset_repo().list_rows(namespace=namespace, order_by="id")
-    selected_ids = [int(assets[0].id), int(assets[1].id), int(assets[2].id)]
+    selected_ids = [int(a.id) for a in assets[:3] if a.id is not None]
+    assert len(selected_ids) == 3
 
     collection = await create_collection(
         CollectionCreate(

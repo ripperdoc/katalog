@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from katalog.db.fts import FtsPoint, FtsSearchHit
 from katalog.db.sqlspec import session_scope
 from katalog.db.sqlspec.query_search import fts5_query_from_user_text
 from katalog.db.sqlspec.sql_helpers import execute, scalar, select
 from katalog.db.sqlspec.tables import METADATA_TABLE
-from katalog.db.fts import FtsPoint, FtsSearchHit
 
 
 def fts_table_name(actor_id: int) -> str:

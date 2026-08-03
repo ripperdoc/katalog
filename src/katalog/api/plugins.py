@@ -1,6 +1,5 @@
-from katalog.plugins.registry import list_plugins as list_plugin_specs
-
 from katalog.api.helpers import config_schema_for_plugin
+from katalog.plugins.registry import list_plugins as list_plugin_specs
 
 
 async def list_plugins() -> list:

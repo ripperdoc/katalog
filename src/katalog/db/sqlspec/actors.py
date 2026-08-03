@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
 import json
 from datetime import datetime, timezone
+from typing import Any
 
-from katalog.db.utils import build_where, datetime_to_iso, to_utc_datetime
-from katalog.db.sqlspec.sql_helpers import execute, scalar, select
 from katalog.db.sqlspec import session_scope
+from katalog.db.sqlspec.sql_helpers import execute, scalar, select
 from katalog.db.sqlspec.tables import ACTOR_TABLE
+from katalog.db.utils import build_where, datetime_to_iso, to_utc_datetime
 from katalog.models.core import Actor, ActorType
 
 

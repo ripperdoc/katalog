@@ -5,7 +5,13 @@ from typing import Any
 import asyncclick as click
 
 from . import _reset_workspace, actors_app
-from .utils import changeset_summary, print_changeset_summary, render_table, wants_json, with_lifespan
+from .utils import (
+    changeset_summary,
+    print_changeset_summary,
+    render_table,
+    wants_json,
+    with_lifespan,
+)
 
 
 @actors_app.command("list")

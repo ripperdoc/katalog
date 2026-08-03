@@ -56,17 +56,18 @@ from katalog.constants.metadata import (
     MetadataType,
     get_metadata_id,
 )
+from katalog.db.asset_collections import get_asset_collection_repo
 from katalog.models import (
+    Actor,
     Asset,
     AssetCollection,
     DataReader,
     Metadata,
     MetadataChanges,
     MetadataKey,
+    OpStatus,
 )
-from katalog.models import Actor, OpStatus
 from katalog.sources.base import AssetScanResult, ScanResult, SourcePlugin
-from katalog.db.asset_collections import get_asset_collection_repo
 
 
 class _FakeAssetSpec(BaseModel):

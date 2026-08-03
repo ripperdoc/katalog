@@ -5,7 +5,7 @@ from typing import Any, ClassVar, FrozenSet, cast
 
 from pydantic import BaseModel, Field
 
-from katalog.models import Metadata, MetadataKey, Actor, Changeset
+from katalog.models import Actor, Changeset, Metadata, MetadataKey
 from katalog.plugins.base import PluginBase
 from katalog.plugins.registry import get_actor_instance
 

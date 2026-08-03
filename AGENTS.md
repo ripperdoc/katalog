@@ -51,3 +51,5 @@
 - This is a `uv` based project, always use `uv` to install and run things. Use
 - `loguru` for logging
 - `pytest` for tests
+- `ty` is the type checker (same as the VS Code extension). Check your changes with
+  `uv run ty check <paths>` before finishing; don't use mypy or pyright.

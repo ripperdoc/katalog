@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from katalog.analyzers.base import AnalyzerResult, AnalyzerScope, make_analyzer_instance
 from katalog.db.assets import get_asset_repo
-from katalog.models import Actor, Changeset
 from katalog.db.changesets import get_changeset_repo
 from katalog.db.metadata import get_metadata_repo
-from katalog.models import MetadataChanges
+from katalog.models import Actor, Changeset, MetadataChanges
 
 
 async def do_run_analyzer(

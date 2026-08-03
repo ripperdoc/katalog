@@ -2,17 +2,17 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any
+
 from pydantic import BaseModel, Field
 
-from katalog.models import Changeset, Metadata, MetadataChanges, OpStatus
-from katalog.db.changesets import get_changeset_repo
-from katalog.db.metadata import get_metadata_repo
-from katalog.utils.changeset_events import sse_event
-
-from katalog.editors.user_editor import ensure_user_editor
 from katalog.api.helpers import ApiError, requires_write_access
 from katalog.api.schemas import ChangesetChangesResponse, ChangesetDiffResponse
+from katalog.db.changesets import get_changeset_repo
+from katalog.db.metadata import get_metadata_repo
+from katalog.editors.user_editor import ensure_user_editor
+from katalog.models import Changeset, Metadata, MetadataChanges, OpStatus
 from katalog.runtime.state import get_event_manager, get_running_changesets
+from katalog.utils.changeset_events import sse_event
 
 
 class ChangesetUpdate(BaseModel):

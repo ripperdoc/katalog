@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import perf_counter
 
+from katalog.api.helpers import ApiError
 from katalog.constants.metadata import (
+    MetadataKey,
     get_metadata_id,
     metadata_key_for_id_or_fallback,
 )
@@ -11,9 +13,8 @@ from katalog.db.actors import get_actor_repo
 from katalog.db.assets import get_asset_repo
 from katalog.db.fts import get_fts_repo
 from katalog.db.vectors import VectorSearchHit, get_vector_repo
-from katalog.models.query import AssetQuery
 from katalog.models import ActorType
-from katalog.api.helpers import ApiError
+from katalog.models.query import AssetQuery
 from katalog.processors.vector_index import (
     LEGACY_KREUZBERG_VECTOR_INDEX_PLUGIN_ID,
     XbergVectorIndexProcessor,
@@ -211,7 +212,7 @@ def _filter_hits(
     """Filter vector hits and map them to semantic hit rows."""
     key_ids: set[int] | None = None
     if metadata_keys:
-        key_ids = {int(get_metadata_id(key)) for key in metadata_keys}
+        key_ids = {int(get_metadata_id(MetadataKey(key))) for key in metadata_keys}
 
     filtered: list[SemanticHit] = []
     for hit in hits:

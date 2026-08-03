@@ -1,10 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from typing import Any, Iterable, Literal, Protocol, Sequence, TYPE_CHECKING, TypeVar, overload
+from datetime import datetime
+from typing import (
+    TYPE_CHECKING,
+    AbstractSet,
+    Any,
+    Iterable,
+    Literal,
+    Protocol,
+    Sequence,
+    TypeVar,
+    overload,
+)
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr, computed_field, field_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    PrivateAttr,
+    computed_field,
+    field_serializer,
+)
 
 from katalog.constants.metadata import (
     MetadataDef,
@@ -16,8 +32,8 @@ from katalog.constants.metadata import (
     get_metadata_id,
     metadata_key_for_id_or_fallback,
 )
-from katalog.models.core import Changeset
 from katalog.models.assets import Asset, DataReader
+from katalog.models.core import Changeset
 
 if TYPE_CHECKING:
     from katalog.models.core import Changeset
@@ -749,7 +765,7 @@ class MetadataChanges(BaseModel):
         return None
 
     def latest_changeset_id(
-        self, keys: set[MetadataKey], actor_id: int | None = None
+        self, keys: AbstractSet[MetadataKey], actor_id: int | None = None
     ) -> int | None:
         """Return the latest changeset id for the given keys (optionally filtered by actor)."""
         if not keys:
@@ -768,10 +784,10 @@ class MetadataChanges(BaseModel):
 
     def changed_since_actor(
         self,
-        keys: set[MetadataKey],
+        keys: AbstractSet[MetadataKey],
         *,
         actor_id: int,
-        actor_outputs: set[MetadataKey],
+        actor_outputs: AbstractSet[MetadataKey],
     ) -> bool:
         """Return True if any of the keys changed since the actor last wrote outputs.
 

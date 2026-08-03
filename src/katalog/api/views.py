@@ -53,9 +53,10 @@ async def _plugin_views_for_actor(actor: Actor) -> list[ViewSpec]:
         return []
 
     try:
-        contributed = instance.view_definitions()
+        # `Any`: plugins may implement the hook sync or async.
+        contributed: Any = instance.view_definitions()
         if inspect.isawaitable(contributed):
-            contributed = await contributed
+            contributed = list(await contributed)
     except Exception:
         logger.exception(
             "Plugin view hook failed actor_id={actor_id} plugin_id={plugin_id}",

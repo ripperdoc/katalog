@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import pytest
 import asyncclick as click
+import pytest
 
 from katalog.cli.workflows import _build_cli_workflow_input
 from katalog.workflows.contracts import (

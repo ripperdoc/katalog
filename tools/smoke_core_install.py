@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 
 def _run(cmd: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:

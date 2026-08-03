@@ -5,8 +5,8 @@ from urllib.parse import urlparse
 
 from katalog.api.helpers import ApiError, requires_write_access
 from katalog.config import current_db_path, current_db_url, current_workspace
-from katalog.db.system import get_system_repo
 from katalog.db.metadata import sync_config_db
+from katalog.db.system import get_system_repo
 from katalog.plugins.registry import get_actor_instance
 from katalog.sources.base import SourcePlugin
 

@@ -68,6 +68,7 @@ from katalog.constants.metadata import (
 from katalog.models import MetadataChanges, OpStatus
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.utils.utils import parse_datetime_utc
+from katalog.utils.xberg import BytesExtractInput
 
 
 # xberg's FormatMetadata is a tagged union whose per-format variant accessors
@@ -230,7 +231,7 @@ class XbergDocumentExtractProcessor(Processor):
             # Mime detection moved inside xberg; a known type is passed as a hint
             # and unsupported/undetectable content surfaces as a per-input error.
             jobs.append(
-                (idx, ExtractInput(kind="bytes", bytes=data, mime_type=mime_type))
+                (idx, BytesExtractInput(kind="bytes", bytes=data, mime_type=mime_type))
             )
 
         await self._run_extraction_jobs(jobs=jobs, results=results)
@@ -278,7 +279,7 @@ class XbergDocumentExtractProcessor(Processor):
                     status=OpStatus.SKIPPED,
                     message="Asset data reader returned empty content",
                 )
-            job_input = ExtractInput(kind="bytes", bytes=data, mime_type=mime_type)
+            job_input = BytesExtractInput(kind="bytes", bytes=data, mime_type=mime_type)
         return await self._extract_one(job_input)
 
     async def _run_extraction_jobs(

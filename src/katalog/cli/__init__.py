@@ -149,10 +149,10 @@ def _resolve_workspace(workspace: str | None) -> pathlib.Path:
 
 
 async def _seed_test_workspace(ws: pathlib.Path, total_assets: int) -> None:
-    from katalog.db.metadata import sync_config_db
-    from katalog.models import ActorType, OpStatus
     from katalog.db.actors import get_actor_repo
     from katalog.db.changesets import get_changeset_repo
+    from katalog.db.metadata import sync_config_db
+    from katalog.models import ActorType, OpStatus
     from katalog.sources.runtime import run_sources
 
     await sync_config_db()
@@ -244,6 +244,7 @@ def _run_server(
 
     try:
         import uvicorn
+
         from katalog.config import PORT
 
         bind_port = port or PORT
@@ -361,13 +362,13 @@ async def server(
 
 from . import actors as _actors  # noqa: E402,F401
 from . import assets as _assets  # noqa: E402,F401
-from . import collections as _collections  # noqa: E402,F401
 from . import changesets as _changesets  # noqa: E402,F401
-from . import processors as _processors  # noqa: E402,F401
-from . import workflows as _workflows  # noqa: E402,F401
+from . import collections as _collections  # noqa: E402,F401
 from . import metadata as _metadata  # noqa: E402,F401
-from . import views as _views  # noqa: E402,F401
+from . import processors as _processors  # noqa: E402,F401
 from . import system as _system  # noqa: E402,F401
+from . import views as _views  # noqa: E402,F401
+from . import workflows as _workflows  # noqa: E402,F401
 
 
 def main() -> None:
