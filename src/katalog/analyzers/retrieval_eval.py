@@ -24,7 +24,7 @@ from katalog.db.vectors import VectorSearchHit, get_vector_repo
 from katalog.models import Actor, Changeset
 from katalog.models.query import AssetFilter, AssetQuery
 from katalog.utils.exports import analyzer_export_dir, write_csv_tables
-from katalog.vectors.embedding import embed_text_kreuzberg
+from katalog.vectors.embedding import embed_text_xberg
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ class RetrievalEvalAnalyzer(Analyzer):
         query_count = 0
         for case in query_cases:
             query_count += 1
-            query_vector = await embed_text_kreuzberg(
+            query_vector = await embed_text_xberg(
                 case.query,
                 model=self.config.embedding_model,
                 backend=self.config.embedding_backend,

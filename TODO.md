@@ -10,7 +10,7 @@
 - [ ] Katalog server that can server multiple workspaces and switch between them?
 - [ ] Endpoint that can show some space stats about the database (to understand why the size is like
       it is)
-- [ ] Kreuzberg returns inline SVG images for HTML pages, too large, can be removed?
+- [ ] Xberg returns inline SVG images for HTML pages, too large, can be removed?
 - [ ] Test the ability to crawl URLs into multiple URLs, and how do we list child assets when
       scanning recursively?
 - [ ] JSONList/HTTPSource is not providing Path, Filename, Created and Modified for items

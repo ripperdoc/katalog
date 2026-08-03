@@ -17,13 +17,22 @@ from katalog.constants.metadata import (
 from katalog.db.vectors import get_vector_repo
 from katalog.models import MetadataChanges, OpStatus, make_metadata
 from katalog.processors.base import Processor, ProcessorResult
-from katalog.vectors.embedding import DEFAULT_EMBEDDING_MODEL, embed_text_kreuzberg
+from katalog.vectors.embedding import DEFAULT_EMBEDDING_MODEL, embed_text_xberg
 
 
-class KreuzbergVectorIndexProcessor(Processor):
-    plugin_id = "katalog.processors.vector_index.KreuzbergVectorIndexProcessor"
-    title = "Kreuzberg vector index"
-    description = "Index selected string metadata values via Kreuzberg embeddings into sqlite-vec."
+# Plugin id written by katalog versions before the kreuzberg → xberg rename.
+# Workspaces created back then still store it in their actors table, so read
+# paths (semantic search actor resolution, vector reindex) accept it alongside
+# the current id. New workflow runs always write the current plugin id.
+LEGACY_KREUZBERG_VECTOR_INDEX_PLUGIN_ID = (
+    "katalog.processors.vector_index.KreuzbergVectorIndexProcessor"
+)
+
+
+class XbergVectorIndexProcessor(Processor):
+    plugin_id = "katalog.processors.vector_index.XbergVectorIndexProcessor"
+    title = "Xberg vector index"
+    description = "Index selected string metadata values via Xberg embeddings into sqlite-vec."
     execution_mode = "cpu"
 
     class ConfigModel(BaseModel):
@@ -69,7 +78,7 @@ class KreuzbergVectorIndexProcessor(Processor):
         if not ready:
             return ready, reason
         try:
-            await embed_text_kreuzberg(
+            await embed_text_xberg(
                 "ready",
                 model=self.config.embedding_model,
                 backend=str(self.config.embedding_backend),
@@ -103,3 +112,8 @@ class KreuzbergVectorIndexProcessor(Processor):
             ],
             message="Queued vector reindex",
         )
+
+
+VECTOR_INDEX_PLUGIN_IDS = frozenset(
+    {XbergVectorIndexProcessor.plugin_id, LEGACY_KREUZBERG_VECTOR_INDEX_PLUGIN_ID}
+)

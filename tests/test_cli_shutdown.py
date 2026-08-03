@@ -26,7 +26,7 @@ def _write_minimal_workflow(path: Path, *, source_root: Path) -> None:
 
         [[actors]]
         name = "Extract"
-        plugin_id = "katalog.processors.kreuzberg_document_extract.KreuzbergDocumentExtractProcessor"
+        plugin_id = "katalog.processors.xberg_document_extract.XbergDocumentExtractProcessor"
         enable_chunking = false
         """
     ).strip()
@@ -37,7 +37,7 @@ def _write_minimal_workflow(path: Path, *, source_root: Path) -> None:
 
 
 def test_workflow_start_cli_exits_cleanly_for_temp_workspace(tmp_path: Path) -> None:
-    pytest.importorskip("kreuzberg")
+    pytest.importorskip("xberg")
 
     workspace = tmp_path / "workspace"
     source_root = workspace / "data"

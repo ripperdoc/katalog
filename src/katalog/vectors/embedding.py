@@ -12,7 +12,7 @@ class EmbeddingError(RuntimeError):
     pass
 
 
-async def embed_text_kreuzberg(
+async def embed_text_xberg(
     text: str,
     *,
     model: str = DEFAULT_EMBEDDING_MODEL,
@@ -21,33 +21,41 @@ async def embed_text_kreuzberg(
     batch_size: int = 32,
     dim: int | None = None,
 ) -> list[float]:
-    """Generate a text embedding through Kreuzberg's chunk embedding path."""
+    """Generate a text embedding through Xberg's chunk embedding path."""
 
     if not text.strip():
         if dim is None:
             return []
         return [0.0] * dim
 
-    from kreuzberg import (
+    from xberg import (
         ChunkingConfig,
         EmbeddingConfig,
         EmbeddingModelType,
+        ExtractInput,
         ExtractionConfig,
-        extract_bytes,
+        extract,
     )
 
     if backend == "fastembed":
-        embedding_model = EmbeddingModelType.fastembed(model)
-    else:
-        embedding_model = EmbeddingModelType.preset(model)
+        # The fastembed backend was removed when kreuzberg became xberg; the
+        # built-in presets ("fast", etc.) cover the same models.
+        raise EmbeddingError(
+            "The 'fastembed' embedding backend was removed in xberg. "
+            "Use backend='preset' with a preset name such as 'fast'."
+        )
+    embedding_model = EmbeddingModelType.preset(model)
 
-    result = await extract_bytes(
-        text.encode("utf-8"),
-        mime_type="text/plain",
+    result = await extract(
+        input=ExtractInput(
+            kind="bytes",
+            bytes=text.encode("utf-8"),
+            mime_type="text/plain",
+        ),
         config=ExtractionConfig(
             chunking=ChunkingConfig(
-                max_chars=max(32, len(text) + 1),
-                max_overlap=0,
+                max_characters=max(32, len(text) + 1),
+                overlap=0,
                 embedding=EmbeddingConfig(
                     model=embedding_model,
                     normalize=normalize,
@@ -56,13 +64,14 @@ async def embed_text_kreuzberg(
             )
         ),
     )
-    for chunk in result.chunks or []:
-        vector = getattr(chunk, "embedding", None)
-        if isinstance(vector, list) and vector:
-            return _resize_vector([float(v) for v in vector], dim=dim)
+    for doc in result.results:
+        for chunk in doc.chunks or []:
+            vector = chunk.embedding
+            if isinstance(vector, list) and vector:
+                return _resize_vector([float(v) for v in vector], dim=dim)
 
     raise EmbeddingError(
-        "Kreuzberg returned no embedding. Verify ONNX runtime/model availability."
+        "Xberg returned no embedding. Verify embedding model availability."
     )
 
 

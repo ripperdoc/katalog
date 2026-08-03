@@ -86,21 +86,11 @@ katalog -w /path/to/workspace actors list
 katalog -w /path/to/workspace actors show 1
 ```
 
-### ONNX runtime for local embeddings (macOS)
+### Local embeddings
 
-Kreuzberg local embeddings depend on ONNX Runtime (included in `katalog[write]`). If needed
-separately, install with `uv`:
-
-```bash
-uv add onnxruntime
-```
-
-In some macOS environments, you also need to set `ORT_DYLIB_PATH` so the runtime can find the
-library:
-
-```bash
-export ORT_DYLIB_PATH="$(uv run python -c 'import onnxruntime, pathlib; print(next(pathlib.Path(onnxruntime.__file__).parent.rglob(\"libonnxruntime*.dylib\")))')"
-```
+Xberg (successor of kreuzberg) bundles its own inference runtime, so local embeddings work
+without a separate ONNX Runtime install or `ORT_DYLIB_PATH` setup. Embedding models are
+downloaded to `~/.cache/xberg` on first use.
 
 ## Example use cases
 

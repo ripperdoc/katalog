@@ -1,20 +1,33 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, FrozenSet, Mapping, Protocol, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any, FrozenSet, Protocol, cast
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+from xberg import (
+    ArchiveMetadata,
+    ChunkingConfig,
+    ExcelMetadata,
+    ExtractedDocument,
+    ExtractInput,
+    ExtractionConfig,
+    ImageMetadata,
+    LanguageDetectionConfig,
+    PdfMetadata,
+    PptxMetadata,
+    TextMetadata,
+    UnsupportedFormatError,
+    ValidationError,
+    extract,
+    extract_batch,
+)
 
 from katalog.constants.metadata import (
+    ACCESS_CREATED_BY,
     ACCESS_LAST_MODIFIED_BY,
-    FILE_CHILD_COUNT,
     ARCHIVE_FORMAT,
     ARCHIVE_UNCOMPRESSED_SIZE,
-    AUDIO_ALBUM,
-    AUDIO_ARTIST,
-    AUDIO_GENRE,
-    AUDIO_YEAR,
     DATA_FILE_READER,
     DATA_KEY,
     DOC_AUTHOR,
@@ -22,7 +35,6 @@ from katalog.constants.metadata import (
     DOC_CHARS,
     DOC_CHUNK_COUNT,
     DOC_CHUNK_TEXT,
-    ACCESS_CREATED_BY,
     DOC_KEYWORD,
     DOC_LANG,
     DOC_LINES,
@@ -30,11 +42,12 @@ from katalog.constants.metadata import (
     DOC_SUMMARY,
     DOC_TEXT,
     DOC_WORDS,
-    FILE_VERSION,
+    FILE_CHILD_COUNT,
     FILE_DESCRIPTION,
     FILE_SIZE,
     FILE_TITLE,
     FILE_TYPE,
+    FILE_VERSION,
     IMAGE_APERTURE,
     IMAGE_CAMERA_MAKE,
     IMAGE_CAMERA_MODEL,
@@ -55,42 +68,27 @@ from katalog.constants.metadata import (
 from katalog.models import MetadataChanges, OpStatus
 from katalog.processors.base import Processor, ProcessorResult
 from katalog.utils.utils import parse_datetime_utc
-from kreuzberg import (
-    ChunkingConfig,
-    ExtractionConfig,
-    LanguageDetectionConfig,
-    ValidationError,
-    batch_extract_bytes,
-    batch_extract_files,
-    detect_mime_type_from_bytes,
-    extract_bytes,
-    extract_file,
-)
 
 
-# Note: We lack proper typing from Kreuzberg, so we define some minimal protocols here to help with type checking and code clarity.
-class Chunk(Protocol):
-    content: str
+# xberg's FormatMetadata is a tagged union whose per-format variant accessors
+# (pdf/text/image/...) are dynamic pyo3 attributes not declared in its type
+# stubs, so we describe the ones we read here.
+class _FormatMetadataVariants(Protocol):
+    format_type: str
+    pdf: PdfMetadata | None
+    pptx: PptxMetadata | None
+    excel: ExcelMetadata | None
+    text: TextMetadata | None
+    archive: ArchiveMetadata | None
+    image: ImageMetadata | None
 
 
-class ExtractionResult(Protocol):
-    content: str
-    mime_type: str
-    detected_languages: list[str] | None
-    chunks: list[Chunk] | None
-    output_format: str | None
-    result_format: str | None
-
-    def get_page_count(self) -> int: ...
-    def get_chunk_count(self) -> int: ...
-    def get_detected_language(self) -> str | None: ...
-    def get_metadata_field(self, field_name: str) -> Any | None: ...
-
-
-class KreuzbergDocumentExtractProcessor(Processor):
-    plugin_id = "katalog.processors.kreuzberg_document_extract.KreuzbergDocumentExtractProcessor"
-    title = "Kreuzberg document extract"
-    description = "Extract text, metadata and chunks using kreuzberg."
+class XbergDocumentExtractProcessor(Processor):
+    plugin_id = (
+        "katalog.processors.xberg_document_extract.XbergDocumentExtractProcessor"
+    )
+    title = "Xberg document extract"
+    description = "Extract text, metadata and chunks using xberg."
     execution_mode = "io"
     _dependencies = frozenset({DATA_KEY, FILE_SIZE, FILE_TYPE, TIME_MODIFIED})
     _outputs = frozenset(
@@ -113,10 +111,6 @@ class KreuzbergDocumentExtractProcessor(Processor):
             ACCESS_CREATED_BY,
             TIME_CREATED,
             ACCESS_LAST_MODIFIED_BY,
-            AUDIO_ARTIST,
-            AUDIO_ALBUM,
-            AUDIO_YEAR,
-            AUDIO_GENRE,
             ARCHIVE_FORMAT,
             FILE_CHILD_COUNT,
             ARCHIVE_UNCOMPRESSED_SIZE,
@@ -144,7 +138,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
         )
         use_batch: bool = Field(
             default=True,
-            description="Use Kreuzberg batch extraction APIs when processing a workflow batch.",
+            description="Use Xberg batch extraction APIs when processing a workflow batch.",
         )
 
     config_model = ConfigModel
@@ -192,8 +186,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
         if not self.config.use_batch:
             return [await self._run_single(changes) for changes in changes_batch]
         results: list[ProcessorResult | None] = [None] * len(changes_batch)
-        path_jobs: list[tuple[int, Path]] = []
-        bytes_jobs: list[tuple[int, bytes, str]] = []
+        jobs: list[tuple[int, ExtractInput]] = []
 
         for idx, changes in enumerate(changes_batch):
             asset = changes.asset
@@ -205,19 +198,27 @@ class KreuzbergDocumentExtractProcessor(Processor):
             reader = await changes.get_data_reader(DATA_FILE_READER)
             if reader is None:
                 results[idx] = ProcessorResult(
-                    status=OpStatus.SKIPPED, message="Asset does not have a data accessor"
+                    status=OpStatus.SKIPPED,
+                    message="Asset does not have a data accessor",
                 )
                 continue
             mime_type = self._resolve_mime_type(changes)
             if mime_type and not _is_supported_mime(mime_type):
                 results[idx] = ProcessorResult(
                     status=OpStatus.SKIPPED,
-                    message=f"Unsupported mime type for kreuzberg: {mime_type}",
+                    message=f"Unsupported mime type for xberg: {mime_type}",
                 )
                 continue
             reader_path = reader.path
             if reader_path:
-                path_jobs.append((idx, Path(reader_path)))
+                jobs.append(
+                    (
+                        idx,
+                        ExtractInput(
+                            kind="uri", uri=str(reader_path), mime_type=mime_type
+                        ),
+                    )
+                )
                 continue
             data = await reader.read()
             if not data:
@@ -226,29 +227,21 @@ class KreuzbergDocumentExtractProcessor(Processor):
                     message="Asset data reader returned empty content",
                 )
                 continue
-            inferred_mime_type = mime_type or detect_mime_type_from_bytes(data)
-            if not inferred_mime_type:
-                results[idx] = ProcessorResult(
-                    status=OpStatus.SKIPPED,
-                    message="Could not infer mime type for byte extraction",
-                )
-                continue
-            if not _is_supported_mime(inferred_mime_type):
-                results[idx] = ProcessorResult(
-                    status=OpStatus.SKIPPED,
-                    message=f"Unsupported mime type for kreuzberg: {inferred_mime_type}",
-                )
-                continue
-            bytes_jobs.append((idx, data, inferred_mime_type))
+            # Mime detection moved inside xberg; a known type is passed as a hint
+            # and unsupported/undetectable content surfaces as a per-input error.
+            jobs.append(
+                (idx, ExtractInput(kind="bytes", bytes=data, mime_type=mime_type))
+            )
 
-        await self._run_path_jobs(path_jobs=path_jobs, results=results)
-        await self._run_bytes_jobs(bytes_jobs=bytes_jobs, results=results)
+        await self._run_extraction_jobs(jobs=jobs, results=results)
 
         finalized: list[ProcessorResult] = []
         for result in results:
             if result is None:
                 finalized.append(
-                    ProcessorResult(status=OpStatus.ERROR, message="Missing extraction result")
+                    ProcessorResult(
+                        status=OpStatus.ERROR, message="Missing extraction result"
+                    )
                 )
             else:
                 finalized.append(result)
@@ -270,127 +263,105 @@ class KreuzbergDocumentExtractProcessor(Processor):
         if mime_type and not _is_supported_mime(mime_type):
             return ProcessorResult(
                 status=OpStatus.SKIPPED,
-                message=f"Unsupported mime type for kreuzberg: {mime_type}",
+                message=f"Unsupported mime type for xberg: {mime_type}",
             )
 
-        doc: ExtractionResult
         reader_path = reader.path
+        if reader_path:
+            job_input = ExtractInput(
+                kind="uri", uri=str(reader_path), mime_type=mime_type
+            )
+        else:
+            data = await reader.read()
+            if not data:
+                return ProcessorResult(
+                    status=OpStatus.SKIPPED,
+                    message="Asset data reader returned empty content",
+                )
+            job_input = ExtractInput(kind="bytes", bytes=data, mime_type=mime_type)
+        return await self._extract_one(job_input)
+
+    async def _run_extraction_jobs(
+        self,
+        *,
+        jobs: list[tuple[int, ExtractInput]],
+        results: list[ProcessorResult | None],
+    ) -> None:
+        if not jobs:
+            return
+        inputs = [job_input for _idx, job_input in jobs]
         try:
-            if reader_path:
-                doc = await extract_file(
-                    Path(reader_path),
-                    mime_type=mime_type,
-                    config=self.extraction_config,
+            extraction = await extract_batch(inputs, config=self.extraction_config)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Xberg extract_batch failed for {count} inputs, falling back to single extraction: {error}",
+                count=len(jobs),
+                error=str(exc),
+            )
+            await self._run_jobs_singly(jobs=jobs, results=results)
+            return
+        # Successful documents come back in input order; failures are reported
+        # separately with the position of the input that caused them.
+        errors_by_input = {error.index: error for error in extraction.errors}
+        if len(extraction.results) + len(errors_by_input) != len(jobs):
+            logger.warning(
+                "Xberg extract_batch returned {result_count} results and {error_count} errors for {count} inputs, falling back to single extraction",
+                result_count=len(extraction.results),
+                error_count=len(errors_by_input),
+                count=len(jobs),
+            )
+            await self._run_jobs_singly(jobs=jobs, results=results)
+            return
+        docs = iter(extraction.results)
+        for position, (idx, _job_input) in enumerate(jobs):
+            error = errors_by_input.get(position)
+            if error is not None:
+                status = (
+                    OpStatus.SKIPPED
+                    if error.error_type == "unsupported_format"
+                    else OpStatus.ERROR
                 )
-            else:
-                data = await reader.read()
-                if not data:
-                    return ProcessorResult(
-                        status=OpStatus.SKIPPED,
-                        message="Asset data reader returned empty content",
-                    )
-                inferred_mime_type = mime_type or detect_mime_type_from_bytes(data)
-                if not inferred_mime_type:
-                    return ProcessorResult(
-                        status=OpStatus.SKIPPED,
-                        message="Could not infer mime type for byte extraction",
-                    )
-                if not _is_supported_mime(inferred_mime_type):
-                    return ProcessorResult(
-                        status=OpStatus.SKIPPED,
-                        message=f"Unsupported mime type for kreuzberg: {inferred_mime_type}",
-                    )
-                doc = await extract_bytes(
-                    data,
-                    mime_type=inferred_mime_type,
-                    config=self.extraction_config,
+                results[idx] = ProcessorResult(
+                    status=status,
+                    message=f"Xberg extraction failed: {error.message}",
                 )
+                continue
+            results[idx] = self._build_processor_result(next(docs))
+
+    async def _run_jobs_singly(
+        self,
+        *,
+        jobs: list[tuple[int, ExtractInput]],
+        results: list[ProcessorResult | None],
+    ) -> None:
+        for idx, job_input in jobs:
+            results[idx] = await self._extract_one(job_input)
+
+    async def _extract_one(self, job_input: ExtractInput) -> ProcessorResult:
+        try:
+            extraction = await extract(input=job_input, config=self.extraction_config)
         except ValidationError as exc:
             return ProcessorResult(
                 status=OpStatus.SKIPPED,
-                message=f"Kreuzberg validation failed: {exc}",
+                message=f"Xberg validation failed: {exc}",
             )
-
-        return self._build_processor_result(doc)
-
-    async def _run_path_jobs(
-        self,
-        *,
-        path_jobs: list[tuple[int, Path]],
-        results: list[ProcessorResult | None],
-    ) -> None:
-        if not path_jobs:
-            return
-        paths = [path for _idx, path in path_jobs]
-        try:
-            docs = await batch_extract_files(paths, config=self.extraction_config)
-            for (idx, _path), doc in zip(path_jobs, docs, strict=True):
-                results[idx] = self._build_processor_result(doc)
-            return
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Kreuzberg batch_extract_files failed for {count} files, falling back to single extraction: {error}",
-                count=len(path_jobs),
-                error=str(exc),
-            )
-        for idx, path in path_jobs:
-            try:
-                doc = await extract_file(path, config=self.extraction_config)
-                results[idx] = self._build_processor_result(doc)
-            except ValidationError as exc:
-                results[idx] = ProcessorResult(
+            if _is_unsupported_format_error(exc):
+                return ProcessorResult(
                     status=OpStatus.SKIPPED,
-                    message=f"Kreuzberg validation failed: {exc}",
+                    message=f"Unsupported format for xberg: {exc}",
                 )
-            except Exception as exc:  # noqa: BLE001
-                results[idx] = ProcessorResult(
-                    status=OpStatus.ERROR,
-                    message=f"Kreuzberg extraction failed: {exc}",
-                )
-
-    async def _run_bytes_jobs(
-        self,
-        *,
-        bytes_jobs: list[tuple[int, bytes, str]],
-        results: list[ProcessorResult | None],
-    ) -> None:
-        if not bytes_jobs:
-            return
-        data_list = [data for _idx, data, _mime in bytes_jobs]
-        mime_types = [mime for _idx, _data, mime in bytes_jobs]
-        try:
-            docs = await batch_extract_bytes(
-                data_list,
-                mime_types=mime_types,
-                config=self.extraction_config,
+            return ProcessorResult(
+                status=OpStatus.ERROR,
+                message=f"Xberg extraction failed: {exc}",
             )
-            for (idx, _data, _mime), doc in zip(bytes_jobs, docs, strict=True):
-                results[idx] = self._build_processor_result(doc)
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Kreuzberg batch_extract_bytes failed for {count} files, falling back to single extraction: {error}",
-                count=len(bytes_jobs),
-                error=str(exc),
+        if not extraction.results:
+            message = "; ".join(error.message for error in extraction.errors)
+            return ProcessorResult(
+                status=OpStatus.ERROR,
+                message=message or "Xberg returned no extraction result",
             )
-        for idx, data, mime_type in bytes_jobs:
-            try:
-                doc = await extract_bytes(
-                    data,
-                    mime_type=mime_type,
-                    config=self.extraction_config,
-                )
-                results[idx] = self._build_processor_result(doc)
-            except ValidationError as exc:
-                results[idx] = ProcessorResult(
-                    status=OpStatus.SKIPPED,
-                    message=f"Kreuzberg validation failed: {exc}",
-                )
-            except Exception as exc:  # noqa: BLE001
-                results[idx] = ProcessorResult(
-                    status=OpStatus.ERROR,
-                    message=f"Kreuzberg extraction failed: {exc}",
-                )
+        return self._build_processor_result(extraction.results[0])
 
     def _build_extraction_config(
         self,
@@ -398,7 +369,7 @@ class KreuzbergDocumentExtractProcessor(Processor):
     ) -> ExtractionConfig:
         chunking_config = None
         if config.enable_chunking:
-            # Use Kreuzberg's default chunking strategy/limits.
+            # Use Xberg's default chunking strategy/limits.
             chunking_config = ChunkingConfig()
         extraction = ExtractionConfig(
             chunking=chunking_config,
@@ -408,144 +379,95 @@ class KreuzbergDocumentExtractProcessor(Processor):
         # Use KeywordConfig
         return extraction
 
-    def _build_processor_result(self, doc: ExtractionResult) -> ProcessorResult:
+    def _build_processor_result(self, doc: ExtractedDocument) -> ProcessorResult:
         result = ProcessorResult(actor_id=self.actor.id)
 
-        format_type = _first_metadata_field(doc, "format_type")
+        md = doc.metadata
+        # FormatMetadata is a tagged union: exactly one variant accessor
+        # (pdf/image/archive/text/...) is non-None per document.
+        format_md = cast("_FormatMetadataVariants | None", md.format)
+        pdf_md = format_md.pdf if format_md is not None else None
 
         result.set_metadata(DOC_TEXT, _normalize_text(doc.content))
 
         languages = _unique_strings(
             [
                 *_to_string_list(doc.detected_languages),
-                *_to_string_list(doc.get_detected_language()),
-                *_to_string_list(_first_metadata_field(doc, "language")),
+                *_to_string_list(md.language),
             ]
         )
         result.set_metadata_list(DOC_LANG, languages)
 
-        pages = doc.get_page_count()
-        if pages <= 0:
-            pages = (
-                _to_int(
-                    _first_metadata_field(
-                        doc, "page_count", "slide_count", "sheet_count"
-                    )
-                )
-                or 0
-            )
+        pages = doc.counts.pages
+        if pages <= 0 and format_md is not None:
+            pptx_md = format_md.pptx
+            excel_md = format_md.excel
+            if pdf_md is not None and pdf_md.page_count:
+                pages = pdf_md.page_count
+            elif pptx_md is not None and pptx_md.slide_count:
+                pages = pptx_md.slide_count
+            elif excel_md is not None and excel_md.sheet_count:
+                pages = excel_md.sheet_count
         result.set_metadata(DOC_PAGES, pages if pages > 0 else None)
 
         result.set_metadata(FILE_TYPE, doc.mime_type)
 
-        result.set_metadata(FILE_TITLE, _to_str(_first_metadata_field(doc, "title")))
-        result.set_metadata(
-            FILE_DESCRIPTION,
-            _to_str(_first_metadata_field(doc, "subject", "description")),
-        )
-        result.set_metadata(
-            DOC_SUMMARY,
-            _to_str(_first_metadata_field(doc, "abstract_text", "summary")),
-        )
-        result.set_metadata(
-            DOC_CATEGORY, _to_str(_first_metadata_field(doc, "category"))
-        )
-        result.set_metadata(
-            FILE_VERSION,
-            _to_str(_first_metadata_field(doc, "document_version")),
-        )
+        result.set_metadata(FILE_TITLE, _to_str(md.title))
+        result.set_metadata(FILE_DESCRIPTION, _to_str(md.subject))
+        result.set_metadata(DOC_SUMMARY, _to_str(md.abstract_text))
+        result.set_metadata(DOC_CATEGORY, _to_str(md.category))
+        result.set_metadata(FILE_VERSION, _to_str(md.document_version))
 
-        authors = _to_string_list(_first_metadata_field(doc, "authors"))
-        byline = _to_str(_first_metadata_field(doc, "author"))
-        if byline and byline not in authors:
-            authors.append(byline)
-        result.set_metadata_list(DOC_AUTHOR, authors)
+        result.set_metadata_list(DOC_AUTHOR, _to_string_list(md.authors))
 
-        created_at = parse_datetime_utc(
-            _to_str(_first_metadata_field(doc, "created_at", "creation_date")),
-            strict=False,
-        )
-        modified_at = parse_datetime_utc(
-            _to_str(_first_metadata_field(doc, "modified_at", "modification_date")),
-            strict=False,
-        )
+        created_at = parse_datetime_utc(_to_str(md.created_at), strict=False)
+        modified_at = parse_datetime_utc(_to_str(md.modified_at), strict=False)
         result.set_metadata(TIME_CREATED, created_at)
         result.set_metadata(TIME_MODIFIED, modified_at)
 
-        result.set_metadata(
-            ACCESS_CREATED_BY,
-            _to_str(_first_metadata_field(doc, "created_by", "creator")),
-        )
-        result.set_metadata(
-            ACCESS_LAST_MODIFIED_BY,
-            _to_str(_first_metadata_field(doc, "modified_by")),
-        )
+        result.set_metadata(ACCESS_CREATED_BY, _to_str(md.created_by))
+        result.set_metadata(ACCESS_LAST_MODIFIED_BY, _to_str(md.modified_by))
 
+        text_md = format_md.text if format_md is not None else None
         result.set_metadata(
-            DOC_CHARS, _to_int(_first_metadata_field(doc, "character_count"))
+            DOC_CHARS, _to_int(text_md.character_count) if text_md else None
         )
-        result.set_metadata(
-            DOC_WORDS, _to_int(_first_metadata_field(doc, "word_count"))
-        )
-        result.set_metadata(
-            DOC_LINES, _to_int(_first_metadata_field(doc, "line_count"))
-        )
+        result.set_metadata(DOC_WORDS, _to_int(text_md.word_count) if text_md else None)
+        result.set_metadata(DOC_LINES, _to_int(text_md.line_count) if text_md else None)
 
         keywords = _unique_strings(
             [
-                *_to_string_list(_first_metadata_field(doc, "keywords")),
-                *_to_string_list(_first_metadata_field(doc, "tags")),
+                *_to_string_list(md.keywords),
+                *_to_string_list(md.tags),
             ]
         )
         result.set_metadata_list(DOC_KEYWORD, keywords)
 
         chunk_texts = [_normalize_text(chunk.content) for chunk in (doc.chunks or [])]
         chunk_texts = [chunk_text for chunk_text in chunk_texts if chunk_text]
-        chunk_count = doc.get_chunk_count()
+        chunk_count = len(doc.chunks or [])
         if chunk_count <= 0 and chunk_texts:
             chunk_count = len(chunk_texts)
         result.set_metadata(DOC_CHUNK_COUNT, chunk_count if chunk_count > 0 else None)
         result.set_metadata_list(DOC_CHUNK_TEXT, chunk_texts)
 
-        result.set_metadata(
-            AUDIO_ARTIST,
-            _to_str(_first_metadata_field(doc, "artist", "audio_artist")),
-        )
-        result.set_metadata(
-            AUDIO_ALBUM,
-            _to_str(_first_metadata_field(doc, "album", "audio_album")),
-        )
-        result.set_metadata(
-            AUDIO_YEAR,
-            _to_int(_first_metadata_field(doc, "year", "audio_year")),
-        )
-        result.set_metadata(
-            AUDIO_GENRE,
-            _to_str(_first_metadata_field(doc, "genre", "audio_genre")),
-        )
+        # Audio tag metadata (artist/album/year/genre) was dropped in xberg;
+        # AudioMetadata now only carries technical fields (codec, duration, ...).
 
-        if format_type == "archive":
+        archive_md = format_md.archive if format_md is not None else None
+        if archive_md is not None:
+            result.set_metadata(ARCHIVE_FORMAT, _to_str(archive_md.format))
+            result.set_metadata(FILE_CHILD_COUNT, _to_int(archive_md.file_count))
             result.set_metadata(
-                ARCHIVE_FORMAT, _to_str(_first_metadata_field(doc, "format"))
-            )
-            result.set_metadata(
-                FILE_CHILD_COUNT,
-                _to_int(_first_metadata_field(doc, "file_count")),
-            )
-            result.set_metadata(
-                ARCHIVE_UNCOMPRESSED_SIZE,
-                _to_int(_first_metadata_field(doc, "total_size")),
+                ARCHIVE_UNCOMPRESSED_SIZE, _to_int(archive_md.total_size)
             )
 
-        if format_type == "image":
-            result.set_metadata(
-                IMAGE_WIDTH, _to_int(_first_metadata_field(doc, "width"))
-            )
-            result.set_metadata(
-                IMAGE_HEIGHT, _to_int(_first_metadata_field(doc, "height"))
-            )
+        image_md = format_md.image if format_md is not None else None
+        if image_md is not None:
+            result.set_metadata(IMAGE_WIDTH, _to_int(image_md.width))
+            result.set_metadata(IMAGE_HEIGHT, _to_int(image_md.height))
 
-            exif = _to_mapping(_first_metadata_field(doc, "exif"))
+            exif = image_md.exif
             if exif:
                 result.set_metadata(
                     IMAGE_CAMERA_MAKE,
@@ -628,46 +550,26 @@ class KreuzbergDocumentExtractProcessor(Processor):
                 )
 
         # Full office properties are mapped to other metadata fields already
-        # if format_type == "docx":
-        #     core_props = _first_metadata_field(doc, "core_properties")
-        #     app_props = _first_metadata_field(doc, "app_properties")
-        #     custom_props = _first_metadata_field(doc, "custom_properties")
+        # docx_md = format_md.docx if format_md is not None else None
+        # if docx_md is not None:
+        #     core_props = docx_md.core_properties
+        #     app_props = docx_md.app_properties
+        #     custom_props = docx_md.custom_properties
 
         # A bit too detailed for now
-        # if format_type == "html":
-        #     result.set_metadata(
-        #         HTML_CANONICAL_URL,
-        #         _to_str(_first_metadata_field(doc, "canonical_url", "canonical")),
-        #     )
-        #     result.set_metadata(
-        #         HTML_BASE_HREF,
-        #         _to_str(_first_metadata_field(doc, "base_href")),
-        #     )
-        #     result.set_metadata(
-        #         HTML_TEXT_DIRECTION,
-        #         _to_str(_first_metadata_field(doc, "text_direction")),
-        #     )
-        #     result.set_metadata(
-        #         HTML_OPEN_GRAPH,
-        #         _to_mapping(_first_metadata_field(doc, "open_graph")) or None,
-        #     )
-        #     result.set_metadata(
-        #         HTML_TWITTER_CARD,
-        #         _to_mapping(_first_metadata_field(doc, "twitter_card")) or None,
-        #     )
-        #     result.set_metadata(
-        #         HTML_META_TAGS,
-        #         _to_mapping(_first_metadata_field(doc, "meta_tags")) or None,
-        #     )
+        # html_md = format_md.html if format_md is not None else None
+        # if html_md is not None:
+        #     result.set_metadata(HTML_CANONICAL_URL, _to_str(html_md.canonical_url))
+        #     result.set_metadata(HTML_BASE_HREF, _to_str(html_md.base_href))
+        #     result.set_metadata(HTML_TEXT_DIRECTION, _to_str(html_md.text_direction))
+        #     result.set_metadata(HTML_OPEN_GRAPH, html_md.open_graph or None)
+        #     result.set_metadata(HTML_TWITTER_CARD, html_md.twitter_card or None)
+        #     result.set_metadata(HTML_META_TAGS, html_md.meta_tags or None)
 
-        if format_type == "pdf":
-            result.set_metadata(
-                PDF_VERSION, _to_str(_first_metadata_field(doc, "pdf_version"))
-            )
-            result.set_metadata(
-                PDF_PRODUCER, _to_str(_first_metadata_field(doc, "producer"))
-            )
-            is_encrypted = _to_bool(_first_metadata_field(doc, "is_encrypted"))
+        if pdf_md is not None:
+            result.set_metadata(PDF_VERSION, _to_str(pdf_md.pdf_version))
+            result.set_metadata(PDF_PRODUCER, _to_str(pdf_md.producer))
+            is_encrypted = _to_bool(pdf_md.is_encrypted)
             result.set_metadata(
                 PDF_ENCRYPTED, None if is_encrypted is None else int(is_encrypted)
             )
@@ -682,12 +584,12 @@ class KreuzbergDocumentExtractProcessor(Processor):
         return None
 
 
-def _first_metadata_field(doc: ExtractionResult, *field_names: str) -> Any | None:
-    for field_name in field_names:
-        value = doc.get_metadata_field(field_name)
-        if value is not None:
-            return value
-    return None
+def _is_unsupported_format_error(exc: Exception) -> bool:
+    if isinstance(exc, UnsupportedFormatError):
+        return True
+    # The xberg pyo3 bindings surface some core errors as plain RuntimeError
+    # instead of the typed exception classes.
+    return isinstance(exc, RuntimeError) and "Unsupported format" in str(exc)
 
 
 def _normalize_text(value: Any) -> str | None:
@@ -798,12 +700,6 @@ def _unique_strings(values: Sequence[str]) -> list[str]:
         seen.add(normalized)
         output.append(normalized)
     return output
-
-
-def _to_mapping(value: Any) -> Mapping[str, Any] | None:
-    if isinstance(value, Mapping):
-        return value
-    return None
 
 
 def _first_mapping_value(mapping: Mapping[str, Any], *keys: str) -> Any | None:

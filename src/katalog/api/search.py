@@ -14,7 +14,11 @@ from katalog.db.vectors import VectorSearchHit, get_vector_repo
 from katalog.models.query import AssetQuery
 from katalog.models import ActorType
 from katalog.api.helpers import ApiError
-from katalog.vectors.embedding import embed_text_kreuzberg
+from katalog.processors.vector_index import (
+    LEGACY_KREUZBERG_VECTOR_INDEX_PLUGIN_ID,
+    XbergVectorIndexProcessor,
+)
+from katalog.vectors.embedding import embed_text_xberg
 
 
 @dataclass(frozen=True)
@@ -99,7 +103,7 @@ async def semantic_hits_for_query(query: AssetQuery) -> tuple[list[SemanticHit],
         )
 
     top_k = query.search_top_k or max(50, query.limit * 5)
-    query_vector = await embed_text_kreuzberg(
+    query_vector = await embed_text_xberg(
         search_text,
         model=query.search_embedding_model,
         backend=query.search_embedding_backend,
@@ -128,10 +132,19 @@ async def _resolve_vector_actor_id(search_index: int | None) -> int:
     actor_db = get_actor_repo()
     actors = await actor_db.list_rows(
         type=ActorType.PROCESSOR,
-        plugin_id="katalog.processors.vector_index.KreuzbergVectorIndexProcessor",
+        plugin_id=XbergVectorIndexProcessor.plugin_id,
         disabled=0,
         order_by="id ASC",
     )
+    if not actors:
+        # Workspaces created before the kreuzberg → xberg rename still store
+        # the old plugin id in their actors table.
+        actors = await actor_db.list_rows(
+            type=ActorType.PROCESSOR,
+            plugin_id=LEGACY_KREUZBERG_VECTOR_INDEX_PLUGIN_ID,
+            disabled=0,
+            order_by="id ASC",
+        )
     if len(actors) == 1 and actors[0].id is not None:
         return int(actors[0].id)
     if not actors:

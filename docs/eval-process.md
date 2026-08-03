@@ -125,8 +125,8 @@ Rules:
 ### Minimal eval workflow shape
 
 1. Source actor (e.g. GCS/filesystem)
-2. `KreuzbergDocumentExtractProcessor`
-3. `KreuzbergVectorIndexProcessor`
+2. `XbergDocumentExtractProcessor`
+3. `XbergVectorIndexProcessor`
 4. `EvalTextQualityProcessor`
 5. `EvalTruthCompareProcessor`
 6. Retrieval eval analyzer (new)

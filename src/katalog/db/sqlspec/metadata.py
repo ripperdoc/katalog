@@ -22,9 +22,12 @@ from katalog.db.sqlspec.sql_helpers import select
 from katalog.models.metadata import _metadata_to_row, _normalize_metadata_row, Metadata
 from katalog.db.sqlspec.sql_helpers import execute
 from katalog.db.actors import get_actor_repo
-from katalog.processors.vector_index import KreuzbergVectorIndexProcessor
+from katalog.processors.vector_index import (
+    VECTOR_INDEX_PLUGIN_IDS,
+    XbergVectorIndexProcessor,
+)
 from katalog.models import make_metadata
-from katalog.vectors.embedding import embed_text_kreuzberg
+from katalog.vectors.embedding import embed_text_xberg
 
 if TYPE_CHECKING:
     from katalog.models.assets import Asset
@@ -271,9 +274,9 @@ class SqlspecMetadataRepo:
             actor = await actor_repo.get_or_none(id=int(actor_id))
             if actor is None or not actor.plugin_id:
                 continue
-            if actor.plugin_id != KreuzbergVectorIndexProcessor.plugin_id:
+            if actor.plugin_id not in VECTOR_INDEX_PLUGIN_IDS:
                 continue
-            config = KreuzbergVectorIndexProcessor.ConfigModel.model_validate(actor.config or {})
+            config = XbergVectorIndexProcessor.ConfigModel.model_validate(actor.config or {})
             dependencies = frozenset(MetadataKey(key) for key in config.metadata_keys)
             metadata_key_ids: list[int] = []
             for key in dependencies:
@@ -312,89 +315,6 @@ class SqlspecMetadataRepo:
         if indexed_count_entries:
             await self.bulk_create(indexed_count_entries)
         return total_indexed
-
-
-def _searchable_metadata_key_ids() -> set[int]:
-    key_ids: set[int] = set()
-    for key, definition in METADATA_REGISTRY.items():
-        key_str = str(key)
-        if key == ASSET_SEARCH_DOC or key_str.startswith("asset/") or key_str.startswith("internal/"):
-            continue
-        if definition.searchable is not None:
-            if not definition.searchable:
-                continue
-        elif definition.value_type not in {MetadataType.STRING, MetadataType.JSON}:
-            continue
-        key_ids.add(int(get_metadata_id(key)))
-    return key_ids
-
-
-def _to_fts_points(
-    entries: Sequence[Metadata], *, searchable_key_ids: set[int]
-) -> list[FtsPoint]:
-    points: list[FtsPoint] = []
-    for entry in entries:
-        metadata_id = entry.id
-        metadata_key_id = entry.metadata_key_id
-        if metadata_id is None or metadata_key_id is None:
-            continue
-        if int(metadata_key_id) not in searchable_key_ids:
-            continue
-        value = entry.value
-        if value is None:
-            continue
-        text = value.isoformat() if hasattr(value, "isoformat") else str(value)
-        cleaned = text.strip()
-        if not cleaned:
-            continue
-        points.append(FtsPoint(metadata_id=int(metadata_id), text=cleaned))
-    return points
-
-
-async def _to_vector_points(
-    entries: Sequence[Metadata],
-    *,
-    dependencies: set[MetadataKey] | frozenset[MetadataKey],
-    model: str,
-    backend: str,
-    normalize: bool,
-    batch_size: int,
-    dim: int,
-    min_text_length: int,
-    max_points: int,
-) -> list[VectorPoint]:
-    key_id_to_key: dict[int, MetadataKey] = {}
-    for key in dependencies:
-        registry_id = get_metadata_def_by_key(key).registry_id
-        if registry_id is None:
-            continue
-        key_id_to_key[int(registry_id)] = key
-    points: list[VectorPoint] = []
-    for entry in entries:
-        entry_id = entry.id
-        metadata_key_id = entry.metadata_key_id
-        if entry_id is None or metadata_key_id is None:
-            continue
-        if int(metadata_key_id) not in key_id_to_key:
-            continue
-        value = entry.value
-        if not isinstance(value, str):
-            continue
-        text = value.strip()
-        if len(text) < min_text_length:
-            continue
-        vector = await embed_text_kreuzberg(
-            text,
-            model=model,
-            backend=backend,
-            normalize=normalize,
-            batch_size=batch_size,
-            dim=dim,
-        )
-        points.append(VectorPoint(metadata_id=int(entry_id), vector=vector))
-        if len(points) >= max_points:
-            break
-    return points
 
     async def list_active_collection_asset_ids(
         self,
@@ -484,3 +404,86 @@ async def _to_vector_points(
         async with session_scope() as session:
             rows = await select(session, sql, [membership_key_id, collection_id])
         return int(rows[0]["cnt"]) if rows else 0
+
+
+def _searchable_metadata_key_ids() -> set[int]:
+    key_ids: set[int] = set()
+    for key, definition in METADATA_REGISTRY.items():
+        key_str = str(key)
+        if key == ASSET_SEARCH_DOC or key_str.startswith("asset/") or key_str.startswith("internal/"):
+            continue
+        if definition.searchable is not None:
+            if not definition.searchable:
+                continue
+        elif definition.value_type not in {MetadataType.STRING, MetadataType.JSON}:
+            continue
+        key_ids.add(int(get_metadata_id(key)))
+    return key_ids
+
+
+def _to_fts_points(
+    entries: Sequence[Metadata], *, searchable_key_ids: set[int]
+) -> list[FtsPoint]:
+    points: list[FtsPoint] = []
+    for entry in entries:
+        metadata_id = entry.id
+        metadata_key_id = entry.metadata_key_id
+        if metadata_id is None or metadata_key_id is None:
+            continue
+        if int(metadata_key_id) not in searchable_key_ids:
+            continue
+        value = entry.value
+        if value is None:
+            continue
+        text = value.isoformat() if hasattr(value, "isoformat") else str(value)
+        cleaned = text.strip()
+        if not cleaned:
+            continue
+        points.append(FtsPoint(metadata_id=int(metadata_id), text=cleaned))
+    return points
+
+
+async def _to_vector_points(
+    entries: Sequence[Metadata],
+    *,
+    dependencies: set[MetadataKey] | frozenset[MetadataKey],
+    model: str,
+    backend: str,
+    normalize: bool,
+    batch_size: int,
+    dim: int,
+    min_text_length: int,
+    max_points: int,
+) -> list[VectorPoint]:
+    key_id_to_key: dict[int, MetadataKey] = {}
+    for key in dependencies:
+        registry_id = get_metadata_def_by_key(key).registry_id
+        if registry_id is None:
+            continue
+        key_id_to_key[int(registry_id)] = key
+    points: list[VectorPoint] = []
+    for entry in entries:
+        entry_id = entry.id
+        metadata_key_id = entry.metadata_key_id
+        if entry_id is None or metadata_key_id is None:
+            continue
+        if int(metadata_key_id) not in key_id_to_key:
+            continue
+        value = entry.value
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if len(text) < min_text_length:
+            continue
+        vector = await embed_text_xberg(
+            text,
+            model=model,
+            backend=backend,
+            normalize=normalize,
+            batch_size=batch_size,
+            dim=dim,
+        )
+        points.append(VectorPoint(metadata_id=int(entry_id), vector=vector))
+        if len(points) >= max_points:
+            break
+    return points

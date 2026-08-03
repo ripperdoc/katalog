@@ -128,6 +128,10 @@ async def session_scope(*, analysis: bool = False) -> AsyncIterator[Any]:
     _assert_db_access_allowed()
     active = _ACTIVE_SESSION.get()
     if active is not None:
+        # Shared sessions (test_session) skip provide_session, so make sure
+        # sqlite extensions are loaded here as well; the call caches per
+        # connection and is a no-op after the first time.
+        await _ensure_sqlite_extensions(active)
         yield active
         return
 
