@@ -519,6 +519,12 @@ The scan runtime tracks which asset ids were seen for each actor during the scan
 previously known asset for that actor that was not seen can either be marked as lost or deleted,
 depending on `missing_assets_policy`.
 
+Missing-asset reconciliation only runs after the actor's selected top-level scan reports
+`completed`. A completed scan that returns zero assets is an authoritative empty snapshot, so all
+previously known assets for that actor are missing. Partial, canceled, skipped, failed, and
+recursive scans do not trigger global reconciliation because absence in those scans is not evidence
+that an asset disappeared from the source.
+
 The default `lost` policy keeps the asset row and writes current `asset/lost = 1` metadata for that
 actor. Normal asset queries hide lost assets unless `include_lost_assets` is set. This keeps history
 and provenance intact while still making current views behave like a live catalog. The `delete`

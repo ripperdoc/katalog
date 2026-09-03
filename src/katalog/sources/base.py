@@ -165,20 +165,15 @@ class SourcePlugin(PluginBase):
         batch_size: int,
     ) -> AsyncIterator[SourceBatch]:
         """Produce source batches in workflow runtime format."""
-        async for batch in self.scan_batches(batch_size=batch_size):
-            items: list[SourceAssetPayload] = []
-            for item in batch:
-                actor_id = item.actor.id
-                if actor_id is None:
-                    raise ValueError("AssetScanResult.actor.id is required")
-                items.append(
-                    SourceAssetPayload(
-                        asset=item.asset,
-                        actor_id=int(actor_id),
-                        metadata=list(item.metadata),
-                    )
-                )
-            yield SourceBatch(items=items, status=OpStatus.IN_PROGRESS)
+        if batch_size <= 0:
+            raise ValueError("batch_size must be > 0")
+        cursor: str | None = None
+        while True:
+            response = await self.pull_scan_batch(cursor=cursor, batch_size=batch_size)
+            yield self._to_source_batch(response)
+            if response.cursor is None:
+                break
+            cursor = response.cursor
 
     def can_scan_asset(self, changes: MetadataChanges) -> int:
         """Return a score (>0) when this source can scan from the given asset state."""
@@ -259,6 +254,26 @@ class SourcePlugin(PluginBase):
                     )
                 )
             yield SourceBatch(items=items, status=OpStatus.IN_PROGRESS)
+
+    @staticmethod
+    def _to_source_batch(response: ScanBatch) -> SourceBatch:
+        items: list[SourceAssetPayload] = []
+        for item in response.items:
+            actor_id = item.actor.id
+            if actor_id is None:
+                raise ValueError("AssetScanResult.actor.id is required")
+            items.append(
+                SourceAssetPayload(
+                    asset=item.asset,
+                    actor_id=int(actor_id),
+                    metadata=list(item.metadata),
+                )
+            )
+        return SourceBatch(
+            items=items,
+            status=response.status,
+            ignored=response.ignored,
+        )
 
     async def _get_or_create_scan_session(
         self,

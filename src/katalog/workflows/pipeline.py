@@ -62,7 +62,7 @@ class WorkflowPipelineState:
     next_batch_id: int = 1
     recursion_queue: deque[RecursionSeed] = field(default_factory=deque)
     seen_assets_by_actor: dict[int, set[int]] = field(default_factory=dict)
-    actor_has_seen_rows: dict[int, bool] = field(default_factory=dict)
+    top_level_scan_status_by_actor: dict[int, OpStatus] = field(default_factory=dict)
 
 
 @dataclass
@@ -155,7 +155,6 @@ class SourceLoadStage:
                 )
             self._plugins_by_actor_id[actor_id] = plugin
             self.state.seen_assets_by_actor.setdefault(actor_id, set())
-            self.state.actor_has_seen_rows.setdefault(actor_id, False)
 
     def _pick_recursive_source(self, changes: MetadataChanges) -> tuple[Actor, SourcePlugin] | None:
         """Pick the highest-scoring source that can recurse from current asset state."""
@@ -217,7 +216,6 @@ class SourceLoadStage:
             if asset_id is not None:
                 existing_by_asset[int(asset_id)] = loaded_metadata
                 self.state.seen_assets_by_actor.setdefault(actor_id, set()).add(int(asset_id))
-                self.state.actor_has_seen_rows[actor_id] = True
 
             if depth < self.settings.max_recursion_depth:
                 picked = self._pick_recursive_source(changes)
@@ -290,12 +288,25 @@ class SourceLoadStage:
             plugin = self._plugins_by_actor_id.get(source_id)
             if plugin is None:
                 continue
-            async for source_batch in plugin.produce_batches(batch_size=self.settings.batch_size):
-                yield await self._hydrate_source_batch(
-                    source_actor=source_actor,
-                    source_batch=source_batch,
-                    depth=0,
+            async for source_batch in plugin.produce_batches(
+                batch_size=self.settings.batch_size
+            ):
+                self.state.top_level_scan_status_by_actor[source_id] = (
+                    source_batch.status
                 )
+                if source_batch.items:
+                    yield await self._hydrate_source_batch(
+                        source_actor=source_actor,
+                        source_batch=source_batch,
+                        depth=0,
+                    )
+                elif source_batch.ignored:
+                    stats = self.changeset.stats
+                    if stats is None:
+                        stats = ChangesetStats()
+                        self.changeset.stats = stats
+                    stats.assets_seen += int(source_batch.ignored)
+                    stats.assets_ignored += int(source_batch.ignored)
 
         while self.state.recursion_queue:
             seed = self.state.recursion_queue.popleft()
@@ -401,7 +412,10 @@ class SourceLoadStage:
             stats = ChangesetStats()
             self.changeset.stats = stats
         for actor_id, seen_ids in self.state.seen_assets_by_actor.items():
-            if not self.state.actor_has_seen_rows.get(actor_id):
+            if (
+                self.state.top_level_scan_status_by_actor.get(actor_id)
+                != OpStatus.COMPLETED
+            ):
                 continue
             if self.missing_assets_policy == "delete":
                 deleted = await self.asset_repo.delete_unseen_assets(

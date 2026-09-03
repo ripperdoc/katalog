@@ -258,6 +258,86 @@ async def test_missing_assets_policy_delete_removes_unseen_assets(db_session) ->
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("missing_assets_policy", "expected_asset_count"),
+    [("lost", 3), ("delete", 0)],
+)
+async def test_missing_assets_policy_reconciles_completed_empty_scan(
+    db_session,
+    missing_assets_policy: Literal["lost", "delete"],
+    expected_asset_count: int,
+) -> None:
+    _ = db_session
+    namespace = f"wf-exec-empty-{missing_assets_policy}"
+    source_full = _workflow_spec(
+        namespace=namespace,
+        total_assets=3,
+        missing_assets_policy=missing_assets_policy,
+        include_processor=False,
+    )
+    source_empty = _workflow_spec(
+        namespace=namespace,
+        total_assets=0,
+        missing_assets_policy=missing_assets_policy,
+        include_processor=False,
+    )
+
+    await _run_and_load_changeset(source_full)
+    _, second_changeset = await _run_and_load_changeset(source_empty)
+    assets = await get_asset_repo().list_rows(namespace=namespace)
+    stats = _stats(second_changeset)
+
+    assert len(assets) == expected_asset_count
+    assert second_changeset.status == OpStatus.COMPLETED
+    assert stats["assets_lost"] == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_assets_policy", ["lost", "delete"])
+async def test_missing_assets_policy_skips_partial_scan(
+    db_session,
+    tmp_path,
+    missing_assets_policy: Literal["lost", "delete"],
+) -> None:
+    _ = db_session
+    source_root = tmp_path / f"partial-{missing_assets_policy}"
+    source_root.mkdir()
+    (source_root / "first.txt").write_text("first")
+    (source_root / "second.txt").write_text("second")
+
+    def filesystem_spec(*, max_files: int) -> WorkflowSpec:
+        return WorkflowSpec(
+            file_name=f"partial-{missing_assets_policy}.workflow.toml",
+            file_path=f"<partial-{missing_assets_policy}>",
+            workflow_id=f"workflow-partial-{missing_assets_policy}",
+            name=f"Partial {missing_assets_policy}",
+            description=None,
+            version="1.0.0",
+            input=WorkflowSourceActorsInput(),
+            missing_assets_policy=missing_assets_policy,
+            always_process=False,
+            actors=[
+                WorkflowActorSpec(
+                    name="Filesystem source",
+                    plugin_id="katalog.sources.filesystem.FilesystemClient",
+                    identity_key=f"partial-{missing_assets_policy}-source",
+                    actor_type=ActorType.SOURCE,
+                    config={"root_path": str(source_root), "max_files": max_files},
+                    disabled=False,
+                )
+            ],
+        )
+
+    await _run_and_load_changeset(filesystem_spec(max_files=0))
+    _, second_changeset = await _run_and_load_changeset(filesystem_spec(max_files=1))
+    assets = await get_asset_repo().list_rows(order_by="id")
+    stats = _stats(second_changeset)
+
+    assert len(assets) == 2
+    assert stats["assets_lost"] == 0
+
+
+@pytest.mark.asyncio
 async def test_multi_batch_execution_processes_all_assets(db_session, monkeypatch) -> None:
     _ = db_session
     monkeypatch.setenv("KATALOG_BATCH_SIZE", "2")
