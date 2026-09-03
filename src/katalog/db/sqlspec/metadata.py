@@ -253,7 +253,8 @@ class SqlspecMetadataRepo:
         total_indexed = 0
         fts_repo = get_fts_repo()
         for asset_id, actor_id in sorted(requests):
-            entries = await self.for_asset(asset_id, include_removed=False)
+            historical_entries = await self.for_asset(asset_id, include_removed=True)
+            entries = _current_metadata_entries(historical_entries)
             points = _to_fts_points(entries, searchable_key_ids=searchable_key_ids)
             indexed = await fts_repo.upsert_asset_points(
                 asset_id=int(asset_id),
@@ -287,11 +288,7 @@ class SqlspecMetadataRepo:
                 if registry_id is not None:
                     metadata_key_ids.append(int(registry_id))
             historical_entries = await self.for_asset(asset_id, include_removed=True)
-            current = MetadataChanges(
-                loaded=historical_entries,
-                staged=[],
-            ).current()
-            entries = [entry for values in current.values() for entry in values]
+            entries = _current_metadata_entries(historical_entries)
             points = await _to_vector_points(
                 entries,
                 dependencies=dependencies,
@@ -427,6 +424,11 @@ def _searchable_metadata_key_ids() -> set[int]:
             continue
         key_ids.add(int(get_metadata_id(key)))
     return key_ids
+
+
+def _current_metadata_entries(entries: Sequence[Metadata]) -> list[Metadata]:
+    current = MetadataChanges(loaded=entries, staged=[]).current()
+    return [entry for values in current.values() for entry in values]
 
 
 def _to_fts_points(
