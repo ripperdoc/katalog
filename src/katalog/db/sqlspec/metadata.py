@@ -21,7 +21,12 @@ from katalog.db.sqlspec.sql_helpers import execute, select
 from katalog.db.sqlspec.tables import METADATA_TABLE
 from katalog.db.vectors import VectorPoint, get_vector_repo
 from katalog.models import make_metadata
-from katalog.models.metadata import Metadata, _metadata_to_row, _normalize_metadata_row
+from katalog.models.metadata import (
+    Metadata,
+    MetadataChanges,
+    _metadata_to_row,
+    _normalize_metadata_row,
+)
 from katalog.processors.vector_index import (
     VECTOR_INDEX_PLUGIN_IDS,
     XbergVectorIndexProcessor,
@@ -30,7 +35,6 @@ from katalog.vectors.embedding import embed_text_xberg
 
 if TYPE_CHECKING:
     from katalog.models.assets import Asset
-    from katalog.models.metadata import MetadataChanges
 
 
 class SqlspecMetadataRepo:
@@ -282,7 +286,12 @@ class SqlspecMetadataRepo:
                 registry_id = get_metadata_def_by_key(key).registry_id
                 if registry_id is not None:
                     metadata_key_ids.append(int(registry_id))
-            entries = await self.for_asset(asset_id, include_removed=False)
+            historical_entries = await self.for_asset(asset_id, include_removed=True)
+            current = MetadataChanges(
+                loaded=historical_entries,
+                staged=[],
+            ).current()
+            entries = [entry for values in current.values() for entry in values]
             points = await _to_vector_points(
                 entries,
                 dependencies=dependencies,

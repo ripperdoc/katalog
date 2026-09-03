@@ -450,7 +450,7 @@ class XbergDocumentExtractProcessor(Processor):
         if chunk_count <= 0 and chunk_texts:
             chunk_count = len(chunk_texts)
         result.set_metadata(DOC_CHUNK_COUNT, chunk_count if chunk_count > 0 else None)
-        result.set_metadata_list(DOC_CHUNK_TEXT, chunk_texts)
+        result.set_metadata_list(DOC_CHUNK_TEXT, chunk_texts, replace=True)
 
         # Audio tag metadata (artist/album/year/genre) was dropped in xberg;
         # AudioMetadata now only carries technical fields (codec, duration, ...).

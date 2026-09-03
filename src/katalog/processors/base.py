@@ -36,8 +36,12 @@ class ProcessorResult(BaseModel):
         self,
         metadata_key: MetadataKey,
         values: Collection[MetadataScalar],
+        *,
+        replace: bool = False,
     ) -> None:
-        """Append multiple values for the same metadata key."""
+        """Append multiple values, optionally replacing the actor's current values."""
+        if replace:
+            self.set_metadata(metadata_key, None)
         for value in values:
             self.set_metadata(metadata_key, value)
 
