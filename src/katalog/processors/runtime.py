@@ -65,6 +65,12 @@ def _should_run_coarse(
         # Without declared outputs we cannot infer last successful run.
         return True
 
+    if dependencies & changes.changed_keys():
+        # Staged entries do not have a changeset id until persistence. This is
+        # especially important when the same asset appears in multiple batches
+        # of one workflow changeset, such as a URL seed followed by recursion.
+        return True
+
     deps_changed = changes.changed_since_actor(
         dependencies,
         actor_id=int(actor_id),
