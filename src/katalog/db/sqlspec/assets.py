@@ -27,6 +27,7 @@ from katalog.db.sqlspec.query_filters import filter_conditions
 from katalog.db.sqlspec.query_search import fts5_query_from_user_text
 from katalog.db.sqlspec.query_sort import sort_conditions
 from katalog.db.sqlspec.query_values import decode_metadata_value
+from katalog.db.sqlspec.search_indexes import delete_search_index_rows_for_assets
 from katalog.db.sqlspec.sql_helpers import execute, scalar, select, select_one_or_none
 from katalog.db.sqlspec.tables import ASSET_TABLE, METADATA_TABLE
 from katalog.db.utils import build_where
@@ -315,6 +316,8 @@ class SqlspecAssetRepo:
                 await md_db.bulk_create(now_rows, session=session)
                 affected += len(now_rows)
 
+            await session.commit()
+
         return affected
 
     async def delete_unseen_assets(
@@ -341,6 +344,11 @@ class SqlspecAssetRepo:
 
                 params = {f"asset_{idx}": int(asset_id) for idx, asset_id in enumerate(asset_ids)}
                 placeholders = ", ".join(f":asset_{idx}" for idx, _ in enumerate(asset_ids))
+
+                await delete_search_index_rows_for_assets(
+                    session,
+                    asset_ids=asset_ids,
+                )
 
                 # Break canonical references from remaining assets before deleting.
                 await execute(
@@ -371,6 +379,8 @@ class SqlspecAssetRepo:
                     params,
                 )
                 affected += len(asset_ids)
+
+            await session.commit()
 
         return affected
 

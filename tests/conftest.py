@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -10,7 +9,7 @@ from katalog.config import build_app_context, use_app_context
 from katalog.db.actors import get_actor_repo
 from katalog.db.changesets import get_changeset_repo
 from katalog.db.metadata import sync_config_db
-from katalog.db.sqlspec import close_db, test_session
+from katalog.db.sqlspec import close_db, configure_sqlspec, session_scope
 from katalog.models import ActorType, OpStatus
 from katalog.plugins import registry as plugin_registry
 from katalog.sources.runtime import run_sources
@@ -36,14 +35,17 @@ def default_app_context(
 
 @pytest_asyncio.fixture
 async def db_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    mem_name = f"memdb_{uuid4().hex}"
-    db_url = f"sqlite:///file:{mem_name}?mode=memory&cache=shared"
+    db_url = f"sqlite:///{tmp_path / 'katalog.db'}"
     monkeypatch.setenv("KATALOG_WORKSPACE", str(tmp_path))
     monkeypatch.setenv("KATALOG_DATABASE_URL", db_url)
 
-    async with test_session(db_url) as session:
-        plugin_registry.clear_instance_cache()
-        await sync_config_db()
+    configure_sqlspec(db_url)
+    plugin_registry.clear_instance_cache()
+    await sync_config_db()
+    async with session_scope() as session:
+        # Keep direct SQL access available to tests without making repository
+        # calls share this connection. Repository-owned sessions must commit
+        # before their writes become visible here.
         yield session
     await close_db()
 
