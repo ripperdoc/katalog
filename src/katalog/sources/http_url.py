@@ -43,18 +43,29 @@ class CrawlResponse:
 
 
 class HttpDataReader(DataReader):
-    """HTTP reader that fetches content through Crawlee and caches by URL digest."""
+    """HTTP reader that fetches content through Crawlee and caches by URL and validators.
 
-    def __init__(self, source: "HttpUrlSource", url: str):
+    A URL does not identify its content: an edited file or changed page keeps its URL. The
+    persistent cache is therefore keyed by the URL plus the size and modified time that the
+    latest HEAD scan recorded, so a changed document misses the cache. Without any validator we
+    cannot tell whether a cached body is still current, so the persistent cache is not used.
+    """
+
+    def __init__(self, source: "HttpUrlSource", url: str, validators: str | None = None):
         self.source = source
         self.url = url
-        self._cache_digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        self._cache_digest = (
+            hashlib.sha256(f"{url}\n{validators}".encode("utf-8")).hexdigest()
+            if validators
+            else None
+        )
         self._cached_content: bytes | None = None
 
     async def read(
         self, offset: int = 0, length: int | None = None, no_cache: bool = False
     ) -> bytes:
-        if self._cached_content is None and not no_cache:
+        use_cache = not no_cache and self._cache_digest is not None
+        if self._cached_content is None and use_cache:
             cached = get_cached_blob(hash_type="url", digest=self._cache_digest)
             if cached is not None:
                 self._cached_content = cached
@@ -65,7 +76,7 @@ class HttpDataReader(DataReader):
                 self._cached_content = b""
             else:
                 self._cached_content = response.content
-                if not no_cache:
+                if use_cache:
                     put_cached_blob(
                         hash_type="url",
                         digest=self._cache_digest,
@@ -128,7 +139,19 @@ class HttpUrlSource(SourcePlugin):
         url = self._asset_url(asset)
         if not url:
             return None
-        return HttpDataReader(source=self, url=url)
+        return HttpDataReader(
+            source=self, url=url, validators=self._content_validators(changes)
+        )
+
+    @staticmethod
+    def _content_validators(changes: MetadataChanges) -> str | None:
+        """Describe the current remote version from the size and modified time of the HEAD scan."""
+        parts: list[str] = []
+        for key in (FILE_SIZE, TIME_MODIFIED):
+            values = sorted(str(entry.value) for entry in changes.entries_for_key(key))
+            if values:
+                parts.append(f"{key}={','.join(values)}")
+        return "|".join(parts) or None
 
     def get_namespace(self) -> str:
         return "web"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
@@ -356,11 +357,26 @@ class MetadataChanges(BaseModel):
         if not metadata:
             return {}
 
-        ordered = sorted(
-            metadata,
-            key=lambda m: m.changeset_id if m.changeset_id is not None else 0,
-            reverse=True,
-        )
+        # Newest first. Entries in the same changeset are ordered by row id (staged entries
+        # have none and come after stored ones), then by position. Without this tie-break, a
+        # tombstone and its replacement written in the same changeset (set_metadata_list with
+        # replace=True) could be read back in the wrong order, so the tombstone hid the value.
+        ordered = [
+            entry
+            for _, _, _, entry in sorted(
+                (
+                    (
+                        m.changeset_id if m.changeset_id is not None else 0,
+                        m.id if m.id is not None else sys.maxsize,
+                        position,
+                        m,
+                    )
+                    for position, m in enumerate(metadata)
+                ),
+                key=lambda item: item[:3],
+                reverse=True,
+            )
+        ]
 
         result: dict[MetadataKey, list[Metadata]] = {}
         seen_values: dict[MetadataKey, set[Any]] = {}
