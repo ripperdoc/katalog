@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from google.auth import default as google_auth_default
+from google.api_core.exceptions import NotFound
 from google.cloud import storage
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -141,6 +142,13 @@ class GoogleStorageSource(SourcePlugin):
         include_paths: list[str] = Field(default_factory=list)
         exclude_paths: list[str] = Field(default_factory=list)
         project: str | None = Field(default=None)
+        seeded_only: bool = Field(
+            default=False,
+            description=(
+                "Do not list the bucket. Only read individual gs:// assets that another source "
+                "(e.g. JsonListSource) has emitted for this bucket, like HttpUrlSource does."
+            ),
+        )
 
         @model_validator(mode="after")
         def _validate_gcs_url(self) -> "GoogleStorageSource.ConfigModel":
@@ -160,6 +168,7 @@ class GoogleStorageSource(SourcePlugin):
         self.include_paths = normalize_glob_patterns(cfg.include_paths)
         self.exclude_paths = normalize_glob_patterns(cfg.exclude_paths)
         self.project = cfg.project
+        self.seeded_only = cfg.seeded_only
         self._client: storage.Client | None = None
 
     def get_info(self) -> dict[str, Any]:
@@ -180,6 +189,10 @@ class GoogleStorageSource(SourcePlugin):
             return False
 
     async def is_ready(self) -> tuple[bool, str | None]:
+        if self.seeded_only:
+            # Nothing is listed up front. Credential or access problems surface when a
+            # gs:// asset is read, so workspaces with only external URLs need no GCS access.
+            return True, None
         try:
             google_auth_default(
                 scopes=["https://www.googleapis.com/auth/devstorage.read_only"]
@@ -214,9 +227,87 @@ class GoogleStorageSource(SourcePlugin):
             hash_md5=hash_md5,
         )
 
+    def can_scan_asset(self, changes: MetadataChanges) -> int:
+        if not self.seeded_only:
+            return 0
+        return 50 if self._changes_object_name(changes) else 0
+
+    async def scan_from_asset(self, changes: MetadataChanges) -> ScanResult:
+        asset = changes.asset
+        object_name = self._changes_object_name(changes)
+        if asset is None or not object_name:
+            return await self.scan()
+
+        async def iterator():
+            blob = await asyncio.to_thread(self._get_blob_metadata_sync, object_name)
+            gcs_uri = _gcs_object_uri(self.bucket, object_name)
+            # Keep the seeding source's identity for the asset, as HttpUrlSource does.
+            emitted = Asset(
+                namespace=asset.namespace,
+                external_id=asset.external_id,
+                canonical_uri=gcs_uri,
+                actor_id=self.actor.id,
+            )
+            result = AssetScanResult(asset=emitted, actor=self.actor)
+            result.set_metadata(FILE_URI, gcs_uri)
+            result.set_metadata(DATA_FILE_READER, {})
+            if blob is None:
+                # A missing object yields an asset without content metadata, which is how
+                # an unreachable HTTP URL looks too. Callers decide what that means.
+                logger.warning("GCS object not found: {}", gcs_uri)
+            else:
+                result.set_metadata(FILE_PATH, object_name)
+                result.set_metadata(FILE_NAME, PurePosixPath(object_name).name)
+                if blob.size is not None:
+                    result.set_metadata(FILE_SIZE, int(blob.size))
+                if blob.content_type:
+                    result.set_metadata(FILE_TYPE, str(blob.content_type))
+                if blob.updated is not None:
+                    result.set_metadata(TIME_MODIFIED, blob.updated)
+                md5_hex = _safe_md5_hex(blob.md5_hash)
+                if md5_hex:
+                    result.set_metadata(HASH_MD5, md5_hex)
+            yield result
+
+        return ScanResult(iterator=iterator(), status=OpStatus.COMPLETED, ignored=0)
+
+    def _changes_object_name(self, changes: MetadataChanges) -> str:
+        """Object name for a gs:// asset in this source's bucket, or "" if it is not one."""
+        candidates = [
+            entry.value
+            for entry in changes.entries_for_key(FILE_URI)
+            if isinstance(entry.value, str)
+        ]
+        if changes.asset is not None:
+            candidates.append(changes.asset.canonical_uri or "")
+        for candidate in candidates:
+            if not candidate.startswith("gs://"):
+                continue
+            bucket, object_name = parse_gcs_url(candidate)
+            if bucket == self.bucket and object_name:
+                return object_name
+        return ""
+
+    def _get_blob_metadata_sync(self, object_name: str):
+        blob = self._get_client_sync().bucket(self.bucket).blob(object_name)
+        try:
+            blob.reload()
+        except NotFound:
+            return None
+        return blob
+
     async def scan(self) -> ScanResult:
         ignored = 0
         status = OpStatus.IN_PROGRESS
+
+        if self.seeded_only:
+            async def empty_iterator():
+                if False:  # pragma: no cover
+                    yield
+
+            return ScanResult(
+                iterator=empty_iterator(), status=OpStatus.COMPLETED, ignored=0
+            )
 
         async def iterator():
             nonlocal ignored, status

@@ -146,7 +146,9 @@ class JsonListSource(SourcePlugin):
                 ignored += 1
                 continue
             url = canonicalize_web_url(url_candidate)
-            if not (url.startswith("http://") or url.startswith("https://")):
+            # gs:// objects are read by GoogleStorageSource (in seeded_only mode) with its own
+            # credentials, which is how private files can be listed next to public URLs.
+            if not url.startswith(("http://", "https://", "gs://")):
                 ignored += 1
                 continue
             resolved_external_id = (
