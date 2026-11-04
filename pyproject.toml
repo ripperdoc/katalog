@@ -10,8 +10,8 @@ authors = [{ name = "Martin", email = "ripperdoc@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp==2.12.5",
-    "fastapi==0.127.1",   # Pinned to match convai usage
+    "fastmcp>=4.1.4,<5",
+    "fastapi>=0.162.0,<1",
     "uvicorn>=0.40.0",
     "loguru>=0.7.3",
     "sqlspec[aiosqlite]",
@@ -41,6 +41,8 @@ write = [
 ]
 
 [tool.uv]
+# Only resolve releases that have been on PyPI for at least a week (supply-chain safety window).
+exclude-newer = "7 days"
 # Optional: configuration for uv if needed
 package = true
 cache-dir = ".uv_cache"
